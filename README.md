@@ -13,6 +13,11 @@ explicitly UNKNOWN. The portal has no signed-authority, credential, forge, holdo
 integration path, and it does not establish a five-plane transaction or production-readiness
 claim.
 
+The current Run button calls `POST /v1/demo/run` directly. There is no public
+`/v1/commands` ledger, browser session, or CSRF boundary yet, so its local
+pending/receipt display is component behavior and not durable command or
+transaction evidence.
+
 ## Quick start
 
 ```bash
@@ -22,22 +27,18 @@ npm run dev        # http://127.0.0.1:5173
 ```
 
 The dev server proxies `/v1`, `/health`, and `/openapi.yaml` to
-`http://127.0.0.1:7420` (bullet-farmd), so `VITE_BULLET_API` may stay unset
-during development.
+`http://127.0.0.1:7420` (bullet-farmd). Keep `VITE_BULLET_API` unset during
+development so browser requests remain same-origin through that proxy. The
+hub's `just portal` launcher enforces this rule.
 
 ## Build and preview
 
 `VITE_BULLET_API` is read at build time and baked into the bundle
-(`src/api.ts`). `npm run preview` serves the built bundle without the dev
-proxy, so the variable is required there:
-
-```bash
-VITE_BULLET_API=http://127.0.0.1:7420 npm run build
-npm run preview
-```
-
-Unset, requests go same-origin — correct behind the dev proxy or a reverse
-proxy that forwards `/v1` and `/health` to farmd.
+(`src/api.ts`). `npm run preview` has no API proxy, and farmd does not grant
+cross-origin browser authority. A functional preview must therefore serve the
+built assets behind a same-origin reverse proxy that forwards `/v1`, `/health`,
+and `/openapi.yaml` to farmd. Pointing a browser bundle directly at
+`http://127.0.0.1:7420` is not a supported workaround.
 
 ## Lanes
 
@@ -51,7 +52,7 @@ browser lanes need.
 | contract | `just contract` | Playwright against mocked farmd routes (`playwright.config.ts`) |
 | security | `just security` | gitleaks (no-git) plus `npm audit --omit=dev`; a missing tool fails |
 | audit | `bash ops/ci/audit.sh` | Jankurai audit against a committed ratchet floor; artifacts under `.jankurai/` |
-| nightly | `bash ops/ci/nightly.sh` | builds farmd from the sibling `../bullet-kernel` checkout and runs `e2e/real-farmd.spec.ts` against it (`playwright.real.config.ts`); fails closed without the sibling |
+| nightly | `bash ops/ci/nightly.sh` | builds farmd from the sibling `../bullet-kernel` checkout and runs the synthetic demo projection test through a Vite development server; component evidence only, and fails closed without the sibling |
 
 `.github/workflows` runs exactly these scripts. Runners must provide
 `gitleaks` and `jankurai`; the nightly lane additionally needs the family

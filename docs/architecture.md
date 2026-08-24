@@ -15,19 +15,22 @@ idle farmd shows Live Attempt as `unknown` rather than as a healthy empty
 list.
 
 Operators diagnose from durable projections and `/v1/events`. The browser
-never holds authority: a click creates a durable command that renders as
-pending until the ledger's recorded result comes back, and no view mutates
-authoritative state optimistically.
+never holds authority, and no view mutates authoritative state optimistically.
+The current component build has no public `/v1/commands` ledger, authenticated
+browser session, or CSRF boundary. Its Run button calls `POST /v1/demo/run`
+directly and renders that request's local phase and returned demo receipt. This
+must not be interpreted as a durable command or transaction result.
 
 ## Status vocabulary
 
 Spec §25 vocabulary: PENDING, CONFIRMED, FAILED, UNKNOWN, STALE,
 CONTRADICTORY. Portal rendering:
 
-- Mutation phases: `idle` (nothing requested, neutral), `pending` (durable
-  command requested, amber), `verified` (ledger-confirmed receipt, green),
-  `failed` (transport or ledger reported failure, red — the error stays
-  visible until the next request).
+- Mutation phases: `idle` (nothing requested, neutral), `pending` (the direct
+  demo request is in flight, amber), `verified` (the demo endpoint returned its
+  component receipt, green), `failed` (transport or endpoint failure, red —
+  the error stays visible until the next request). The `verified` view label is
+  not a public command `VERIFIED` state or release evidence.
 - Outbox delivery phases come from the kernel wire names
   (`CommandPhase::as_str`): `pending` and `applied` render amber, `verified`
   renders green, `unknown` — and any unrecognized phase — renders red.
@@ -55,6 +58,13 @@ name their spec section and `as_of_sequence`. The Control Tower header shows
 `GET /v1/missions`, `GET /v1/missions/{id}`, `GET /v1/outbox`,
 `GET /v1/ready`, `POST /v1/demo/run`, `GET /health`, and
 `GET /v1/events?after=<seq>`.
+
+Development is same-origin: Vite proxies `/v1`, `/health`, and
+`/openapi.yaml` to loopback farmd. Farmd does not expose wildcard CORS, so the
+hub launcher clears `VITE_BULLET_API` instead of directing browser requests to
+a different origin. The current real-farmd browser lane also uses a Vite
+development server and the synthetic demo endpoint; it is component evidence,
+not embedded-production-Portal or command-ledger evidence.
 
 ## Event stream
 
