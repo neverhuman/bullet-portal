@@ -3,11 +3,23 @@
 // Command: just contract-generate
 // DO NOT EDIT BY HAND.
 export const SCHEMA_VERSION = "v1alpha1" as const;
-export const SCHEMA_BUNDLE_HASH = "f670dd9fe8694a1f54d4be9af67ad5e62a597a28dfe664efb4471899ea77cde7" as const;
+export const SCHEMA_BUNDLE_HASH = "0a6df08780940bd2363068a2c958ffc9d5d6c346ce760ccacce663fd853d7099" as const;
 export const INVARIANT_REGISTRY_HASH = "978a8b4ebb14ff0c978afb431c154647adef2f9839de322356a765c59a0c3858" as const;
-export const POLICY_SNAPSHOT_HASH = "78858376aaf635636a82bee274a4ff899897df834f7925a1b8c3b867313ae802" as const;
+export const POLICY_SNAPSHOT_HASH = "b9860c3a8856f820d0e960b064dd470963923ca706d57634568cd5cbfd962063" as const;
 export const CANONICAL_GOLDEN_JSON = "{\"a\":\"é\",\"array\":[true,null,17],\"z\":\"last\"}" as const;
 export const CANONICAL_GOLDEN_HASH = "1d800cb94962906f78d42cb8cc84c2c078311a50e35ca515240b800abc3d2263" as const;
+export const AUTHORITY_GOLDEN_HASH = "4ff1ce8a4ba7a37ae705a8d2459e5a9d900abe55610f6d6984fe514cd37860df" as const;
+export type AuthorityAudienceV1 = "bullet-gitd" | "effect-broker";
+export type MutationOperationV1 = "clone-workspace" | "read-workspace" | "apply-patch" | "checkpoint" | "prepare-candidate" | "preserve-workspace" | "cleanup-workspace" | "dispatch-effect" | "reconcile-effect";
+export type AuthorityDecisionV1 = "authorized" | "settled" | "refused";
+export type ReplayDispositionV1 = "fresh" | "exact-replay" | "conflict";
+export type MutationResultStateV1 = "in-flight" | "committed" | "aborted" | "unknown";
+export type MutationOutcomeV1 = "committed" | "aborted" | "unknown";
+export type SettlementStatusV1 = "accepted" | "exact-replay" | "conflict" | "refused";
+export type PatchPreimageKindV1 = "absent" | "digest";
+export type PatchMutationKindV1 = "write" | "delete";
+export type KeyPurposeV1 = "authority-signing" | "release-signing";
+export type KeyAlgorithmV1 = "paseto-v4.public" | "ssh-ed25519";
 
 export interface AcceptanceContractV1 {
   schema_version: string;
@@ -66,6 +78,15 @@ export interface AllocationReceiptV1 {
   eligible_set_hash: string;
 }
 
+export interface ApplyPatchRequestV1 {
+  schema_version: string;
+  mutation_id: string;
+  repository_id: string;
+  workspace_id: string;
+  workspace_generation: number;
+  proposal: PatchProposalV1;
+}
+
 export interface ArchivePolicyV1 {
   schema_version: string;
   archive_policy_id: string;
@@ -98,6 +119,53 @@ export interface AuditBatchV1 {
   external_anchor_receipt: string;
 }
 
+export interface AuthorityClaimsV1 {
+  schema_version: string;
+  issuer: string;
+  audience: AuthorityAudienceV1;
+  operation: MutationOperationV1;
+  request_digest: string;
+  mutation_id: string;
+  subject_principal: string;
+  organization_id: string;
+  repository_id: string;
+  mission_id: string;
+  acceptance_contract_id: string;
+  plan_revision_id: string;
+  graph_revision_id: string;
+  graph_sequence: number;
+  work_package_id: string;
+  selection_group_id: string;
+  variant_id: string;
+  attempt_id: string;
+  attempt_fence: number;
+  runner_id: string;
+  runner_epoch: number;
+  workspace_id: string;
+  workspace_generation: number;
+  workspace_nonce: string;
+  scope_grant_digest: string;
+  scope_revision: number;
+  context_revision: number;
+  configuration_snapshot_id: string;
+  configuration_generation: number;
+  policy_snapshot_id: string;
+  policy_generation: number;
+  routing_snapshot_id: string;
+  routing_generation: number;
+  provider: string;
+  model: string;
+  adapter: string;
+  provider_profile_id: string;
+  credential_generation: number;
+  authority_epoch: number;
+  freeze_generation: number;
+  issued_at_unix_ms: number;
+  not_before_unix_ms: number;
+  expires_at_unix_ms: number;
+  token_nonce: string;
+}
+
 export interface BehaviorTraceV1 {
   schema_version: string;
   trace_id: string;
@@ -105,6 +173,14 @@ export interface BehaviorTraceV1 {
   task_id: string;
   events: Record<string, unknown>[];
   environment_hash: string;
+}
+
+export interface BudgetPolicyV1 {
+  schema_version: string;
+  maximum_lease_ttl_seconds: number;
+  unknown_quota_is_headroom: boolean;
+  maximum_changed_paths: number;
+  maximum_attempt_seconds: number;
 }
 
 export interface CandidateManifestV1 {
@@ -168,6 +244,48 @@ export interface CheckIntentV1 {
   reconciliation_id: string;
 }
 
+export interface CheckpointRequestV1 {
+  schema_version: string;
+  mutation_id: string;
+  repository_id: string;
+  workspace_id: string;
+  workspace_generation: number;
+  tree_oid: string;
+  journal_start: number;
+  journal_end: number;
+  journal_digest: string;
+  cas_root: string;
+}
+
+export interface CleanupAuthorizationV1 {
+  schema_version: string;
+  preservation_receipt_digest: string;
+  expected_destination_digest: string;
+  authority_decision_digest: string;
+}
+
+export interface CleanupWorkspaceRequestV1 {
+  schema_version: string;
+  mutation_id: string;
+  repository_id: string;
+  workspace_id: string;
+  workspace_generation: number;
+  authorization: CleanupAuthorizationV1;
+}
+
+export interface CloneWorkspaceRequestV1 {
+  schema_version: string;
+  mutation_id: string;
+  repository_id: string;
+  workspace_id: string;
+  base_oid: string;
+  source_descriptor_id: string;
+  workspace_generation: number;
+  scope_grant: ScopeGrantV1;
+  scope_grant_digest: string;
+  trusted_commit_time_unix_ms: number;
+}
+
 export interface ContaminationDecision {
   schema_version: string;
   contamination_decision_id: string;
@@ -202,6 +320,26 @@ export interface DeliveryGrantV1 {
   authority_envelope_digest: string;
   expires_at_unix_ms: number;
   grant_nonce: string;
+}
+
+export interface DispatchEffectRequestV1 {
+  schema_version: string;
+  mutation_id: string;
+  repository_id: string;
+  workspace_id: string;
+  workspace_generation: number;
+  effect_intent_id: string;
+  effect_intent_digest: string;
+  effect_kind: string;
+  endpoint_identity: string;
+  logical_key: string;
+  desired_state_digest: string;
+  expected_state_digest: string;
+  candidate_id: string;
+  candidate_proof_root: string;
+  policy_snapshot_id: string;
+  authority_epoch: number;
+  freeze_generation: number;
 }
 
 export interface DriftSignal {
@@ -239,6 +377,13 @@ export interface EvaluationVectorV1 {
   costs: Record<string, unknown>;
   outcome: string;
   closure_hash: string;
+}
+
+export interface EvidencePolicyV1 {
+  schema_version: string;
+  r2_requires_sealed_product_holdout: boolean;
+  author_evidence_is_independent: boolean;
+  unknown_satisfies_gate: boolean;
 }
 
 export interface EvidenceV1 {
@@ -289,6 +434,29 @@ export interface FailureClass {
   taxonomy_version: string;
   class_name: string;
   definition: string;
+}
+
+export interface FinalAuthorityCheckRequestV1 {
+  schema_version: string;
+  envelope: SignedAuthorityEnvelopeV1;
+  envelope_digest: string;
+  mutation_id: string;
+  audience: AuthorityAudienceV1;
+  operation: MutationOperationV1;
+  request_digest: string;
+}
+
+export interface FinalAuthorityDecisionV1 {
+  schema_version: string;
+  decision: AuthorityDecisionV1;
+  replay: ReplayDispositionV1;
+  mutation_id: string;
+  operation: MutationOperationV1;
+  request_digest: string;
+  reservation_id: string | null;
+  permit: SignedMutationPermitV1 | null;
+  replay_result: MutationReplayResultV1 | null;
+  reason_code: string | null;
 }
 
 export interface GateReceiptV1 {
@@ -366,6 +534,20 @@ export interface InterventionV1 {
   resolution_receipt_id: string;
 }
 
+export interface IssuerKeyV1 {
+  schema_version: string;
+  issuer: string;
+  key_id: string;
+  key_purpose: KeyPurposeV1;
+  algorithm: KeyAlgorithmV1;
+  public_key: string;
+  audiences: AuthorityAudienceV1[];
+  activates_at_unix_ms: number;
+  expires_at_unix_ms: number;
+  revoked_at_unix_ms: number | null;
+  retain_until_unix_ms: number;
+}
+
 export interface LaunchGrantV1 {
   schema_version: string;
   authority_envelope_digest: string;
@@ -375,6 +557,63 @@ export interface LaunchGrantV1 {
   sandbox_manifest: Record<string, unknown>;
   gate_ids: string[];
   budget_reservation: Record<string, unknown>;
+}
+
+export interface MutationPermitClaimsV1 {
+  schema_version: string;
+  issuer: string;
+  audience: AuthorityAudienceV1;
+  operation: MutationOperationV1;
+  authority_envelope_digest: string;
+  authority_token_nonce: string;
+  mutation_id: string;
+  reservation_id: string;
+  request_digest: string;
+  repository_id: string;
+  workspace_id: string;
+  workspace_generation: number;
+  attempt_id: string;
+  attempt_fence: number;
+  authority_epoch: number;
+  freeze_generation: number;
+  issued_at_unix_ms: number;
+  not_before_unix_ms: number;
+  expires_at_unix_ms: number;
+  permit_nonce: string;
+}
+
+export interface MutationReplayResultV1 {
+  schema_version: string;
+  reservation_id: string;
+  mutation_id: string;
+  operation: MutationOperationV1;
+  request_digest: string;
+  state: MutationResultStateV1;
+  result_digest: string | null;
+  completed_at_unix_ms: number | null;
+}
+
+export interface MutationSettlementRequestV1 {
+  schema_version: string;
+  reservation_id: string;
+  mutation_id: string;
+  operation: MutationOperationV1;
+  request_digest: string;
+  permit: SignedMutationPermitV1;
+  permit_digest: string;
+  outcome: MutationOutcomeV1;
+  result_digest: string;
+  completed_at_unix_ms: number;
+}
+
+export interface MutationSettlementResultV1 {
+  schema_version: string;
+  status: SettlementStatusV1;
+  replay: ReplayDispositionV1;
+  mutation_id: string;
+  reservation_id: string;
+  result_digest: string | null;
+  reason_code: string | null;
 }
 
 export interface ObservationV1 {
@@ -406,6 +645,25 @@ export interface OverrideReceipt {
   signature: string;
 }
 
+export interface PatchOperationV1 {
+  schema_version: string;
+  path: string;
+  preimage_kind: PatchPreimageKindV1;
+  preimage_digest: string | null;
+  mutation_kind: PatchMutationKindV1;
+  content_utf8: string | null;
+}
+
+export interface PatchProposalV1 {
+  schema_version: string;
+  proposal_id: string;
+  producing_attempt_id: string;
+  base_checkpoint_id: string;
+  base_checkpoint_digest: string;
+  operations: PatchOperationV1[];
+  gate_ids: string[];
+}
+
 export interface PlanRevisionV1 {
   schema_version: string;
   plan_revision_id: string;
@@ -419,13 +677,44 @@ export interface PolicySnapshotV1 {
   policy_generation: number;
   invariant_registry_hash: string;
   schema_bundle_hash: string;
-  risk_policy: Record<string, unknown>;
-  evidence_policy: Record<string, unknown>;
-  sandbox_policy: Record<string, unknown>;
-  budget_policy: Record<string, unknown>;
-  issuer_keys: Record<string, unknown>[];
+  risk_policy: RiskPolicyV1;
+  evidence_policy: EvidencePolicyV1;
+  sandbox_policy: SandboxPolicyV1;
+  budget_policy: BudgetPolicyV1;
+  route_policy: RoutePolicyV1;
+  issuer_keys: IssuerKeyV1[];
   activation_at_unix_ms: number;
   expires_at_unix_ms: number;
+}
+
+export interface PrepareCandidateRequestV1 {
+  schema_version: string;
+  mutation_id: string;
+  repository_id: string;
+  workspace_id: string;
+  change_id: string;
+  base_checkpoint_id: string;
+  base_checkpoint_digest: string;
+  workspace_generation: number;
+  tree_oid: string;
+  parent_candidate_ids: string[];
+  trusted_commit_time_unix_ms: number;
+}
+
+export interface PreserveWorkspaceRequestV1 {
+  schema_version: string;
+  mutation_id: string;
+  repository_id: string;
+  workspace_id: string;
+  workspace_generation: number;
+  tree_oid: string;
+  dirty_manifest_digest: string;
+  untracked_manifest_digest: string;
+  journal_start: number;
+  journal_end: number;
+  journal_digest: string;
+  destination_id: string;
+  expected_destination_digest: string;
 }
 
 export interface PromotionDecision {
@@ -469,13 +758,30 @@ export interface QueryReceipt {
   budget_consumed: boolean;
 }
 
-export interface ReviewerAssignment {
+export interface ReadWorkspaceRequestV1 {
   schema_version: string;
-  reviewer_assignment_id: string;
-  candidate_id: string;
-  reviewer_principal: string;
-  independence_class: string;
-  seed: number;
+  mutation_id: string;
+  repository_id: string;
+  workspace_id: string;
+  workspace_generation: number;
+  checkpoint_id: string;
+  checkpoint_digest: string;
+  paths: string[];
+}
+
+export interface ReconcileEffectRequestV1 {
+  schema_version: string;
+  mutation_id: string;
+  repository_id: string;
+  workspace_id: string;
+  workspace_generation: number;
+  effect_intent_id: string;
+  effect_intent_digest: string;
+  endpoint_identity: string;
+  logical_key: string;
+  desired_state_digest: string;
+  dispatch_receipt_digest: string;
+  observed_state_digest: string;
 }
 
 export interface ReviewReceipt {
@@ -486,6 +792,21 @@ export interface ReviewReceipt {
   reason_code: string;
   subject_hash: string;
   signature: string;
+}
+
+export interface ReviewerAssignment {
+  schema_version: string;
+  reviewer_assignment_id: string;
+  candidate_id: string;
+  reviewer_principal: string;
+  independence_class: string;
+  seed: number;
+}
+
+export interface RiskPolicyV1 {
+  schema_version: string;
+  automatic_integration_max_risk: string;
+  signed_human_approval_min_risk: string;
 }
 
 export interface RouteDecision {
@@ -499,6 +820,13 @@ export interface RouteDecision {
   reservation: Record<string, unknown>;
   policy_hash: string;
   abstention_reason: string;
+}
+
+export interface RoutePolicyV1 {
+  schema_version: string;
+  universal_incumbent: string;
+  deterministic_abstention_target: string;
+  evolutionary_authority: boolean;
 }
 
 export interface RouteRequest {
@@ -518,6 +846,14 @@ export interface RouterUpdateBatch {
   new_router_hash: string;
 }
 
+export interface SandboxPolicyV1 {
+  schema_version: string;
+  production_reference: string;
+  arbitrary_shell_gates: boolean;
+  network_default: string;
+  live_admission_enabled: boolean;
+}
+
 export interface SanitizationReceipt {
   schema_version: string;
   sanitization_receipt_id: string;
@@ -534,7 +870,6 @@ export interface ScopeGrantV1 {
   normalized_paths: string[];
   protected_resources: string[];
   envelope_class: string;
-  scope_digest: string;
 }
 
 export interface SentinelResult {
@@ -549,45 +884,15 @@ export interface SentinelResult {
 export interface SignedAuthorityEnvelopeV1 {
   schema_version: string;
   issuer: string;
-  audience: string;
-  operation: string;
-  subject_principal: string;
-  organization_id: string;
-  repository_id: string;
-  mission_id: string;
-  contract_id: string;
-  plan_revision_id: string;
-  graph_sequence: number;
-  work_package_id: string;
-  selection_group_id: string;
-  variant_id: string;
-  attempt_id: string;
-  attempt_fence: number;
-  runner_id: string;
-  runner_epoch: number;
-  workspace_id: string;
-  workspace_nonce: string;
-  scope_grant_digest: string;
-  scope_revision: number;
-  context_revision: number;
-  config_hash: string;
-  policy_hash: string;
-  routing_hash: string;
-  provider: string;
-  model: string;
-  adapter: string;
-  profile: string;
-  credential_generation: number;
-  authority_epoch: number;
-  freeze_generation: number;
-  request_digest: string;
-  issued_at_unix_ms: number;
-  not_before_unix_ms: number;
-  expires_at_unix_ms: number;
-  token_nonce: string;
   key_id: string;
-  algorithm: string;
-  signature: string;
+  paseto: string;
+}
+
+export interface SignedMutationPermitV1 {
+  schema_version: string;
+  issuer: string;
+  key_id: string;
+  paseto: string;
 }
 
 export interface SystemFingerprint {
