@@ -1,0 +1,4 @@
+[[zone]]
+path = "src/generated/"
+source = "bullet-kernel/contracts/openapi.yaml"
+owner = "contracts"

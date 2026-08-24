@@ -1,0 +1,16 @@
+{
+  "workspace": "bullet-portal",
+  "owners": {
+    "AGENTS.md": "agent",
+    "SPLIT.md": "split",
+    "README.md": "docs",
+    "LICENSE": "workspace",
+    "Justfile": "ops",
+    "package.json": "workspace",
+    "agent/": "agent",
+    "src/": "web",
+    "e2e/": "web",
+    "ops/": "ops",
+    "scripts/": "ops"
+  }
+}

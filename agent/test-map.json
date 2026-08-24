@@ -1,0 +1,13 @@
+{
+  "workspace": "bullet-portal",
+  "tests": {
+    "src/": {
+      "command": "npm test",
+      "purpose": "prove observation rendering and Control Tower state"
+    },
+    "e2e/": {
+      "command": "npx playwright test",
+      "purpose": "prove pending-to-verified and unknown-as-unknown"
+    }
+  }
+}
