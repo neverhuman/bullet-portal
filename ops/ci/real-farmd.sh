@@ -42,4 +42,4 @@ fi
 
 cd "$REPO_ROOT"
 BULLET_FARMD_URL=http://127.0.0.1:7420 \
-  npx playwright test --config playwright.real.config.ts
+  ./node_modules/.bin/playwright test --config playwright.real.config.ts

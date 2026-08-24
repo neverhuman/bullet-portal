@@ -2,8 +2,8 @@ default:
     @just --list
 
 setup:
-    npm install --no-fund --no-audit
-    npx playwright install chromium
+    npm ci --no-fund --no-audit
+    ./node_modules/.bin/playwright install chromium
 
 fast:
     bash scripts/ci-local.sh fast
