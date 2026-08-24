@@ -6,8 +6,16 @@
       "purpose": "prove observation rendering and Control Tower state"
     },
     "e2e/": {
-      "command": "npx playwright test",
+      "command": "bash scripts/ci-local.sh contract",
       "purpose": "prove pending-to-verified and unknown-as-unknown"
+    },
+    "ops/": {
+      "command": "just check",
+      "purpose": "verify local CI parity"
+    },
+    ".github/": {
+      "command": "bash scripts/ci-local.sh required",
+      "purpose": "prove hosted lanes match local scripts"
     }
   }
 }

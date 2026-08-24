@@ -43,4 +43,22 @@ export type Health = { status: string };
 
 export type OutboxView = { pending: string[] };
 
+export type GraphView = {
+  mission: Mission;
+  packages: WorkPackage[];
+  variants: { id: string; fence_counter: number }[];
+  plan_hash: string;
+};
+
+export type ReadyItem = {
+  mission_id: string;
+  package: WorkPackage;
+};
+
+export type LedgerEvent = {
+  seq: number;
+  kind: string;
+  body: string;
+};
+
 export const API_PREFIX = "/v1";

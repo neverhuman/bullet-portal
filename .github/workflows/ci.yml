@@ -1,0 +1,68 @@
+name: ci
+
+# Portal only. Never compiles Rust. Playwright is contract, not required.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  required:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install
+        run: npm ci --no-fund --no-audit
+      - name: Required
+        run: bash scripts/ci-local.sh required
+
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: required
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install
+        run: npm ci --no-fund --no-audit
+      - name: Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: Contract (mocked API)
+        run: bash scripts/ci-local.sh contract
+
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install
+        run: npm ci --no-fund --no-audit
+      - name: Security
+        run: bash scripts/ci-local.sh security

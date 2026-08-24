@@ -47,3 +47,38 @@ dl {
   padding: 20px;
   margin-top: 20px;
 }
+.idle {
+  color: #9db0c9;
+}
+.failed {
+  color: #e07a7a;
+  font-weight: 700;
+}
+.live {
+  color: #7dce8a;
+}
+.reconnecting {
+  color: #d7a13a;
+}
+.stale {
+  background: #d7a13a;
+  color: #10141c;
+  padding: 2px 6px;
+  font-weight: 700;
+}
+.statusline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: #9db0c9;
+}
+.source {
+  color: #9db0c9;
+  font-size: 12px;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

@@ -1,88 +1,99 @@
-import { useEffect, useState } from "react";
-import { listMissions, runDemo } from "../api";
-import type { DemoReceipt, Mission } from "../generated/api";
-import { renderObservation } from "../observation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { errorText, fetchOutbox, listMissions, runDemo } from "../api";
+import { MissionsCard } from "../components/MissionsCard";
+import { OutboxCard } from "../components/OutboxCard";
+import { ReceiptCard } from "../components/ReceiptCard";
+import { StatusHeader } from "../components/StatusHeader";
+import type { DemoReceipt, Mission, OutboxView } from "../generated/api";
+import { useEventStream } from "../hooks/useEventStream";
+import { useHealthProbe } from "../hooks/useHealthProbe";
+import type { Loadable } from "../loadable";
+import { toUnknown, toValue } from "../loadable";
 
-type MutationPhase = "idle" | "pending" | "verified";
+type MutationPhase = "idle" | "pending" | "verified" | "failed";
+
+const PHASE_CLASS: Record<MutationPhase, string> = {
+  idle: "idle",
+  pending: "pending",
+  verified: "verified",
+  failed: "failed",
+};
 
 export function ControlTower() {
-  const [missions, setMissions] = useState<Mission[]>([]);
+  const [missions, setMissions] = useState<Loadable<Mission[]>>({ kind: "loading" });
+  const [outbox, setOutbox] = useState<Loadable<OutboxView>>({ kind: "loading" });
   const [receipt, setReceipt] = useState<DemoReceipt | null>(null);
   const [phase, setPhase] = useState<MutationPhase>("idle");
   const [error, setError] = useState<string | null>(null);
-  const unknownProbe = renderObservation({
-    kind: "unknown",
-    text: "quota probe did not return",
-  });
+  const runningRef = useRef(false);
+  const health = useHealthProbe();
 
-  useEffect(() => {
-    listMissions()
-      .then(setMissions)
-      .catch(() => {
-        setMissions([]);
-      });
+  const refreshMissions = useCallback(async () => {
+    try {
+      setMissions(toValue(await listMissions()));
+    } catch (err) {
+      setMissions(toUnknown(`control plane unreachable (${errorText(err)})`));
+    }
   }, []);
 
-  async function onRunDemo() {
+  const refreshOutbox = useCallback(async () => {
+    try {
+      setOutbox(toValue(await fetchOutbox()));
+    } catch (err) {
+      setOutbox(toUnknown(`outbox unreachable (${errorText(err)})`));
+    }
+  }, []);
+
+  const refreshSnapshot = useCallback(async () => {
+    await Promise.all([refreshMissions(), refreshOutbox()]);
+  }, [refreshMissions, refreshOutbox]);
+
+  const stream = useEventStream(refreshSnapshot);
+
+  useEffect(() => {
+    void refreshSnapshot();
+  }, [refreshSnapshot]);
+
+  async function onRunDemo(): Promise<void> {
+    if (runningRef.current) {
+      return;
+    }
+    runningRef.current = true;
     setPhase("pending");
     setError(null);
     try {
       const next = await runDemo();
       setReceipt(next);
       setPhase("verified");
-      setMissions(await listMissions());
     } catch (err) {
-      setPhase("idle");
-      setError(err instanceof Error ? err.message : "demo failed");
+      setPhase("failed");
+      setError(errorText(err));
+      return;
+    } finally {
+      runningRef.current = false;
     }
+    await refreshSnapshot();
   }
 
   return (
     <main>
       <h1>Control Tower</h1>
       <p className="tagline">Many minds. One verified line to main.</p>
-      <button type="button" onClick={() => void onRunDemo()}>
+      <StatusHeader stream={stream} health={health.state} />
+      <button type="button" disabled={phase === "pending"} onClick={() => void onRunDemo()}>
         Run simulator demo
       </button>
-      <p className={phase === "pending" ? "pending" : "verified"} data-testid="phase">
+      <p className={PHASE_CLASS[phase]} data-testid="phase">
         mutation phase: {phase}
       </p>
-      <p className="unknown" data-testid="unknown-probe">
-        {unknownProbe}
-      </p>
-      {error ? <p className="unknown">{error}</p> : null}
-      <section className="card">
-        <h2>Missions</h2>
-        {missions.length === 0 ? <p>No missions yet.</p> : null}
-        <ul>
-          {missions.map((mission) => (
-            <li key={mission.id}>
-              {mission.title} — {mission.state} ({mission.id})
-            </li>
-          ))}
-        </ul>
-      </section>
-      {receipt ? (
-        <section className="card" data-testid="receipt">
-          <h2>Demo receipt</h2>
-          <dl>
-            <dt>mission</dt>
-            <dd>{receipt.mission_id}</dd>
-            <dt>fence</dt>
-            <dd>{receipt.fence}</dd>
-            <dt>live attempt</dt>
-            <dd>{receipt.attempt_id}</dd>
-            <dt>stale attempt</dt>
-            <dd>{receipt.stale_attempt_id}</dd>
-            <dt>stale refused</dt>
-            <dd>{String(receipt.stale_refused)}</dd>
-            <dt>evidence</dt>
-            <dd>{receipt.evidence_result}</dd>
-            <dt>effect</dt>
-            <dd>{receipt.effect_outcome}</dd>
-          </dl>
-        </section>
+      {error !== null ? (
+        <p className="failed" data-testid="mutation-error">
+          {error}
+        </p>
       ) : null}
+      <MissionsCard missions={missions} />
+      <OutboxCard outbox={outbox} />
+      {receipt !== null ? <ReceiptCard receipt={receipt} /> : null}
     </main>
   );
 }

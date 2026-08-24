@@ -11,6 +11,7 @@
     "src/": "web",
     "e2e/": "web",
     "ops/": "ops",
-    "scripts/": "ops"
+    "scripts/": "ops",
+    ".github/": "ops"
   }
 }

@@ -1,5 +1,10 @@
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ControlTower } from "./pages/ControlTower";
 
 export function App() {
-  return <ControlTower />;
+  return (
+    <ErrorBoundary>
+      <ControlTower />
+    </ErrorBoundary>
+  );
 }

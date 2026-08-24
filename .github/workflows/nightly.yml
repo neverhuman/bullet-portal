@@ -1,0 +1,22 @@
+name: nightly
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Nightly (skip if unset)
+        run: bash scripts/ci-local.sh nightly
+        env:
+          BULLET_LIVE_PORTAL: ${{ secrets.BULLET_LIVE_PORTAL }}
