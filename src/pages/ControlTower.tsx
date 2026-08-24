@@ -28,24 +28,36 @@ export function ControlTower() {
   const runningRef = useRef(false);
   const health = useHealthProbe();
 
-  const refreshMissions = useCallback(async () => {
+  const refreshMissions = useCallback(async (): Promise<number | null> => {
     try {
-      setMissions(toValue(await listMissions()));
+      const snapshot = await listMissions();
+      setMissions(toValue(snapshot.data));
+      return snapshot.asOfSequence;
     } catch (err) {
       setMissions(toUnknown(`control plane unreachable (${errorText(err)})`));
+      return null;
     }
   }, []);
 
-  const refreshOutbox = useCallback(async () => {
+  const refreshOutbox = useCallback(async (): Promise<number | null> => {
     try {
-      setOutbox(toValue(await fetchOutbox()));
+      const snapshot = await fetchOutbox();
+      setOutbox(toValue(snapshot.data));
+      return snapshot.asOfSequence;
     } catch (err) {
       setOutbox(toUnknown(`outbox unreachable (${errorText(err)})`));
+      return null;
     }
   }, []);
 
-  const refreshSnapshot = useCallback(async () => {
-    await Promise.all([refreshMissions(), refreshOutbox()]);
+  const refreshSnapshot = useCallback(async (): Promise<number | null> => {
+    const [missionsSequence, outboxSequence] = await Promise.all([
+      refreshMissions(),
+      refreshOutbox(),
+    ]);
+    return missionsSequence === null || outboxSequence === null
+      ? null
+      : Math.min(missionsSequence, outboxSequence);
   }, [refreshMissions, refreshOutbox]);
 
   const stream = useEventStream(refreshSnapshot);
@@ -61,6 +73,7 @@ export function ControlTower() {
     runningRef.current = true;
     setPhase("pending");
     setError(null);
+    setReceipt(null);
     try {
       const next = await runDemo();
       setReceipt(next);

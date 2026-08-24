@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SseFrame } from "../sse";
 import { createSseParser } from "../sse";
-import { createTracker, parseFrame } from "./useEventStream";
+import { createTracker, parseFrame, snapshotCoversGap } from "./useEventStream";
 
 describe("sse parser", () => {
   it("parses named events with ids and skips keep-alive comments", () => {
@@ -40,6 +40,25 @@ describe("event tracker", () => {
     expect(tracker.accept({ id: "b", seq: 1, at: "t" })).toBe("duplicate");
     expect(tracker.accept({ id: "c", seq: 2, at: "t" })).toBe("ok");
     expect(tracker.accept({ id: "d", seq: 5, at: "t" })).toBe("gap");
-    expect(tracker.lastSeq()).toBe(5);
+    expect(tracker.lastSeq()).toBe(2);
+  });
+
+  it("keeps cursor 2 after 1,2,4 until a watermark covers 4", () => {
+    const tracker = createTracker(8);
+    expect(tracker.accept({ id: "1", seq: 1, at: "t" })).toBe("ok");
+    expect(tracker.accept({ id: "2", seq: 2, at: "t" })).toBe("ok");
+    expect(tracker.accept({ id: "4", seq: 4, at: "t" })).toBe("gap");
+    expect(tracker.lastSeq()).toBe(2);
+    expect(snapshotCoversGap(4, null)).toBe(false);
+    expect(snapshotCoversGap(4, 3)).toBe(false);
+    expect(snapshotCoversGap(4, 4)).toBe(true);
+    tracker.coverThrough(4);
+    expect(tracker.lastSeq()).toBe(4);
+  });
+
+  it("detects a first-event gap from exclusive cursor zero", () => {
+    const tracker = createTracker(8);
+    expect(tracker.accept({ id: "4", seq: 4, at: "t" })).toBe("gap");
+    expect(tracker.lastSeq()).toBe(0);
   });
 });

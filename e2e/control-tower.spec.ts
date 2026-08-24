@@ -100,6 +100,26 @@ test("a failed run renders failed with the error, never idle or verified", async
   await expect(page.getByTestId("phase")).toContainText("mutation phase: failed");
 });
 
+test("a failed command never displays an older successful receipt", async ({ page }) => {
+  await mockSnapshot(page);
+  await mockHealthOk(page);
+  let calls = 0;
+  await page.route("**/v1/demo/run", (route) => {
+    calls += 1;
+    return calls === 1
+      ? route.fulfill({ json: demoReceipt, contentType: "application/json" })
+      : route.fulfill({ status: 500, contentType: "text/plain", body: "boom" });
+  });
+
+  await page.goto("/");
+  const button = page.getByRole("button", { name: "Run simulator demo" });
+  await button.click();
+  await expect(page.getByTestId("receipt")).toContainText("atm_live");
+  await button.click();
+  await expect(page.getByTestId("phase")).toContainText("mutation phase: failed");
+  await expect(page.getByTestId("receipt")).toHaveCount(0);
+});
+
 test("the health probe reports unknown when /health fails", async ({ page }) => {
   await mockSnapshot(page);
   await page.route("**/health", (route) => route.abort("connectionrefused"));

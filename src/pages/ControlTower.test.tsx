@@ -45,8 +45,8 @@ function missionsError(): api.ApiError {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocked.listMissions.mockResolvedValue([]);
-  mocked.fetchOutbox.mockResolvedValue({ items: [] });
+  mocked.listMissions.mockResolvedValue({ data: [], asOfSequence: null });
+  mocked.fetchOutbox.mockResolvedValue({ data: { items: [] }, asOfSequence: null });
   mocked.fetchHealth.mockResolvedValue({ status: "ok" });
   mocked.runDemo.mockResolvedValue(receipt);
 });
@@ -76,7 +76,9 @@ describe("ControlTower honesty", () => {
   });
 
   it("keeps the verified phase when the follow-up refresh fails", async () => {
-    mocked.listMissions.mockResolvedValueOnce([]).mockRejectedValueOnce(missionsError());
+    mocked.listMissions
+      .mockResolvedValueOnce({ data: [], asOfSequence: null })
+      .mockRejectedValueOnce(missionsError());
     render(<ControlTower />);
     await screen.findByTestId("missions-empty");
     await userEvent.click(screen.getByRole("button", { name: "Run simulator demo" }));
@@ -110,6 +112,21 @@ describe("ControlTower honesty", () => {
     await waitFor(() =>
       expect(screen.getByTestId("phase")).toHaveTextContent("mutation phase: verified"),
     );
+  });
+
+  it("clears an older receipt before a later command fails", async () => {
+    mocked.runDemo
+      .mockResolvedValueOnce(receipt)
+      .mockRejectedValueOnce(new api.ApiError("POST", "/v1/demo/run", 500, "HTTP 500"));
+    render(<ControlTower />);
+    const button = screen.getByRole("button", { name: "Run simulator demo" });
+    await userEvent.click(button);
+    await screen.findByTestId("receipt");
+    await userEvent.click(button);
+    await waitFor(() =>
+      expect(screen.getByTestId("phase")).toHaveTextContent("mutation phase: failed"),
+    );
+    expect(screen.queryByTestId("receipt")).not.toBeInTheDocument();
   });
 
   it("renders the health probe as unknown when /health fails", async () => {

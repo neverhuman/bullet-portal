@@ -63,4 +63,37 @@ describe("api transport honesty", () => {
     expect(err?.status).toBe(503);
     expect(err?.message).toBe("GET /v1/missions failed: HTTP 503");
   });
+
+  it("returns a validated snapshot watermark without inferring one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response("[]", {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "x-bullet-as-of-sequence": "42",
+            },
+          }),
+        ),
+      ),
+    );
+    await expect(listMissions()).resolves.toEqual({ data: [], asOfSequence: 42 });
+  });
+
+  it("keeps the watermark unknown when the server omits it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response("[]", {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ),
+    );
+    await expect(listMissions()).resolves.toEqual({ data: [], asOfSequence: null });
+  });
 });

@@ -40,7 +40,10 @@ export function parseFrame(frame: SseFrame): ParsedEvent {
   } catch {
     record = {};
   }
-  const seqFromData = typeof record.seq === "number" ? record.seq : null;
+  const seqFromData =
+    typeof record.seq === "number" && Number.isSafeInteger(record.seq) && record.seq >= 0
+      ? record.seq
+      : null;
   const seqFromId = frame.id !== null && /^\d+$/.test(frame.id) ? Number(frame.id) : null;
   const seq = seqFromData ?? seqFromId;
   const id =
@@ -56,12 +59,16 @@ export function parseFrame(frame: SseFrame): ParsedEvent {
 
 type Verdict = "duplicate" | "ok" | "gap";
 
-export type Tracker = { lastSeq: () => number | null; accept: (event: ParsedEvent) => Verdict };
+export type Tracker = {
+  lastSeq: () => number;
+  accept: (event: ParsedEvent) => Verdict;
+  coverThrough: (sequence: number) => void;
+};
 
 export function createTracker(cap: number): Tracker {
   const seen = new Set<string>();
   const order: string[] = [];
-  let lastSeq: number | null = null;
+  let lastSeq = 0;
   return {
     lastSeq: () => lastSeq,
     accept(event) {
@@ -69,26 +76,45 @@ export function createTracker(cap: number): Tracker {
         if (seen.has(event.id)) {
           return "duplicate";
         }
-        seen.add(event.id);
-        order.push(event.id);
-        if (order.length > cap) {
-          const oldest = order.shift();
-          if (oldest !== undefined) {
-            seen.delete(oldest);
-          }
-        }
       }
       if (event.seq === null) {
+        rememberId(event.id, seen, order, cap);
         return "ok";
       }
-      if (lastSeq !== null && event.seq <= lastSeq) {
+      if (event.seq <= lastSeq) {
         return "duplicate";
       }
-      const jumped = lastSeq !== null && event.seq > lastSeq + 1;
+      if (event.seq > lastSeq + 1) {
+        return "gap";
+      }
       lastSeq = event.seq;
-      return jumped ? "gap" : "ok";
+      rememberId(event.id, seen, order, cap);
+      return "ok";
+    },
+    coverThrough(sequence) {
+      if (Number.isSafeInteger(sequence) && sequence >= 0) {
+        lastSeq = Math.max(lastSeq, sequence);
+      }
     },
   };
+}
+
+function rememberId(id: string | null, seen: Set<string>, order: string[], cap: number): void {
+  if (id === null) {
+    return;
+  }
+  seen.add(id);
+  order.push(id);
+  if (order.length > cap) {
+    const oldest = order.shift();
+    if (oldest !== undefined) {
+      seen.delete(oldest);
+    }
+  }
+}
+
+export function snapshotCoversGap(required: number, watermark: number | null): watermark is number {
+  return watermark !== null && Number.isSafeInteger(watermark) && watermark >= required;
 }
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
@@ -105,7 +131,7 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
 
 type StreamCallbacks = {
   patch: (next: Partial<EventStreamState>) => void;
-  onGap: () => Promise<void>;
+  onGap: (requiredSequence: number) => Promise<number | null>;
 };
 
 function createStream(cb: StreamCallbacks): () => void {
@@ -113,6 +139,7 @@ function createStream(cb: StreamCallbacks): () => void {
   const controller = new AbortController();
   let disposed = false;
   let everConnected = false;
+  let uncoveredThrough: number | null = null;
 
   const handleFrame = (frame: SseFrame): void => {
     const event = parseFrame(frame);
@@ -121,11 +148,30 @@ function createStream(cb: StreamCallbacks): () => void {
       return;
     }
     if (verdict === "gap") {
-      cb.patch({ stale: true });
-      cb.onGap().then(
-        () => cb.patch({ stale: false }),
+      const required = event.seq;
+      if (required === null) {
+        return;
+      }
+      uncoveredThrough = Math.max(uncoveredThrough ?? 0, required);
+      cb.patch({ stale: true, asOfSequence: tracker.lastSeq(), lastEventAt: event.at });
+      cb.onGap(required).then(
+        (watermark) => {
+          if (disposed || uncoveredThrough === null) {
+            return;
+          }
+          if (snapshotCoversGap(uncoveredThrough, watermark)) {
+            tracker.coverThrough(watermark);
+            uncoveredThrough = null;
+            cb.patch({ stale: false, asOfSequence: tracker.lastSeq() });
+          }
+        },
         () => cb.patch({ stale: true }),
       );
+      return;
+    }
+    if (uncoveredThrough !== null && tracker.lastSeq() >= uncoveredThrough) {
+      uncoveredThrough = null;
+      cb.patch({ stale: false });
     }
     cb.patch({ asOfSequence: tracker.lastSeq(), lastEventAt: event.at });
   };
@@ -141,7 +187,7 @@ function createStream(cb: StreamCallbacks): () => void {
   const loop = async (): Promise<void> => {
     while (!disposed) {
       try {
-        await readSseStream(`${apiBase}/v1/events?after=${tracker.lastSeq() ?? 0}`, controller.signal, {
+        await readSseStream(`${apiBase}/v1/events?after=${tracker.lastSeq()}`, controller.signal, {
           onOpen: () => {
             everConnected = true;
             cb.patch({ connection: "live", detail: "" });
@@ -166,7 +212,9 @@ function createStream(cb: StreamCallbacks): () => void {
   };
 }
 
-export function useEventStream(onGap: () => Promise<void>): EventStreamState {
+export function useEventStream(
+  onGap: (requiredSequence: number) => Promise<number | null>,
+): EventStreamState {
   const [state, setState] = useState<EventStreamState>(INITIAL);
   const onGapRef = useRef(onGap);
   onGapRef.current = onGap;
@@ -179,7 +227,7 @@ export function useEventStream(onGap: () => Promise<void>): EventStreamState {
           setState((prev) => ({ ...prev, ...next }));
         }
       },
-      onGap: () => onGapRef.current(),
+      onGap: (requiredSequence) => onGapRef.current(requiredSequence),
     });
     return () => {
       disposed = true;

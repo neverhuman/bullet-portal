@@ -26,8 +26,10 @@ CONTRADICTORY. Portal rendering:
 - The demo receipt renders `effect_unknown_outcome` through the unknown
   style: it is the kernel's honest OUTCOME-unknown demonstration and must
   never look like success.
-- STALE renders as a badge when the event stream detects a sequence gap; it
-  clears only after a successful snapshot refetch.
+- STALE renders as a badge when the event stream detects a sequence gap. The
+  acknowledged cursor stays at the last contiguous sequence. It clears only
+  when replay fills the gap or both snapshot reads return watermarks covering
+  it; a failed or unwatermarked read remains STALE.
 
 ## Sources and confidence
 
@@ -49,8 +51,8 @@ frame regardless of its `event` name and skips keep-alive comments.
   `Event.event_id` (falling back to the SSE id) with bounded memory;
 - the `Event` wire type carries no timestamp, so projection lag is measured
   from client arrival time of the last event;
-- a sequence jump sets STALE and triggers a snapshot refetch; STALE clears
-  only when that refetch succeeds;
+- a sequence jump sets STALE and triggers a snapshot refetch; replay or a
+  covering `X-Bullet-As-Of-Sequence` watermark advances the acknowledged cursor;
 - the connection state is always visible — `live`, `reconnecting`, or
   `unknown (events stream unavailable)` — never silently stale;
 - on any stream end or failure the portal reconnects with
