@@ -1,17 +1,15 @@
 import { expect, test } from "@playwright/test";
 
-const farmd = (
+const farmd =
+  (
   globalThis as { process?: { env?: Record<string, string | undefined> } }
-).process?.env?.BULLET_FARMD_URL;
+  ).process?.env?.BULLET_FARMD_URL ?? "http://127.0.0.1:7420";
 
 test.describe("real farmd projections", () => {
-  test.skip(!farmd, "BULLET_FARMD_URL is required for the real-farmd lane");
-
   test("Control Tower, Mission Graph, Live Attempt, and Audit share sequences", async ({
     page,
   }) => {
-    const base = farmd as string;
-    const run = await fetch(`${base}/v1/demo/run`, { method: "POST" });
+    const run = await fetch(`${farmd}/v1/demo/run`, { method: "POST" });
     expect(run.ok).toBeTruthy();
     const receipt = (await run.json()) as {
       mission_id: string;

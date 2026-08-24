@@ -5,9 +5,9 @@ import {
   fetchReady,
   getMission,
   listMissions,
-  type ReadyView,
+  type SnapshotRead,
 } from "../api";
-import type { Mission, MissionView, OutboxView } from "../generated/api";
+import type { Mission, MissionView, OutboxView, ReadyView } from "../generated/api";
 import { renderObservation } from "../observation";
 import type { Surface } from "../surfaces";
 
@@ -50,17 +50,17 @@ function MissionGraph({ surface }: { surface: Surface }) {
     void (async () => {
       try {
         const missions = await listMissions();
-        const graphs: MissionView[] = [];
+        const graphReads: SnapshotRead<MissionView>[] = [];
         for (const mission of missions.data) {
-          graphs.push((await getMission(mission.id)).data);
+          graphReads.push(await getMission(mission.id));
         }
         if (controller.signal.aborted) {
           return;
         }
         setLoad({
           kind: "value",
-          asOf: missions.asOfSequence,
-          body: { missions: missions.data, graphs },
+          asOf: atomicSequence([missions, ...graphReads]),
+          body: { missions: missions.data, graphs: graphReads.map((read) => read.data) },
         });
       } catch (err) {
         if (!controller.signal.aborted) {
@@ -95,17 +95,17 @@ function LiveAttempt({ surface }: { surface: Surface }) {
     void (async () => {
       try {
         const [missions, ready] = await Promise.all([listMissions(), fetchReady()]);
-        const graphs: MissionView[] = [];
+        const graphReads: SnapshotRead<MissionView>[] = [];
         for (const mission of missions.data) {
-          graphs.push((await getMission(mission.id)).data);
+          graphReads.push(await getMission(mission.id));
         }
         if (controller.signal.aborted) {
           return;
         }
         setLoad({
           kind: "value",
-          asOf: missions.asOfSequence,
-          body: { ready: ready.data, graphs },
+          asOf: atomicSequence([missions, ready, ...graphReads]),
+          body: { ready: ready.data, graphs: graphReads.map((read) => read.data) },
         });
       } catch (err) {
         if (!controller.signal.aborted) {
@@ -201,4 +201,15 @@ function Unknown({ id, text }: { id: string; text: string }) {
 
 function asOfOf<T>(load: Load<T>): string {
   return load.kind === "value" && load.asOf !== null ? String(load.asOf) : "unknown";
+}
+
+function atomicSequence(reads: SnapshotRead<unknown>[]): number {
+  const first = reads[0]?.asOfSequence;
+  if (first === null || first === undefined) {
+    throw new Error("SNAPSHOT_WATERMARK_MISSING");
+  }
+  if (reads.some((read) => read.asOfSequence !== first)) {
+    throw new Error("SNAPSHOT_WATERMARK_MISMATCH");
+  }
+  return first;
 }

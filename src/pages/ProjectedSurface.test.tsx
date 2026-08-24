@@ -69,4 +69,36 @@ describe("ProjectedSurface", () => {
       expect(screen.getByTestId("incidents-audit-unknown")).toHaveTextContent("unknown:");
     });
   });
+
+  it("refuses to combine projection snapshots from different sequences", async () => {
+    const mission = {
+      id: "mis_demo",
+      organization_id: "org_x",
+      repository_id: "repo_x",
+      title: "t",
+      objective: "o",
+      acceptance_contract_id: "acc_x",
+      state: "active",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo) => {
+        const url = String(input);
+        return url.endsWith("/v1/missions")
+          ? json([mission], "3")
+          : json({ mission, packages: [], fence: 2 }, "4");
+      }),
+    );
+    const surface = surfaceById("mission-graph");
+    expect(surface).toBeDefined();
+    if (surface === undefined) {
+      return;
+    }
+    render(<ProjectedSurface surface={surface} />);
+    await waitFor(() => {
+      expect(screen.getByTestId("mission-graph-unknown")).toHaveTextContent(
+        "SNAPSHOT_WATERMARK_MISMATCH",
+      );
+    });
+  });
 });

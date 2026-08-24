@@ -1,4 +1,11 @@
-import type { DemoReceipt, Health, Mission, MissionView, OutboxView } from "./generated/api";
+import type {
+  DemoReceipt,
+  Health,
+  Mission,
+  MissionView,
+  OutboxView,
+  ReadyView,
+} from "./generated/api";
 
 export const apiBase: string = import.meta.env.VITE_BULLET_API ?? "";
 
@@ -92,14 +99,6 @@ export async function fetchHealth(): Promise<Health> {
 export function getMission(id: string): Promise<SnapshotRead<MissionView>> {
   return readJson(`/v1/missions/${id}`);
 }
-
-export type ReadyView = {
-  work_package_id: string;
-  mission_id: string;
-  variant_id: string;
-  title: string;
-  enqueued_at: string;
-};
 
 export async function fetchReady(): Promise<SnapshotRead<ReadyView | null>> {
   try {
