@@ -57,8 +57,8 @@ export function createSseParser(onFrame: (frame: SseFrame) => void): (chunk: str
 
 /**
  * Read one SSE connection until the server closes it or the signal aborts.
- * A fetch-based reader is required because the kernel names every frame with
- * `event: <kind>`, which EventSource.onmessage never delivers.
+ * A fetch-based reader keeps response validation, cancellation, and reconnect
+ * policy under portal control while consuming the kernel's default messages.
  */
 export async function readSseStream(
   url: string,

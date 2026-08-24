@@ -149,7 +149,7 @@ test("a failed missions read renders unknown, not an empty list", async ({ page 
   await expect(page.getByTestId("outbox-unknown")).toContainText("unknown");
 });
 
-test("the event stream advances as_of_sequence from named SSE frames", async ({ page }) => {
+test("the event stream advances as_of_sequence from default EventEnvelopes", async ({ page }) => {
   await page.route("**/v1/missions", (route) =>
     route.fulfill({ json: [], contentType: "application/json" }),
   );
@@ -159,10 +159,11 @@ test("the event stream advances as_of_sequence from named SSE frames", async ({ 
   await page.route("**/health", (route) =>
     route.fulfill({ json: { status: "ok" }, contentType: "application/json" }),
   );
+  const at = new Date().toISOString();
   const frames = [
-    'id: 1\nevent: candidate_prepared\ndata: {"seq":1,"kind":"candidate_prepared","body":"{}","event_id":"evt_1"}\n\n',
+    `id: 1\ndata: ${JSON.stringify({ id: "evt_1", seq: 1, at, kind: "candidate_prepared", body: "{}" })}\n\n`,
     ": keep-alive\n\n",
-    'id: 2\nevent: effect_receipt\ndata: {"seq":2,"kind":"effect_receipt","body":"{}","event_id":"evt_2"}\n\n',
+    `id: 2\ndata: ${JSON.stringify({ id: "evt_2", seq: 2, at, kind: "effect_receipt", body: "{}" })}\n\n`,
   ].join("");
   await page.route("**/v1/events**", (route) =>
     route.fulfill({ status: 200, contentType: "text/event-stream", body: frames }),
@@ -172,4 +173,14 @@ test("the event stream advances as_of_sequence from named SSE frames", async ({ 
   await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 2");
   await expect(page.getByTestId("projection-lag")).toContainText(/projection lag: \d+s/);
   await expect(page.getByTestId("stream-connection")).toContainText("reconnecting");
+});
+
+test("merge rail is unknown, not an empty success list", async ({ page }) => {
+  await mockSnapshot(page);
+  await mockHealthOk(page);
+  await page.goto("/#/merge-rail");
+  await expect(page.getByTestId("merge-rail-unknown")).toContainText(
+    "unknown: Merge Rail: control plane has not published this projection",
+  );
+  await expect(page.getByText("No merges yet.")).toHaveCount(0);
 });

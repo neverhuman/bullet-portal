@@ -4,14 +4,14 @@ import { createSseParser } from "../sse";
 import { createTracker, parseFrame, snapshotCoversGap } from "./useEventStream";
 
 describe("sse parser", () => {
-  it("parses named events with ids and skips keep-alive comments", () => {
+  it("parses default messages with ids and skips keep-alive comments", () => {
     const frames: SseFrame[] = [];
     const feed = createSseParser((frame) => frames.push(frame));
-    feed('id: 1\nevent: candidate_prepared\ndata: {"seq":1}\n\n: keep-alive\n\nid: 2\nev');
-    feed('ent: effect_receipt\ndata: {"seq":2}\n\n');
+    feed('id: 1\ndata: {"seq":1}\n\n: keep-alive\n\nid: 2\nda');
+    feed('ta: {"seq":2}\n\n');
     expect(frames).toEqual([
-      { id: "1", event: "candidate_prepared", data: '{"seq":1}' },
-      { id: "2", event: "effect_receipt", data: '{"seq":2}' },
+      { id: "1", event: "message", data: '{"seq":1}' },
+      { id: "2", event: "message", data: '{"seq":2}' },
     ]);
   });
 
@@ -19,16 +19,18 @@ describe("sse parser", () => {
     const parsed = parseFrame({ id: "7", event: "encoding_failure", data: "not json" });
     expect(parsed.seq).toBe(7);
     expect(parsed.id).toBe("7");
+    expect(parsed.at).toBeNull();
   });
 
-  it("prefers event_id and seq from the Event JSON", () => {
+  it("prefers durable id, sequence, and time from the EventEnvelope", () => {
     const parsed = parseFrame({
       id: "9",
-      event: "graph_delta",
-      data: '{"seq":9,"kind":"graph_delta","body":"{}","event_id":"evt_9"}',
+      event: "message",
+      data: '{"id":"evt_9","seq":9,"at":"2026-08-24T09:00:00Z","kind":"graph_delta","body":"{}"}',
     });
     expect(parsed.seq).toBe(9);
     expect(parsed.id).toBe("evt_9");
+    expect(parsed.at).toBe("2026-08-24T09:00:00Z");
   });
 });
 

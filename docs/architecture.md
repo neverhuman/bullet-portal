@@ -1,6 +1,12 @@
 # Portal architecture
 
-The Control Tower is a projection of the kernel ledger. The browser never
+The Control Tower is a projection of the kernel ledger. Hash routes
+`#/<surface-id>` cover every spec §25 surface. Surfaces without a farmd
+projection render `unknown`, never an empty success list.
+
+AGENT_CHAT.md is a temporary multi-agent wire. After this portal ships Live
+Attempt + Incidents/Audit, operators diagnose from `/v1/events`, not the
+markdown log. The browser never
 holds authority: a click creates a durable command that renders as pending
 until the ledger's recorded result comes back, and no view mutates
 authoritative state optimistically.
@@ -41,16 +47,14 @@ the stream connection state.
 ## Event stream
 
 `src/hooks/useEventStream.ts` consumes `GET /v1/events?after=<seq>`. Kernel
-framing: SSE `id` = ledger seq, SSE `event` = event kind, `data` = the
-generated `Event` JSON. Because the kind set is open-ended and
-`EventSource.onmessage` never delivers named events, the portal reads the
-stream with a fetch-based SSE parser (`src/sse.ts`) that captures every
-frame regardless of its `event` name and skips keep-alive comments.
+framing: SSE `id` = ledger seq and each default-message `data` is the generated
+`EventEnvelope` JSON. The fetch-based SSE parser (`src/sse.ts`) skips keep-alive
+comments and retains the exclusive sequence cursor across reconnects.
 
 - sequence comes from `Event.seq` (falling back to the SSE id); dedupe uses
-  `Event.event_id` (falling back to the SSE id) with bounded memory;
-- the `Event` wire type carries no timestamp, so projection lag is measured
-  from client arrival time of the last event;
+  `Event.id` (falling back to the SSE id) with bounded memory;
+- projection lag uses durable `Event.at`; malformed/missing timestamps remain
+  unknown rather than becoming browser arrival time;
 - a sequence jump sets STALE and triggers a snapshot refetch; replay or a
   covering `X-Bullet-As-Of-Sequence` watermark advances the acknowledged cursor;
 - the connection state is always visible — `live`, `reconnecting`, or

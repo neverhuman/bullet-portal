@@ -57,6 +57,21 @@ dl {
 .live {
   color: #7dce8a;
 }
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 16px;
+}
+.nav a {
+  color: #9db0c9;
+  text-decoration: none;
+  font-size: 13px;
+}
+.nav a.nav-current {
+  color: #e8edf5;
+  font-weight: 700;
+}
 .reconnecting {
   color: #d7a13a;
 }

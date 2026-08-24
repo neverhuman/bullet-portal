@@ -24,11 +24,10 @@ const INITIAL: EventStreamState = {
   stale: false,
 };
 
-export type ParsedEvent = { id: string | null; seq: number | null; at: string };
+export type ParsedEvent = { id: string | null; seq: number | null; at: string | null };
 
 /**
- * Kernel framing: SSE id = ledger seq, SSE event = kind, data = Event JSON
- * ({seq, kind, body, event_id, ...}; no timestamp, so `at` is arrival time).
+ * Kernel framing: SSE id = ledger seq and default-message data = EventEnvelope.
  */
 export function parseFrame(frame: SseFrame): ParsedEvent {
   let record: Record<string, unknown> = {};
@@ -47,14 +46,16 @@ export function parseFrame(frame: SseFrame): ParsedEvent {
   const seqFromId = frame.id !== null && /^\d+$/.test(frame.id) ? Number(frame.id) : null;
   const seq = seqFromData ?? seqFromId;
   const id =
-    typeof record.event_id === "string"
-      ? record.event_id
+    typeof record.id === "string"
+      ? record.id
       : frame.id !== null
         ? frame.id
         : seq !== null
           ? String(seq)
           : null;
-  return { id, seq, at: new Date().toISOString() };
+  const at =
+    typeof record.at === "string" && !Number.isNaN(Date.parse(record.at)) ? record.at : null;
+  return { id, seq, at };
 }
 
 type Verdict = "duplicate" | "ok" | "gap";
