@@ -9,12 +9,13 @@ export type SseCallbacks = {
   onFrame: (frame: SseFrame) => void;
 };
 
+const MAX_SSE_FRAME_CHARS = 1024 * 1024;
+
 function parseBlock(block: string): SseFrame | null {
   let id: string | null = null;
   let event = "message";
   const data: string[] = [];
-  for (const rawLine of block.split("\n")) {
-    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+  for (const line of block.replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n")) {
     if (line === "" || line.startsWith(":")) {
       continue;
     }
@@ -38,19 +39,30 @@ function parseBlock(block: string): SseFrame | null {
   return { id, event, data: data.join("\n") };
 }
 
+function findBoundary(buffer: string): { index: number; length: number } | null {
+  const match = /\r\n\r\n|\n\n|\r\r/.exec(buffer);
+  return match === null ? null : { index: match.index, length: match[0].length };
+}
+
 export function createSseParser(onFrame: (frame: SseFrame) => void): (chunk: string) => void {
   let buffer = "";
   return (chunk) => {
     buffer += chunk;
-    let boundary = buffer.indexOf("\n\n");
-    while (boundary !== -1) {
-      const block = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
+    let boundary = findBoundary(buffer);
+    while (boundary !== null) {
+      if (boundary.index > MAX_SSE_FRAME_CHARS) {
+        throw new Error("SSE frame exceeds 1 MiB character limit");
+      }
+      const block = buffer.slice(0, boundary.index);
+      buffer = buffer.slice(boundary.index + boundary.length);
       const frame = parseBlock(block);
       if (frame !== null) {
         onFrame(frame);
       }
-      boundary = buffer.indexOf("\n\n");
+      boundary = findBoundary(buffer);
+    }
+    if (buffer.length > MAX_SSE_FRAME_CHARS) {
+      throw new Error("SSE frame exceeds 1 MiB character limit");
     }
   };
 }
@@ -64,10 +76,21 @@ export async function readSseStream(
   url: string,
   signal: AbortSignal,
   cb: SseCallbacks,
+  lastEventId?: number,
 ): Promise<void> {
+  if (
+    lastEventId !== undefined &&
+    (!Number.isSafeInteger(lastEventId) || lastEventId < 0)
+  ) {
+    throw new Error("Last-Event-ID must be a non-negative safe integer");
+  }
+  const headers: Record<string, string> = { accept: "text/event-stream" };
+  if (lastEventId !== undefined) {
+    headers["Last-Event-ID"] = String(lastEventId);
+  }
   const response = await fetch(url, {
     signal,
-    headers: { accept: "text/event-stream" },
+    headers,
   });
   if (!response.ok) {
     throw new Error(`GET ${url} failed: HTTP ${response.status}`);
@@ -88,6 +111,7 @@ export async function readSseStream(
   for (;;) {
     const { done, value } = await reader.read();
     if (done) {
+      parse(decoder.decode());
       return;
     }
     parse(decoder.decode(value, { stream: true }));

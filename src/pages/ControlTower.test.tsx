@@ -129,6 +129,28 @@ describe("ControlTower honesty", () => {
     expect(screen.queryByTestId("receipt")).not.toBeInTheDocument();
   });
 
+  it("renders a timed-out mutation as UNKNOWN without adopting an older receipt", async () => {
+    mocked.runDemo
+      .mockResolvedValueOnce(receipt)
+      .mockRejectedValueOnce(
+        new api.ApiError("POST", "/v1/demo/run", null, "timeout after 10000ms"),
+      );
+    render(<ControlTower />);
+    const button = screen.getByRole("button", { name: "Run simulator demo" });
+    await userEvent.click(button);
+    await screen.findByTestId("receipt");
+    await userEvent.click(button);
+    await waitFor(() =>
+      expect(screen.getByTestId("phase")).toHaveTextContent("mutation phase: unknown"),
+    );
+    expect(screen.getByTestId("phase")).toHaveClass("unknown");
+    expect(screen.getByTestId("mutation-error")).toHaveTextContent(
+      "command outcome unknown; no command-id reconciliation endpoint is published",
+    );
+    expect(screen.getByTestId("mutation-error")).toHaveClass("unknown");
+    expect(screen.queryByTestId("receipt")).not.toBeInTheDocument();
+  });
+
   it("renders the health probe as unknown when /health fails", async () => {
     mocked.fetchHealth.mockRejectedValue(
       new api.ApiError("GET", "/health", null, "timeout after 10000ms"),

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { errorText, fetchOutbox, listMissions, runDemo } from "../api";
+import { useCallback, useRef, useState } from "react";
+import { ApiError, errorText, fetchOutbox, listMissions, runDemo } from "../api";
 import { MissionsCard } from "../components/MissionsCard";
 import { OutboxCard } from "../components/OutboxCard";
 import { ReceiptCard } from "../components/ReceiptCard";
@@ -10,13 +10,14 @@ import { useHealthProbe } from "../hooks/useHealthProbe";
 import type { Loadable } from "../loadable";
 import { toUnknown, toValue } from "../loadable";
 
-type MutationPhase = "idle" | "pending" | "verified" | "failed";
+type MutationPhase = "idle" | "pending" | "verified" | "failed" | "unknown";
 
 const PHASE_CLASS: Record<MutationPhase, string> = {
   idle: "idle",
   pending: "pending",
   verified: "verified",
   failed: "failed",
+  unknown: "unknown",
 };
 
 export function ControlTower() {
@@ -62,10 +63,6 @@ export function ControlTower() {
 
   const stream = useEventStream(refreshSnapshot);
 
-  useEffect(() => {
-    void refreshSnapshot();
-  }, [refreshSnapshot]);
-
   async function onRunDemo(): Promise<void> {
     if (runningRef.current) {
       return;
@@ -79,8 +76,13 @@ export function ControlTower() {
       setReceipt(next);
       setPhase("verified");
     } catch (err) {
-      setPhase("failed");
-      setError(errorText(err));
+      const ambiguous = err instanceof ApiError && err.outcomeUnknown;
+      setPhase(ambiguous ? "unknown" : "failed");
+      setError(
+        ambiguous
+          ? `command outcome unknown; no command-id reconciliation endpoint is published (${errorText(err)})`
+          : errorText(err),
+      );
       return;
     } finally {
       runningRef.current = false;
@@ -100,7 +102,7 @@ export function ControlTower() {
         mutation phase: {phase}
       </p>
       {error !== null ? (
-        <p className="failed" data-testid="mutation-error">
+        <p className={PHASE_CLASS[phase]} data-testid="mutation-error">
           {error}
         </p>
       ) : null}

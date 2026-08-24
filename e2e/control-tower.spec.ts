@@ -175,6 +175,75 @@ test("the event stream advances as_of_sequence from default EventEnvelopes", asy
   await expect(page.getByTestId("stream-connection")).toContainText("reconnecting");
 });
 
+test("a 1,2,4 gap stays STALE until a covering snapshot rebases the resume cursor", async ({
+  page,
+}) => {
+  await page.clock.install();
+  let gapEmitted = false;
+  let missionRecoveries = 0;
+  let outboxRecoveries = 0;
+  const watermark = (recoveries: number): number =>
+    !gapEmitted ? 0 : recoveries === 1 ? 3 : 4;
+  await page.route("**/v1/missions", (route) => {
+    if (gapEmitted) {
+      missionRecoveries += 1;
+    }
+    return route.fulfill({
+      json: [],
+      contentType: "application/json",
+      headers: { "x-bullet-as-of-sequence": String(watermark(missionRecoveries)) },
+    });
+  });
+  await page.route("**/v1/outbox", (route) => {
+    if (gapEmitted) {
+      outboxRecoveries += 1;
+    }
+    return route.fulfill({
+      json: { items: [] },
+      contentType: "application/json",
+      headers: { "x-bullet-as-of-sequence": String(watermark(outboxRecoveries)) },
+    });
+  });
+  await mockHealthOk(page);
+
+  const requests: { url: string; lastEventId: string | undefined }[] = [];
+  let reconnectSeen: (() => void) | null = null;
+  const sawReconnect = new Promise<void>((resolve) => {
+    reconnectSeen = resolve;
+  });
+  await page.route("**/v1/events**", async (route) => {
+    const request = route.request();
+    requests.push({ url: request.url(), lastEventId: request.headers()["last-event-id"] });
+    if (requests.length === 1) {
+      gapEmitted = true;
+      const at = new Date().toISOString();
+      const frames = [1, 2, 4]
+        .map(
+          (seq) =>
+            `id: ${seq}\ndata: ${JSON.stringify({ id: `evt_${seq}`, seq, at, kind: "test", body: "{}" })}\n\n`,
+        )
+        .join("");
+      await route.fulfill({ status: 200, contentType: "text/event-stream", body: frames });
+      return;
+    }
+    reconnectSeen?.();
+    await new Promise<void>(() => {});
+  });
+
+  await page.goto("/");
+  await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 2");
+  await expect(page.getByTestId("stale-badge")).toHaveText("STALE");
+  expect(requests[0]?.url).toContain("/v1/events?after=0");
+  expect(requests[0]?.lastEventId).toBeUndefined();
+
+  await page.clock.fastForward(10_001);
+  await sawReconnect;
+  await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 4");
+  await expect(page.getByTestId("stale-badge")).toHaveCount(0);
+  expect(requests[1]?.url).toMatch(/\/v1\/events$/);
+  expect(requests[1]?.lastEventId).toBe("4");
+});
+
 test("merge rail is unknown, not an empty success list", async ({ page }) => {
   await mockSnapshot(page);
   await mockHealthOk(page);

@@ -15,11 +15,9 @@ describe("sse parser", () => {
     ]);
   });
 
-  it("falls back to the SSE id when the payload is not JSON", () => {
+  it("rejects a malformed payload instead of treating transport metadata as truth", () => {
     const parsed = parseFrame({ id: "7", event: "encoding_failure", data: "not json" });
-    expect(parsed.seq).toBe(7);
-    expect(parsed.id).toBe("7");
-    expect(parsed.at).toBeNull();
+    expect(parsed).toBeNull();
   });
 
   it("prefers durable id, sequence, and time from the EventEnvelope", () => {
@@ -28,9 +26,17 @@ describe("sse parser", () => {
       event: "message",
       data: '{"id":"evt_9","seq":9,"at":"2026-08-24T09:00:00Z","kind":"graph_delta","body":"{}"}',
     });
-    expect(parsed.seq).toBe(9);
-    expect(parsed.id).toBe("evt_9");
-    expect(parsed.at).toBe("2026-08-24T09:00:00Z");
+    expect(parsed).toEqual({ id: "evt_9", seq: 9, at: "2026-08-24T09:00:00Z" });
+  });
+
+  it("rejects a sequence mismatch between the SSE id and envelope", () => {
+    expect(
+      parseFrame({
+        id: "8",
+        event: "message",
+        data: '{"id":"evt_9","seq":9,"at":"2026-08-24T09:00:00Z","kind":"x","body":"{}"}',
+      }),
+    ).toBeNull();
   });
 });
 
@@ -43,24 +49,56 @@ describe("event tracker", () => {
     expect(tracker.accept({ id: "c", seq: 2, at: "t" })).toBe("ok");
     expect(tracker.accept({ id: "d", seq: 5, at: "t" })).toBe("gap");
     expect(tracker.lastSeq()).toBe(2);
+    expect(tracker.stale()).toBe(true);
+    expect(tracker.requiredThrough()).toBe(5);
   });
 
-  it("keeps cursor 2 after 1,2,4 until a watermark covers 4", () => {
+  it("keeps cursor 2 and STALE after 1,2,4 until a watermark covers 4", () => {
     const tracker = createTracker(8);
     expect(tracker.accept({ id: "1", seq: 1, at: "t" })).toBe("ok");
     expect(tracker.accept({ id: "2", seq: 2, at: "t" })).toBe("ok");
     expect(tracker.accept({ id: "4", seq: 4, at: "t" })).toBe("gap");
     expect(tracker.lastSeq()).toBe(2);
-    expect(snapshotCoversGap(4, null)).toBe(false);
-    expect(snapshotCoversGap(4, 3)).toBe(false);
-    expect(snapshotCoversGap(4, 4)).toBe(true);
-    tracker.coverThrough(4);
+    expect(tracker.stale()).toBe(true);
+    expect(tracker.applySnapshot(null)).toBe(false);
+    expect(tracker.lastSeq()).toBe(2);
+    expect(tracker.stale()).toBe(true);
+    expect(tracker.applySnapshot(3)).toBe(false);
+    expect(tracker.lastSeq()).toBe(2);
+    expect(tracker.stale()).toBe(true);
+    expect(tracker.applySnapshot(4)).toBe(true);
     expect(tracker.lastSeq()).toBe(4);
+    expect(tracker.stale()).toBe(false);
   });
 
   it("detects a first-event gap from exclusive cursor zero", () => {
     const tracker = createTracker(8);
     expect(tracker.accept({ id: "4", seq: 4, at: "t" })).toBe("gap");
     expect(tracker.lastSeq()).toBe(0);
+    expect(tracker.stale()).toBe(true);
+    expect(tracker.applySnapshot(3)).toBe(false);
+    expect(tracker.applySnapshot(4)).toBe(true);
+  });
+
+  it("marks disconnect uncertainty and clears it only by replay or a newer snapshot", () => {
+    const tracker = createTracker(8);
+    expect(tracker.applySnapshot(2)).toBe(true);
+    tracker.markUncertain();
+    expect(tracker.requiredThrough()).toBe(3);
+    expect(tracker.applySnapshot(2)).toBe(false);
+    expect(tracker.lastSeq()).toBe(2);
+    expect(tracker.stale()).toBe(true);
+    expect(tracker.accept({ id: "3", seq: 3, at: "t" })).toBe("ok");
+    expect(tracker.lastSeq()).toBe(3);
+    expect(tracker.stale()).toBe(false);
+  });
+
+  it("fails closed when the acknowledged sequence exhausts safe integers", () => {
+    const tracker = createTracker(8);
+    expect(tracker.applySnapshot(Number.MAX_SAFE_INTEGER)).toBe(true);
+    tracker.markUncertain();
+    expect(tracker.stale()).toBe(true);
+    expect(tracker.applySnapshot(Number.MAX_SAFE_INTEGER)).toBe(false);
+    expect(tracker.stale()).toBe(true);
   });
 });
