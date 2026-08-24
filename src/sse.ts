@@ -11,6 +11,10 @@ export type SseCallbacks = {
 
 const MAX_SSE_FRAME_CHARS = 1024 * 1024;
 
+function hasEventStreamMediaType(contentType: string): boolean {
+  return contentType.split(";", 1)[0]?.trim().toLowerCase() === "text/event-stream";
+}
+
 function parseBlock(block: string): SseFrame | null {
   let id: string | null = null;
   let event = "message";
@@ -96,7 +100,7 @@ export async function readSseStream(
     throw new Error(`GET ${url} failed: HTTP ${response.status}`);
   }
   const contentType = response.headers.get("content-type") ?? "";
-  if (!contentType.includes("text/event-stream")) {
+  if (!hasEventStreamMediaType(contentType)) {
     throw new Error(
       `GET ${url} failed: unexpected content-type ${contentType === "" ? "(none)" : contentType}`,
     );

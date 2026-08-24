@@ -175,33 +175,45 @@ test("the event stream advances as_of_sequence from default EventEnvelopes", asy
   await expect(page.getByTestId("stream-connection")).toContainText("reconnecting");
 });
 
-test("a 1,2,4 gap stays STALE until a covering snapshot rebases the resume cursor", async ({
-  page,
-}) => {
+test("a 1,2,4 gap survives malformed snapshot recovery until watermark 4", async ({ page }) => {
   await page.clock.install();
   let gapEmitted = false;
   let missionRecoveries = 0;
   let outboxRecoveries = 0;
-  const watermark = (recoveries: number): number =>
-    !gapEmitted ? 0 : recoveries === 1 ? 3 : 4;
   await page.route("**/v1/missions", (route) => {
-    if (gapEmitted) {
-      missionRecoveries += 1;
+    if (!gapEmitted) {
+      return route.fulfill({
+        json: [],
+        contentType: "application/json",
+        headers: { "x-bullet-as-of-sequence": "0" },
+      });
+    }
+    missionRecoveries += 1;
+    if (missionRecoveries === 1) {
+      return route.fulfill({ status: 200, contentType: "application/json", body: "[" });
     }
     return route.fulfill({
       json: [],
       contentType: "application/json",
-      headers: { "x-bullet-as-of-sequence": String(watermark(missionRecoveries)) },
+      headers: { "x-bullet-as-of-sequence": "4" },
     });
   });
   await page.route("**/v1/outbox", (route) => {
-    if (gapEmitted) {
-      outboxRecoveries += 1;
+    if (!gapEmitted) {
+      return route.fulfill({
+        json: { items: [] },
+        contentType: "application/json",
+        headers: { "x-bullet-as-of-sequence": "0" },
+      });
+    }
+    outboxRecoveries += 1;
+    if (outboxRecoveries === 1) {
+      return route.fulfill({ status: 200, contentType: "application/json", body: "{" });
     }
     return route.fulfill({
       json: { items: [] },
       contentType: "application/json",
-      headers: { "x-bullet-as-of-sequence": String(watermark(outboxRecoveries)) },
+      headers: { "x-bullet-as-of-sequence": "4" },
     });
   });
   await mockHealthOk(page);
@@ -233,6 +245,8 @@ test("a 1,2,4 gap stays STALE until a covering snapshot rebases the resume curso
   await page.goto("/");
   await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 2");
   await expect(page.getByTestId("stale-badge")).toHaveText("STALE");
+  await expect(page.getByTestId("missions-unknown")).toContainText("invalid JSON body");
+  await expect(page.getByTestId("outbox-unknown")).toContainText("invalid JSON body");
   expect(requests[0]?.url).toContain("/v1/events?after=0");
   expect(requests[0]?.lastEventId).toBeUndefined();
 
@@ -242,6 +256,63 @@ test("a 1,2,4 gap stays STALE until a covering snapshot rebases the resume curso
   await expect(page.getByTestId("stale-badge")).toHaveCount(0);
   expect(requests[1]?.url).toMatch(/\/v1\/events$/);
   expect(requests[1]?.lastEventId).toBe("4");
+});
+
+test("an event-retention 410 rebases from a covering snapshot before reconnect", async ({
+  page,
+}) => {
+  await page.clock.install();
+  let retentionGap = false;
+  const snapshotSequence = (): string => (retentionGap ? "8" : "0");
+  await page.route("**/v1/missions", (route) =>
+    route.fulfill({
+      json: [],
+      contentType: "application/json",
+      headers: { "x-bullet-as-of-sequence": snapshotSequence() },
+    }),
+  );
+  await page.route("**/v1/outbox", (route) =>
+    route.fulfill({
+      json: { items: [] },
+      contentType: "application/json",
+      headers: { "x-bullet-as-of-sequence": snapshotSequence() },
+    }),
+  );
+  await mockHealthOk(page);
+
+  const requests: { url: string; lastEventId: string | undefined }[] = [];
+  let reconnectSeen: (() => void) | null = null;
+  const sawReconnect = new Promise<void>((resolve) => {
+    reconnectSeen = resolve;
+  });
+  await page.route("**/v1/events**", async (route) => {
+    const request = route.request();
+    requests.push({ url: request.url(), lastEventId: request.headers()["last-event-id"] });
+    if (requests.length === 1) {
+      retentionGap = true;
+      await route.fulfill({
+        status: 410,
+        contentType: "application/problem+json",
+        body: '{"code":"EVENT_RETENTION_GAP"}',
+      });
+      return;
+    }
+    reconnectSeen?.();
+    await new Promise<void>(() => {});
+  });
+
+  await page.goto("/");
+  await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 0");
+  await expect(page.getByTestId("stale-badge")).toHaveText("STALE");
+  expect(requests[0]?.url).toContain("/v1/events?after=0");
+  expect(requests[0]?.lastEventId).toBeUndefined();
+
+  await page.clock.fastForward(10_001);
+  await sawReconnect;
+  await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 8");
+  await expect(page.getByTestId("stale-badge")).toHaveCount(0);
+  expect(requests[1]?.url).toMatch(/\/v1\/events$/);
+  expect(requests[1]?.lastEventId).toBe("8");
 });
 
 test("merge rail is unknown, not an empty success list", async ({ page }) => {

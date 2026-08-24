@@ -79,6 +79,38 @@ describe("api transport honesty", () => {
     );
   });
 
+  it("rejects a deceptive HTTP 200 media type even when its body is valid JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response("[]", {
+            status: 200,
+            headers: { "content-type": "text/application/json-shadow" },
+          }),
+        ),
+      ),
+    );
+    await expect(listMissions()).rejects.toThrowError(
+      "GET /v1/missions failed: unexpected content-type text/application/json-shadow",
+    );
+  });
+
+  it("accepts the exact JSON media type with case-insensitive parameters", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response("[]", {
+            status: 200,
+            headers: { "content-type": "Application/JSON; Charset=UTF-8" },
+          }),
+        ),
+      ),
+    );
+    await expect(listMissions()).resolves.toEqual({ data: [], asOfSequence: null });
+  });
+
   it("carries method, url, and status on HTTP failures", async () => {
     vi.stubGlobal(
       "fetch",

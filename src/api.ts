@@ -21,6 +21,10 @@ export const apiBase: string = import.meta.env.VITE_BULLET_API ?? "";
 const REQUEST_TIMEOUT_MS = 10_000;
 const SNAPSHOT_SEQUENCE_HEADER = "x-bullet-as-of-sequence";
 
+function hasMediaType(contentType: string, expected: string): boolean {
+  return contentType.split(";", 1)[0]?.trim().toLowerCase() === expected;
+}
+
 export type SnapshotRead<T> = {
   data: T;
   asOfSequence: number | null;
@@ -75,7 +79,7 @@ async function readJson<T>(
       throw new ApiError(method, url, response.status, `HTTP ${response.status}`);
     }
     const contentType = response.headers.get("content-type") ?? "";
-    if (!contentType.includes("application/json")) {
+    if (!hasMediaType(contentType, "application/json")) {
       throw new ApiError(
         method,
         url,

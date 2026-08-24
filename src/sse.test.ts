@@ -61,4 +61,50 @@ describe("SSE resume transport", () => {
     ).rejects.toThrow("Last-Event-ID must be a non-negative safe integer");
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("rejects a deceptive HTTP 200 media type before declaring the stream live", async () => {
+    const onOpen = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response("data: payload\n\n", {
+            status: 200,
+            headers: { "content-type": "application/text/event-stream-shadow" },
+          }),
+        ),
+      ),
+    );
+    await expect(
+      readSseStream(
+        "/v1/events?after=2",
+        new AbortController().signal,
+        { onOpen, onFrame: () => {} },
+      ),
+    ).rejects.toThrow(
+      "GET /v1/events?after=2 failed: unexpected content-type application/text/event-stream-shadow",
+    );
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("accepts the exact event-stream media type with case-insensitive parameters", async () => {
+    const frames: SseFrame[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response("id: 3\ndata: payload\n\n", {
+            status: 200,
+            headers: { "content-type": "Text/Event-Stream; Charset=UTF-8" },
+          }),
+        ),
+      ),
+    );
+    await readSseStream(
+      "/v1/events?after=2",
+      new AbortController().signal,
+      { onOpen: () => {}, onFrame: (frame) => frames.push(frame) },
+    );
+    expect(frames).toEqual([{ id: "3", event: "message", data: "payload" }]);
+  });
 });
