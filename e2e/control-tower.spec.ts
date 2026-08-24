@@ -1,21 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const demoReceipt = {
-  mission_id: "mis_demo",
-  plan_hash: "abc",
-  fence_first: 1,
-  attempt_id: "atm_live",
-  fence_second: 2,
-  attempt_second_id: "atm_second",
-  stale_attempt_id: "atm_stale",
-  candidate_head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-  evidence_result: "PASS",
-  effect_outcome: "verified",
-  effect_unknown_outcome: "unknown",
-  materialize_idempotent: true,
-  stale_refused: true,
-};
-
 const observedAt = "2026-08-24T22:00:00.000Z";
 
 function snapshot(data: unknown, sequence = 0) {
@@ -52,89 +36,6 @@ async function mockHealthOk(page: Page): Promise<void> {
     route.fulfill({ json: { status: "ok" }, contentType: "application/json" }),
   );
 }
-
-test("demo receipt verifies against a mocked ledger", async ({ page }) => {
-  await mockSnapshot(page);
-  await mockHealthOk(page);
-  await page.route("**/v1/demo/run", (route) =>
-    route.fulfill({ json: demoReceipt, contentType: "application/json" }),
-  );
-
-  await page.goto("/");
-  await expect(page.getByTestId("health-probe")).toContainText("farmd /health: ok");
-  await expect(page.getByTestId("stream-connection")).toContainText(
-    "unknown (events stream unavailable)",
-  );
-  await expect(page.getByTestId("outbox-empty")).toContainText("outbox: empty (verified)");
-  await expect(page.getByText(/source: bullet-kernel\/sqlite-ledger via GET/).first()).toBeVisible();
-  await page.getByRole("button", { name: "Run simulator demo" }).click();
-  await expect(page.getByTestId("phase")).toContainText("mutation phase: verified");
-  await expect(page.getByTestId("receipt")).toContainText("atm_stale");
-  await expect(page.getByTestId("receipt")).toContainText("atm_second");
-  await expect(page.getByTestId("receipt")).toContainText("abc");
-  await expect(page.getByTestId("receipt")).toContainText(
-    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-  );
-  await expect(page.getByTestId("receipt")).toContainText("true");
-  await expect(page.getByTestId("effect-unknown-outcome")).toHaveClass("unknown");
-  await expect(page.getByTestId("effect-unknown-outcome")).toContainText("unknown");
-});
-
-test("pending is visible before the ledger confirms", async ({ page }) => {
-  await mockSnapshot(page);
-  await mockHealthOk(page);
-  await page.route("**/v1/demo/run", async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    await route.fulfill({ json: demoReceipt, contentType: "application/json" });
-  });
-
-  await page.goto("/");
-  const button = page.getByRole("button", { name: "Run simulator demo" });
-  await button.click();
-  await expect(page.getByTestId("phase")).toContainText("mutation phase: pending");
-  await expect(page.getByTestId("phase")).toHaveClass("pending");
-  await expect(button).toBeDisabled();
-  await expect(page.getByTestId("phase")).toContainText("mutation phase: verified");
-  await expect(button).toBeEnabled();
-});
-
-test("a failed run renders failed with the error, never idle or verified", async ({ page }) => {
-  await mockSnapshot(page);
-  await mockHealthOk(page);
-  await page.route("**/v1/demo/run", (route) =>
-    route.fulfill({ status: 500, contentType: "text/plain", body: "boom" }),
-  );
-
-  await page.goto("/");
-  await page.getByRole("button", { name: "Run simulator demo" }).click();
-  await expect(page.getByTestId("phase")).toContainText("mutation phase: failed");
-  await expect(page.getByTestId("phase")).toHaveClass("failed");
-  await expect(page.getByTestId("mutation-error")).toContainText(
-    "POST /v1/demo/run failed: HTTP 500",
-  );
-  await page.waitForTimeout(400);
-  await expect(page.getByTestId("phase")).toContainText("mutation phase: failed");
-});
-
-test("a failed command never displays an older successful receipt", async ({ page }) => {
-  await mockSnapshot(page);
-  await mockHealthOk(page);
-  let calls = 0;
-  await page.route("**/v1/demo/run", (route) => {
-    calls += 1;
-    return calls === 1
-      ? route.fulfill({ json: demoReceipt, contentType: "application/json" })
-      : route.fulfill({ status: 500, contentType: "text/plain", body: "boom" });
-  });
-
-  await page.goto("/");
-  const button = page.getByRole("button", { name: "Run simulator demo" });
-  await button.click();
-  await expect(page.getByTestId("receipt")).toContainText("atm_live");
-  await button.click();
-  await expect(page.getByTestId("phase")).toContainText("mutation phase: failed");
-  await expect(page.getByTestId("receipt")).toHaveCount(0);
-});
 
 test("the health probe reports unknown when /health fails", async ({ page }) => {
   await mockSnapshot(page);

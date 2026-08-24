@@ -1,10 +1,13 @@
 import type {
+  BootstrapResponse,
+  CommandStatus,
   DemoReceipt,
   Health,
   Mission,
   MissionView,
   OutboxItem,
   OutboxView,
+  Problem,
   ReadyView,
   WorkPackage,
 } from "./generated/api";
@@ -138,3 +141,65 @@ export const isReadyView: ResponseValidator<ReadyView> = (value): value is Ready
 export const isNullableReadyView: ResponseValidator<ReadyView | null> = (
   value,
 ): value is ReadyView | null => value === null || isReadyView(value);
+
+const COMMAND_ID = /^cmd_[0-9a-f]{32}$/;
+const DIGEST = /^[0-9a-f]{64}$/;
+const CSRF_TOKEN = /^csrf_[0-9a-f]{64}$/;
+const COMMAND_STATUSES = new Set(["PENDING", "APPLIED", "VERIFIED", "FAILED", "UNKNOWN"]);
+
+export const isBootstrapResponse: ResponseValidator<BootstrapResponse> = (
+  value,
+): value is BootstrapResponse =>
+  isRecord(value) &&
+  hasExactKeys(value, ["csrf_token", "expires_in_seconds", "status"]) &&
+  value.status === "AUTHENTICATED" &&
+  typeof value.csrf_token === "string" &&
+  CSRF_TOKEN.test(value.csrf_token) &&
+  isInteger(value.expires_in_seconds) &&
+  value.expires_in_seconds > 0;
+
+export const isCommandStatus: ResponseValidator<CommandStatus> = (
+  value,
+): value is CommandStatus =>
+  isRecord(value) &&
+  hasExactKeys(value, ["id", "kind", "payload_digest", "result", "status"]) &&
+  typeof value.id === "string" &&
+  COMMAND_ID.test(value.id) &&
+  typeof value.status === "string" &&
+  COMMAND_STATUSES.has(value.status) &&
+  typeof value.kind === "string" &&
+  value.kind.length > 0 &&
+  typeof value.payload_digest === "string" &&
+  DIGEST.test(value.payload_digest) &&
+  value.result !== undefined &&
+  (value.status === "PENDING" ? value.result === null : true) &&
+  (["APPLIED", "VERIFIED", "FAILED"].includes(value.status) ? value.result !== null : true);
+
+export const isProblem: ResponseValidator<Problem> = (value): value is Problem =>
+  isRecord(value) &&
+  hasExactKeys(value, [
+    "code",
+    "correlation_id",
+    "detail",
+    "instance",
+    "repair",
+    "request_id",
+    "retryable",
+    "status",
+    "title",
+    "type",
+  ]) &&
+  hasStrings(value, [
+    "code",
+    "correlation_id",
+    "detail",
+    "instance",
+    "repair",
+    "request_id",
+    "title",
+    "type",
+  ]) &&
+  isInteger(value.status) &&
+  value.status >= 400 &&
+  value.status <= 599 &&
+  typeof value.retryable === "boolean";

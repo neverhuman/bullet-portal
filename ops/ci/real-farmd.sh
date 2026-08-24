@@ -24,6 +24,7 @@ log "build local farmd"
 (cd "$kernel_root" && cargo build --locked -p bullet-farmd)
 farmd_bin="$kernel_root/target/debug/bullet-farmd"
 "$farmd_bin" --data-dir "$proof_dir/data" --bind 127.0.0.1:7420 \
+  --portal-origin http://127.0.0.1:5173 \
   >"$proof_dir/farmd.log" 2>&1 &
 farmd_pid="$!"
 
@@ -40,6 +41,13 @@ if [[ "$ready" != 1 ]]; then
   exit 1
 fi
 
+bootstrap_token="$(sed -n 's/^Bullet Farm one-time bootstrap: //p' "$proof_dir/farmd.log" | head -n 1)"
+if [[ ! "$bootstrap_token" =~ ^boot_[0-9a-f]{64}$ ]]; then
+  echo "[ci] farmd did not emit one valid bootstrap token" >&2
+  exit 1
+fi
+
 cd "$REPO_ROOT"
 BULLET_FARMD_URL=http://127.0.0.1:7420 \
+  BULLET_BOOTSTRAP_TOKEN="$bootstrap_token" \
   ./node_modules/.bin/playwright test --config playwright.real.config.ts

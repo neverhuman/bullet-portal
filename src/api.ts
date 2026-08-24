@@ -1,18 +1,23 @@
 import type {
-  DemoReceipt,
+  BootstrapResponse,
+  CommandEnvelope,
+  CommandStatus,
   Health,
   Mission,
   MissionView,
   OutboxView,
+  Problem,
   ReadyView,
 } from "./generated/api";
 import {
-  isDemoReceipt,
+  isBootstrapResponse,
+  isCommandStatus,
   isHealth,
   isMissionList,
   isMissionView,
   isNullableReadyView,
   isOutboxView,
+  isProblem,
   isSnapshotEnvelope,
   SNAPSHOT_SOURCE,
   type ResponseValidator,
@@ -22,6 +27,10 @@ export const apiBase: string = import.meta.env.VITE_BULLET_API ?? "";
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const SNAPSHOT_SEQUENCE_HEADER = "x-bullet-as-of-sequence";
+const CSRF_HEADER = "x-bullet-csrf";
+const CSRF_STORAGE_KEY = "bullet-farm.csrf.v1";
+
+let csrfInMemory: string | null = null;
 
 function hasMediaType(contentType: string, expected: string): boolean {
   return contentType.split(";", 1)[0]?.trim().toLowerCase() === expected;
@@ -39,6 +48,9 @@ export class ApiError extends Error {
   readonly url: string;
   readonly status: number | null;
   readonly outcomeUnknown: boolean;
+  readonly code: string | null;
+  readonly requestId: string | null;
+  readonly repair: string | null;
 
   constructor(
     method: string,
@@ -46,6 +58,7 @@ export class ApiError extends Error {
     status: number | null,
     detail: string,
     outcomeUnknown = method !== "GET" && method !== "HEAD" && status === null,
+    problem?: Problem,
   ) {
     super(`${method} ${url} failed: ${detail}`);
     this.name = "ApiError";
@@ -53,6 +66,9 @@ export class ApiError extends Error {
     this.url = url;
     this.status = status;
     this.outcomeUnknown = outcomeUnknown;
+    this.code = problem?.code ?? null;
+    this.requestId = problem?.request_id ?? null;
+    this.repair = problem?.repair ?? null;
   }
 }
 
@@ -68,7 +84,11 @@ type JsonRead = {
   url: string;
 };
 
-async function fetchJson(path: string, init?: RequestInit): Promise<JsonRead> {
+async function fetchJson(
+  path: string,
+  init?: RequestInit,
+  expectedStatus?: number,
+): Promise<JsonRead> {
   const method = init?.method ?? "GET";
   const url = `${apiBase}${path}`;
   const controller = new AbortController();
@@ -76,17 +96,48 @@ async function fetchJson(path: string, init?: RequestInit): Promise<JsonRead> {
   let response: Response;
   try {
     try {
-      response = await fetch(url, { ...init, signal: controller.signal });
+      response = await fetch(url, {
+        credentials: "same-origin",
+        ...init,
+        signal: controller.signal,
+      });
     } catch (err) {
       const detail = controller.signal.aborted
         ? `timeout after ${REQUEST_TIMEOUT_MS}ms`
         : errorText(err);
       throw new ApiError(method, url, null, detail);
     }
+    const contentType = response.headers.get("content-type") ?? "";
     if (!response.ok) {
+      let problem: unknown;
+      if (hasMediaType(contentType, "application/problem+json")) {
+        try {
+          problem = await response.json();
+        } catch {
+          problem = undefined;
+        }
+      }
+      if (isProblem(problem) && problem.status === response.status) {
+        throw new ApiError(
+          method,
+          url,
+          response.status,
+          `${problem.code}: ${problem.detail} Repair: ${problem.repair} (${problem.request_id})`,
+          false,
+          problem,
+        );
+      }
       throw new ApiError(method, url, response.status, `HTTP ${response.status}`);
     }
-    const contentType = response.headers.get("content-type") ?? "";
+    if (expectedStatus !== undefined && response.status !== expectedStatus) {
+      throw new ApiError(
+        method,
+        url,
+        response.status,
+        `expected HTTP ${expectedStatus}, received HTTP ${response.status}`,
+        method !== "GET" && method !== "HEAD",
+      );
+    }
     if (!hasMediaType(contentType, "application/json")) {
       throw new ApiError(
         method,
@@ -130,8 +181,9 @@ async function readJson<T>(
   path: string,
   validate: ResponseValidator<T>,
   init?: RequestInit,
+  expectedStatus?: number,
 ): Promise<T> {
-  const read = await fetchJson(path, init);
+  const read = await fetchJson(path, init, expectedStatus);
   if (!validate(read.body)) {
     throw schemaError(read, "response body failed schema validation");
   }
@@ -177,8 +229,121 @@ export function listMissions(): Promise<SnapshotRead<Mission[]>> {
   return readSnapshot("/v1/missions", isMissionList);
 }
 
-export async function runDemo(): Promise<DemoReceipt> {
-  return readJson("/v1/demo/run", isDemoReceipt, { method: "POST" });
+function browserStorage(): Storage | null {
+  try {
+    return typeof window === "undefined" ? null : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function storedCsrfToken(): string | null {
+  try {
+    return browserStorage()?.getItem(CSRF_STORAGE_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function csrfToken(): string | null {
+  return csrfInMemory ?? storedCsrfToken();
+}
+
+export function hasSessionMaterial(): boolean {
+  return csrfToken() !== null;
+}
+
+export function forgetBrowserSession(): void {
+  csrfInMemory = null;
+  try {
+    browserStorage()?.removeItem(CSRF_STORAGE_KEY);
+  } catch {
+    // In-memory authority is already cleared; unavailable storage fails closed.
+  }
+}
+
+function persistCsrfToken(csrf: string): void {
+  try {
+    browserStorage()?.setItem(CSRF_STORAGE_KEY, csrf);
+  } catch {
+    // The current page can still use the in-memory token; reload will fail closed.
+  }
+}
+
+export async function exchangeBootstrap(bootstrapToken: string): Promise<BootstrapResponse> {
+  const response = await readJson(
+    "/v1/auth/bootstrap",
+    isBootstrapResponse,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ bootstrap_token: bootstrapToken }),
+    },
+    200,
+  );
+  csrfInMemory = response.csrf_token;
+  persistCsrfToken(response.csrf_token);
+  return response;
+}
+
+export function newRunDemoEnvelope(): CommandEnvelope {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  const nonce = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return {
+    idempotency_key: `portal_${nonce}`,
+    kind: "run_demo",
+    payload: {},
+  };
+}
+
+export async function submitCommand(envelope: CommandEnvelope): Promise<CommandStatus> {
+  const csrf = csrfToken();
+  if (csrf === null) {
+    throw new ApiError(
+      "POST",
+      `${apiBase}/v1/commands`,
+      null,
+      "no authenticated browser session; exchange the one-time bootstrap first",
+      false,
+    );
+  }
+  const status = await readJson(
+    "/v1/commands",
+    isCommandStatus,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [CSRF_HEADER]: csrf,
+      },
+      body: JSON.stringify(envelope),
+    },
+    202,
+  );
+  if (status.status !== "PENDING" || status.kind !== envelope.kind || status.result !== null) {
+    throw new ApiError(
+      "POST",
+      `${apiBase}/v1/commands`,
+      202,
+      "admission response was not the exact PENDING command subject",
+      true,
+    );
+  }
+  return status;
+}
+
+export async function getCommand(id: string): Promise<CommandStatus> {
+  const status = await readJson(`/v1/commands/${encodeURIComponent(id)}`, isCommandStatus);
+  if (status.id !== id) {
+    throw new ApiError(
+      "GET",
+      `${apiBase}/v1/commands/${encodeURIComponent(id)}`,
+      200,
+      "command response id does not match the requested subject",
+    );
+  }
+  return status;
 }
 
 export function fetchOutbox(): Promise<SnapshotRead<OutboxView>> {

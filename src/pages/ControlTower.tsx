@@ -1,32 +1,63 @@
 import { useCallback, useRef, useState } from "react";
-import { ApiError, errorText, fetchOutbox, listMissions, runDemo } from "../api";
+import {
+  ApiError,
+  errorText,
+  exchangeBootstrap,
+  fetchOutbox,
+  forgetBrowserSession,
+  getCommand,
+  hasSessionMaterial,
+  listMissions,
+  newRunDemoEnvelope,
+  submitCommand,
+} from "../api";
+import { CommandCard } from "../components/CommandCard";
 import { MissionsCard } from "../components/MissionsCard";
 import { OutboxCard } from "../components/OutboxCard";
-import { ReceiptCard } from "../components/ReceiptCard";
 import { StatusHeader } from "../components/StatusHeader";
-import type { DemoReceipt, Mission, OutboxView } from "../generated/api";
+import type { CommandStatus, Mission, OutboxView } from "../generated/api";
 import { useEventStream } from "../hooks/useEventStream";
 import { useHealthProbe } from "../hooks/useHealthProbe";
 import type { Loadable } from "../loadable";
 import { toSnapshotValue, toUnknown } from "../loadable";
 
-type MutationPhase = "idle" | "pending" | "verified" | "failed" | "unknown";
+type MutationPhase = "IDLE" | CommandStatus["status"];
 
 const PHASE_CLASS: Record<MutationPhase, string> = {
-  idle: "idle",
-  pending: "pending",
-  verified: "verified",
-  failed: "failed",
-  unknown: "unknown",
+  IDLE: "idle",
+  PENDING: "pending",
+  APPLIED: "pending",
+  VERIFIED: "verified",
+  FAILED: "failed",
+  UNKNOWN: "unknown",
 };
+
+const POLL_INTERVAL_MS = 250;
+
+function isTerminal(status: CommandStatus["status"]): boolean {
+  return status === "VERIFIED" || status === "FAILED" || status === "UNKNOWN";
+}
+
+function regresses(previous: CommandStatus["status"], next: CommandStatus["status"]): boolean {
+  return previous === "APPLIED" && next === "PENDING";
+}
+
+function waitForPoll(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+}
 
 export function ControlTower() {
   const [missions, setMissions] = useState<Loadable<Mission[]>>({ kind: "loading" });
   const [outbox, setOutbox] = useState<Loadable<OutboxView>>({ kind: "loading" });
-  const [receipt, setReceipt] = useState<DemoReceipt | null>(null);
-  const [phase, setPhase] = useState<MutationPhase>("idle");
+  const [command, setCommand] = useState<CommandStatus | null>(null);
+  const [phase, setPhase] = useState<MutationPhase>("IDLE");
   const [error, setError] = useState<string | null>(null);
+  const [bootstrapToken, setBootstrapToken] = useState("");
+  const [sessionMaterial, setSessionMaterial] = useState(hasSessionMaterial);
+  const [authPending, setAuthPending] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const runningRef = useRef(false);
+  const commandGeneration = useRef(0);
   const health = useHealthProbe();
 
   const refreshMissions = useCallback(async (): Promise<number | null> => {
@@ -63,31 +94,101 @@ export function ControlTower() {
 
   const stream = useEventStream(refreshSnapshot);
 
+  async function onAuthenticate(): Promise<void> {
+    if (authPending || bootstrapToken.trim() === "") {
+      return;
+    }
+    setAuthPending(true);
+    setAuthError(null);
+    try {
+      await exchangeBootstrap(bootstrapToken.trim());
+      setBootstrapToken("");
+      setSessionMaterial(true);
+    } catch (err) {
+      setSessionMaterial(false);
+      setAuthError(errorText(err));
+    } finally {
+      setAuthPending(false);
+    }
+  }
+
+  async function reconcile(initial: CommandStatus, generation: number): Promise<void> {
+    let last = initial;
+    while (!isTerminal(last.status)) {
+      await waitForPoll();
+      if (commandGeneration.current !== generation) {
+        return;
+      }
+      let next: CommandStatus;
+      try {
+        next = await getCommand(initial.id);
+      } catch (err) {
+        if (commandGeneration.current === generation) {
+          if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+            forgetBrowserSession();
+            setSessionMaterial(false);
+          }
+          setPhase("UNKNOWN");
+          setError(`command ${initial.id} reconciliation unknown (${errorText(err)})`);
+          runningRef.current = false;
+        }
+        return;
+      }
+      if (
+        next.id !== initial.id ||
+        next.kind !== initial.kind ||
+        next.payload_digest !== initial.payload_digest ||
+        regresses(last.status, next.status)
+      ) {
+        setPhase("UNKNOWN");
+        setError(`command ${initial.id} reconciliation returned conflicting durable truth`);
+        runningRef.current = false;
+        return;
+      }
+      last = next;
+      setCommand(next);
+      setPhase(next.status);
+    }
+    runningRef.current = false;
+    if (last.status === "FAILED" || last.status === "UNKNOWN") {
+      setError(`command ${last.id} durably ${last.status}`);
+      return;
+    }
+    await refreshSnapshot();
+  }
+
   async function onRunDemo(): Promise<void> {
     if (runningRef.current) {
       return;
     }
     runningRef.current = true;
-    setPhase("pending");
+    const generation = commandGeneration.current + 1;
+    commandGeneration.current = generation;
+    setPhase("PENDING");
     setError(null);
-    setReceipt(null);
+    setCommand(null);
     try {
-      const next = await runDemo();
-      setReceipt(next);
-      setPhase("verified");
+      const admitted = await submitCommand(newRunDemoEnvelope());
+      if (commandGeneration.current !== generation) {
+        return;
+      }
+      setCommand(admitted);
+      setPhase(admitted.status);
+      await reconcile(admitted, generation);
     } catch (err) {
       const ambiguous = err instanceof ApiError && err.outcomeUnknown;
-      setPhase(ambiguous ? "unknown" : "failed");
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        forgetBrowserSession();
+        setSessionMaterial(false);
+      }
+      setPhase(ambiguous ? "UNKNOWN" : "FAILED");
       setError(
         ambiguous
-          ? `command outcome unknown; no command-id reconciliation endpoint is published (${errorText(err)})`
+          ? `command admission outcome unknown; no command id was received (${errorText(err)})`
           : errorText(err),
       );
-      return;
-    } finally {
       runningRef.current = false;
     }
-    await refreshSnapshot();
   }
 
   return (
@@ -95,11 +196,46 @@ export function ControlTower() {
       <h1>Control Tower</h1>
       <p className="tagline">Many minds. One verified line to main.</p>
       <StatusHeader stream={stream} health={health.state} />
-      <button type="button" disabled={phase === "pending"} onClick={() => void onRunDemo()}>
-        Run simulator demo
+      {sessionMaterial ? (
+        <p className="pending" data-testid="auth-state">
+          local session material present; farmd revalidates every command
+        </p>
+      ) : (
+        <form
+          className="card"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void onAuthenticate();
+          }}
+        >
+          <h2>Local browser session</h2>
+          <label htmlFor="bootstrap-token">One-time bootstrap token</label>{" "}
+          <input
+            id="bootstrap-token"
+            type="password"
+            autoComplete="off"
+            value={bootstrapToken}
+            onChange={(event) => setBootstrapToken(event.target.value)}
+          />{" "}
+          <button type="submit" disabled={authPending || bootstrapToken.trim() === ""}>
+            Authenticate local session
+          </button>
+          {authError !== null ? (
+            <p className="failed" data-testid="auth-error">
+              {authError}
+            </p>
+          ) : null}
+        </form>
+      )}
+      <button
+        type="button"
+        disabled={!sessionMaterial || runningRef.current}
+        onClick={() => void onRunDemo()}
+      >
+        Submit durable demo command
       </button>
       <p className={PHASE_CLASS[phase]} data-testid="phase">
-        mutation phase: {phase}
+        command phase: {phase}
       </p>
       {error !== null ? (
         <p className={PHASE_CLASS[phase]} data-testid="mutation-error">
@@ -108,7 +244,7 @@ export function ControlTower() {
       ) : null}
       <MissionsCard missions={missions} />
       <OutboxCard outbox={outbox} />
-      {receipt !== null ? <ReceiptCard receipt={receipt} /> : null}
+      {command !== null ? <CommandCard command={command} /> : null}
     </main>
   );
 }

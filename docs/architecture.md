@@ -14,23 +14,26 @@ the ready queue is empty, which the client maps to a null watermark, so an
 idle farmd shows Live Attempt as `unknown` rather than as a healthy empty
 list.
 
-Operators diagnose from durable projections and `/v1/events`. The browser
-never holds authority, and no view mutates authoritative state optimistically.
-The current component build has no public `/v1/commands` ledger, authenticated
-browser session, or CSRF boundary. Its Run button calls `POST /v1/demo/run`
-directly and renders that request's local phase and returned demo receipt. This
-must not be interpreted as a durable command or transaction result.
+Operators diagnose from durable projections and `/v1/events`. No view mutates
+authoritative state optimistically. The browser receives only a local,
+session-bound mutation capability: farmd exchanges one short-lived CLI
+bootstrap for an HttpOnly/SameSite cookie and CSRF value, then authorizes
+`POST /v1/commands`. The Portal never treats HTTP acceptance as completion; it
+polls the returned id through `GET /v1/commands/{id}`. The same-origin CSRF
+value is retained in memory with best-effort session-storage continuity and has
+no mutation authority without the HttpOnly cookie. A missing or stale pair
+fails at farmd.
 
 ## Status vocabulary
 
 Spec §25 vocabulary: PENDING, CONFIRMED, FAILED, UNKNOWN, STALE,
 CONTRADICTORY. Portal rendering:
 
-- Mutation phases: `idle` (nothing requested, neutral), `pending` (the direct
-  demo request is in flight, amber), `verified` (the demo endpoint returned its
-  component receipt, green), `failed` (transport or endpoint failure, red —
-  the error stays visible until the next request). The `verified` view label is
-  not a public command `VERIFIED` state or release evidence.
+- Mutation phases use the exact public command names. `PENDING` and `APPLIED`
+  render amber; only persisted `VERIFIED` renders green; persisted `FAILED`
+  renders red; persisted or locally unobservable `UNKNOWN` renders unknown.
+  `IDLE` is neutral. A successful POST must be exact HTTP 202 with a validated
+  `PENDING` subject and still does not render green.
 - Outbox delivery phases come from the kernel wire names
   (`CommandPhase::as_str`): `pending` and `applied` render amber, `verified`
   renders green, `unknown` — and any unrecognized phase — renders red.
@@ -40,9 +43,11 @@ CONTRADICTORY. Portal rendering:
   `unknown: control plane unreachable (…)`, never "No missions yet.".
   "No missions yet." and "outbox: empty (verified)" render only from an
   HTTP 200 with a JSON body.
-- The demo receipt renders `effect_unknown_outcome` through the unknown
-  style: it is the kernel's honest OUTCOME-unknown demonstration and must
-  never look like success.
+- Every status read must repeat the admitted command id, kind, and payload
+  digest. A conflicting subject or a response/transport timeout becomes local
+  UNKNOWN, as does an APPLIED-to-PENDING regression. Starting a later command
+  clears the older command before transport, so an older verified result cannot
+  color a newer failed or unknown request.
 - STALE renders as a badge when the event stream detects a sequence gap. The
   acknowledged cursor stays at the last contiguous sequence. It clears only
   when replay fills the gap or both snapshot reads return watermarks covering
@@ -56,15 +61,17 @@ name their spec section and `as_of_sequence`. The Control Tower header shows
 `as_of_sequence`, projection lag, source health from a real `/health` probe
 (10s timeout), and the stream connection state. Endpoints consumed:
 `GET /v1/missions`, `GET /v1/missions/{id}`, `GET /v1/outbox`,
-`GET /v1/ready`, `POST /v1/demo/run`, `GET /health`, and
+`GET /v1/ready`, `POST /v1/auth/bootstrap`, `POST /v1/commands`,
+`GET /v1/commands/{id}`, `GET /health`, and
 `GET /v1/events?after=<seq>`.
 
 Development is same-origin: Vite proxies `/v1`, `/health`, and
 `/openapi.yaml` to loopback farmd. Farmd does not expose wildcard CORS, so the
 hub launcher clears `VITE_BULLET_API` instead of directing browser requests to
-a different origin. The current real-farmd browser lane also uses a Vite
-development server and the synthetic demo endpoint; it is component evidence,
-not embedded-production-Portal or command-ledger evidence.
+a different origin. The real-farmd browser lane builds farmd, captures its
+one-time bootstrap without logging it, and proves cookie/Origin/CSRF/202/status
+reconciliation through the Portal. Because no command worker is implemented,
+the exact real result is durable PENDING, not transaction completion.
 
 ## Event stream
 
@@ -93,7 +100,8 @@ hook owns the exclusive sequence cursor and carries it across reconnects.
   four-field snapshot body, current Kernel source, RFC 3339 observation time,
   safe nonnegative sequence, and an equal required watermark header. Failures
   throw `ApiError` carrying method, URL, and status, and that text is what the
-  UI shows. Health and the demo mutation retain their non-snapshot JSON shapes.
+  UI shows. Bootstrap and command responses use their generated non-snapshot
+  shapes; command admission additionally requires exact HTTP 202.
 - Projection value timestamps and source labels come from the validated Kernel
   snapshot. Transport/schema failures are timestamped locally as
   `portal/local`; a 404 is never converted into a successful empty projection.
