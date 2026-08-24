@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Nav } from "./components/Nav";
 import { ControlTower } from "./pages/ControlTower";
+import { isProjected, ProjectedSurface } from "./pages/ProjectedSurface";
 import { SurfacePage } from "./pages/SurfacePage";
 import { hashToSurface, surfaceById, type SurfaceId } from "./surfaces";
 
@@ -28,7 +29,13 @@ export function App() {
   return (
     <ErrorBoundary>
       <Nav current={surfaceId} />
-      {surfaceId === "control-tower" ? <ControlTower /> : <SurfacePage surface={surface} />}
+      {surfaceId === "control-tower" ? (
+        <ControlTower />
+      ) : isProjected(surfaceId) ? (
+        <ProjectedSurface surface={surface} />
+      ) : (
+        <SurfacePage surface={surface} />
+      )}
     </ErrorBoundary>
   );
 }
