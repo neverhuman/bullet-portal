@@ -5,10 +5,13 @@ const demoReceipt = {
   plan_hash: "abc",
   fence: 1,
   attempt_id: "atm_live",
+  fence_second: 2,
+  attempt_second_id: "atm_second",
   stale_attempt_id: "atm_stale",
   candidate_head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   evidence_result: "PASS",
   effect_outcome: "verified",
+  effect_unknown_outcome: "unknown",
   materialize_idempotent: true,
   stale_refused: true,
 };
@@ -22,7 +25,7 @@ async function mockSnapshot(page: Page): Promise<void> {
     await route.fallback();
   });
   await page.route("**/v1/outbox", async (route) => {
-    await route.fulfill({ json: { pending: [] }, contentType: "application/json" });
+    await route.fulfill({ json: { items: [] }, contentType: "application/json" });
   });
   await page.route("**/v1/events**", async (route) => {
     await route.fulfill({ status: 404, contentType: "text/plain", body: "no stream" });
@@ -51,11 +54,14 @@ test("demo receipt verifies against a mocked ledger", async ({ page }) => {
   await page.getByRole("button", { name: "Run simulator demo" }).click();
   await expect(page.getByTestId("phase")).toContainText("mutation phase: verified");
   await expect(page.getByTestId("receipt")).toContainText("atm_stale");
+  await expect(page.getByTestId("receipt")).toContainText("atm_second");
   await expect(page.getByTestId("receipt")).toContainText("abc");
   await expect(page.getByTestId("receipt")).toContainText(
     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   );
   await expect(page.getByTestId("receipt")).toContainText("true");
+  await expect(page.getByTestId("effect-unknown-outcome")).toHaveClass("unknown");
+  await expect(page.getByTestId("effect-unknown-outcome")).toContainText("unknown");
 });
 
 test("pending is visible before the ledger confirms", async ({ page }) => {
@@ -121,4 +127,29 @@ test("a failed missions read renders unknown, not an empty list", async ({ page 
   );
   await expect(page.locator("text=No missions yet.")).toHaveCount(0);
   await expect(page.getByTestId("outbox-unknown")).toContainText("unknown");
+});
+
+test("the event stream advances as_of_sequence from named SSE frames", async ({ page }) => {
+  await page.route("**/v1/missions", (route) =>
+    route.fulfill({ json: [], contentType: "application/json" }),
+  );
+  await page.route("**/v1/outbox", (route) =>
+    route.fulfill({ json: { items: [] }, contentType: "application/json" }),
+  );
+  await page.route("**/health", (route) =>
+    route.fulfill({ json: { status: "ok" }, contentType: "application/json" }),
+  );
+  const frames = [
+    'id: 1\nevent: candidate_prepared\ndata: {"seq":1,"kind":"candidate_prepared","body":"{}","event_id":"evt_1"}\n\n',
+    ": keep-alive\n\n",
+    'id: 2\nevent: effect_receipt\ndata: {"seq":2,"kind":"effect_receipt","body":"{}","event_id":"evt_2"}\n\n',
+  ].join("");
+  await page.route("**/v1/events**", (route) =>
+    route.fulfill({ status: 200, contentType: "text/event-stream", body: frames }),
+  );
+
+  await page.goto("/");
+  await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 2");
+  await expect(page.getByTestId("projection-lag")).toContainText(/projection lag: \d+s/);
+  await expect(page.getByTestId("stream-connection")).toContainText("reconnecting");
 });

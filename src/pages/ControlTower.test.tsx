@@ -28,10 +28,13 @@ const receipt: DemoReceipt = {
   plan_hash: "abc",
   fence: 1,
   attempt_id: "atm_live",
+  fence_second: 2,
+  attempt_second_id: "atm_second",
   stale_attempt_id: "atm_stale",
   candidate_head: "b".repeat(40),
   evidence_result: "PASS",
   effect_outcome: "verified",
+  effect_unknown_outcome: "unknown",
   materialize_idempotent: true,
   stale_refused: true,
 };
@@ -43,7 +46,7 @@ function missionsError(): api.ApiError {
 beforeEach(() => {
   vi.clearAllMocks();
   mocked.listMissions.mockResolvedValue([]);
-  mocked.fetchOutbox.mockResolvedValue({ pending: [] });
+  mocked.fetchOutbox.mockResolvedValue({ items: [] });
   mocked.fetchHealth.mockResolvedValue({ status: "ok" });
   mocked.runDemo.mockResolvedValue(receipt);
 });

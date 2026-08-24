@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { apiBase } from "../api";
+import type { SseFrame } from "../sse";
+import { readSseStream } from "../sse";
 
 export type StreamConnection = "live" | "reconnecting" | "unknown";
 
@@ -22,31 +24,41 @@ const INITIAL: EventStreamState = {
   stale: false,
 };
 
-type ParsedEvent = { id: string | null; seq: number | null; at: string };
+export type ParsedEvent = { id: string | null; seq: number | null; at: string };
 
-function parseEvent(raw: MessageEvent): ParsedEvent | null {
-  let data: unknown;
+/**
+ * Kernel framing: SSE id = ledger seq, SSE event = kind, data = Event JSON
+ * ({seq, kind, body, event_id, ...}; no timestamp, so `at` is arrival time).
+ */
+export function parseFrame(frame: SseFrame): ParsedEvent {
+  let record: Record<string, unknown> = {};
   try {
-    data = JSON.parse(String(raw.data));
+    const data: unknown = JSON.parse(frame.data);
+    if (typeof data === "object" && data !== null) {
+      record = data as Record<string, unknown>;
+    }
   } catch {
-    return null;
+    record = {};
   }
-  if (typeof data !== "object" || data === null) {
-    return null;
-  }
-  const record = data as Record<string, unknown>;
+  const seqFromData = typeof record.seq === "number" ? record.seq : null;
+  const seqFromId = frame.id !== null && /^\d+$/.test(frame.id) ? Number(frame.id) : null;
+  const seq = seqFromData ?? seqFromId;
   const id =
-    typeof record.id === "string" ? record.id : raw.lastEventId !== "" ? raw.lastEventId : null;
-  const seq = typeof record.seq === "number" ? record.seq : null;
-  const at = typeof record.at === "string" ? record.at : new Date().toISOString();
-  return { id, seq, at };
+    typeof record.event_id === "string"
+      ? record.event_id
+      : frame.id !== null
+        ? frame.id
+        : seq !== null
+          ? String(seq)
+          : null;
+  return { id, seq, at: new Date().toISOString() };
 }
 
 type Verdict = "duplicate" | "ok" | "gap";
 
-type Tracker = { lastSeq: () => number | null; accept: (event: ParsedEvent) => Verdict };
+export type Tracker = { lastSeq: () => number | null; accept: (event: ParsedEvent) => Verdict };
 
-function createTracker(cap: number): Tracker {
+export function createTracker(cap: number): Tracker {
   const seen = new Set<string>();
   const order: string[] = [];
   let lastSeq: number | null = null;
@@ -79,6 +91,18 @@ function createTracker(cap: number): Tracker {
   };
 }
 
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, ms);
+    function done(): void {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    }
+    signal.addEventListener("abort", done);
+  });
+}
+
 type StreamCallbacks = {
   patch: (next: Partial<EventStreamState>) => void;
   onGap: () => Promise<void>;
@@ -86,16 +110,12 @@ type StreamCallbacks = {
 
 function createStream(cb: StreamCallbacks): () => void {
   const tracker = createTracker(SEEN_ID_CAP);
+  const controller = new AbortController();
   let disposed = false;
-  let source: EventSource | null = null;
-  let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let everConnected = false;
 
-  const handleMessage = (raw: MessageEvent): void => {
-    const event = parseEvent(raw);
-    if (event === null) {
-      return;
-    }
+  const handleFrame = (frame: SseFrame): void => {
+    const event = parseFrame(frame);
     const verdict = tracker.accept(event);
     if (verdict === "duplicate") {
       return;
@@ -110,15 +130,7 @@ function createStream(cb: StreamCallbacks): () => void {
     cb.patch({ asOfSequence: tracker.lastSeq(), lastEventAt: event.at });
   };
 
-  const handleError = (): void => {
-    if (source !== null && source.readyState === EventSource.CLOSED) {
-      cb.patch({ connection: "unknown", detail: "events stream unavailable" });
-      retryTimer ??= setTimeout(() => {
-        retryTimer = null;
-        connect();
-      }, RETRY_MS);
-      return;
-    }
+  const markDown = (): void => {
     cb.patch(
       everConnected
         ? { connection: "reconnecting", detail: "connection lost, retrying" }
@@ -126,26 +138,31 @@ function createStream(cb: StreamCallbacks): () => void {
     );
   };
 
-  function connect(): void {
-    if (disposed) {
-      return;
+  const loop = async (): Promise<void> => {
+    while (!disposed) {
+      try {
+        await readSseStream(`${apiBase}/v1/events?after=${tracker.lastSeq() ?? 0}`, controller.signal, {
+          onOpen: () => {
+            everConnected = true;
+            cb.patch({ connection: "live", detail: "" });
+          },
+          onFrame: handleFrame,
+        });
+      } catch {
+        // fall through to markDown + retry
+      }
+      if (disposed) {
+        return;
+      }
+      markDown();
+      await delay(RETRY_MS, controller.signal);
     }
-    source = new EventSource(`${apiBase}/v1/events?after=${tracker.lastSeq() ?? 0}`);
-    source.onopen = () => {
-      everConnected = true;
-      cb.patch({ connection: "live", detail: "" });
-    };
-    source.onmessage = handleMessage;
-    source.onerror = handleError;
-  }
+  };
 
-  connect();
+  void loop();
   return () => {
     disposed = true;
-    if (retryTimer !== null) {
-      clearTimeout(retryTimer);
-    }
-    source?.close();
+    controller.abort();
   };
 }
 
@@ -155,14 +172,6 @@ export function useEventStream(onGap: () => Promise<void>): EventStreamState {
   onGapRef.current = onGap;
 
   useEffect(() => {
-    if (typeof EventSource === "undefined") {
-      setState((prev) => ({
-        ...prev,
-        connection: "unknown",
-        detail: "events stream unavailable",
-      }));
-      return;
-    }
     let disposed = false;
     const dispose = createStream({
       patch: (next) => {

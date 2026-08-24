@@ -1,11 +1,21 @@
-import type { OutboxView } from "../generated/api";
+import type { OutboxItem, OutboxView } from "../generated/api";
 import type { Loadable } from "../loadable";
 import { renderObservation } from "../observation";
+
+const PHASE_CLASS: Record<string, string> = {
+  pending: "pending",
+  applied: "pending",
+  verified: "verified",
+};
+
+function phaseClass(phase: string): string {
+  return PHASE_CLASS[phase] ?? "unknown";
+}
 
 export function OutboxCard({ outbox }: { outbox: Loadable<OutboxView> }) {
   return (
     <section className="card" data-testid="outbox">
-      <h2>Pending commands</h2>
+      <h2>Outbox commands</h2>
       <OutboxBody outbox={outbox} />
     </section>
   );
@@ -24,20 +34,31 @@ function OutboxBody({ outbox }: { outbox: Loadable<OutboxView> }) {
   }
   return (
     <>
-      {outbox.value.pending.length === 0 ? (
+      {outbox.value.items.length === 0 ? (
         <p className="verified" data-testid="outbox-empty">
           outbox: empty (verified)
         </p>
       ) : (
         <ul>
-          {outbox.value.pending.map((commandId) => (
-            <li key={commandId}>
-              <span className="pending">pending</span> — {commandId}
-            </li>
+          {outbox.value.items.map((item) => (
+            <OutboxRow key={item.seq} item={item} />
           ))}
         </ul>
       )}
       <p className="source">source: GET /v1/outbox (observed {outbox.observedAt})</p>
     </>
+  );
+}
+
+function OutboxRow({ item }: { item: OutboxItem }) {
+  return (
+    <li>
+      <span className={phaseClass(item.phase)} data-testid={`outbox-phase-${item.seq}`}>
+        {item.phase}
+      </span>{" "}
+      — seq {item.seq} · {item.kind}
+      {item.delivered_at !== null ? ` · delivered ${item.delivered_at}` : ""}
+      {item.acked_at !== null ? ` · acked ${item.acked_at}` : ""}
+    </li>
   );
 }

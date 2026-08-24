@@ -13,6 +13,10 @@ export function ReceiptCard({ receipt }: { receipt: DemoReceipt }) {
         <dd>{receipt.fence}</dd>
         <dt>live attempt</dt>
         <dd>{receipt.attempt_id}</dd>
+        <dt>second fence</dt>
+        <dd>{receipt.fence_second}</dd>
+        <dt>second attempt</dt>
+        <dd>{receipt.attempt_second_id}</dd>
         <dt>stale attempt</dt>
         <dd>{receipt.stale_attempt_id}</dd>
         <dt>stale refused</dt>
@@ -23,6 +27,10 @@ export function ReceiptCard({ receipt }: { receipt: DemoReceipt }) {
         <dd>{receipt.evidence_result}</dd>
         <dt>effect</dt>
         <dd>{receipt.effect_outcome}</dd>
+        <dt>effect unknown outcome</dt>
+        <dd className="unknown" data-testid="effect-unknown-outcome">
+          {receipt.effect_unknown_outcome}
+        </dd>
         <dt>materialize idempotent</dt>
         <dd>{String(receipt.materialize_idempotent)}</dd>
       </dl>
