@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 const demoReceipt = {
   mission_id: "mis_demo",
   plan_hash: "abc",
-  fence: 1,
+  fence_first: 1,
   attempt_id: "atm_live",
   fence_second: 2,
   attempt_second_id: "atm_second",
@@ -16,16 +16,31 @@ const demoReceipt = {
   stale_refused: true,
 };
 
+const observedAt = "2026-08-24T22:00:00.000Z";
+
+function snapshot(data: unknown, sequence = 0) {
+  return {
+    json: {
+      data,
+      as_of_sequence: sequence,
+      observed_at: observedAt,
+      source: "bullet-kernel/sqlite-ledger",
+    },
+    contentType: "application/json",
+    headers: { "x-bullet-as-of-sequence": String(sequence) },
+  };
+}
+
 async function mockSnapshot(page: Page): Promise<void> {
   await page.route("**/v1/missions", async (route) => {
     if (route.request().method() === "GET") {
-      await route.fulfill({ json: [], contentType: "application/json" });
+      await route.fulfill(snapshot([]));
       return;
     }
     await route.fallback();
   });
   await page.route("**/v1/outbox", async (route) => {
-    await route.fulfill({ json: { items: [] }, contentType: "application/json" });
+    await route.fulfill(snapshot({ items: [] }));
   });
   await page.route("**/v1/events**", async (route) => {
     await route.fulfill({ status: 404, contentType: "text/plain", body: "no stream" });
@@ -51,6 +66,7 @@ test("demo receipt verifies against a mocked ledger", async ({ page }) => {
     "unknown (events stream unavailable)",
   );
   await expect(page.getByTestId("outbox-empty")).toContainText("outbox: empty (verified)");
+  await expect(page.getByText(/source: bullet-kernel\/sqlite-ledger via GET/).first()).toBeVisible();
   await page.getByRole("button", { name: "Run simulator demo" }).click();
   await expect(page.getByTestId("phase")).toContainText("mutation phase: verified");
   await expect(page.getByTestId("receipt")).toContainText("atm_stale");
@@ -151,10 +167,10 @@ test("a failed missions read renders unknown, not an empty list", async ({ page 
 
 test("the event stream advances as_of_sequence from default EventEnvelopes", async ({ page }) => {
   await page.route("**/v1/missions", (route) =>
-    route.fulfill({ json: [], contentType: "application/json" }),
+    route.fulfill(snapshot([])),
   );
   await page.route("**/v1/outbox", (route) =>
-    route.fulfill({ json: { items: [] }, contentType: "application/json" }),
+    route.fulfill(snapshot({ items: [] })),
   );
   await page.route("**/health", (route) =>
     route.fulfill({ json: { status: "ok" }, contentType: "application/json" }),
@@ -182,39 +198,23 @@ test("a 1,2,4 gap survives malformed snapshot recovery until watermark 4", async
   let outboxRecoveries = 0;
   await page.route("**/v1/missions", (route) => {
     if (!gapEmitted) {
-      return route.fulfill({
-        json: [],
-        contentType: "application/json",
-        headers: { "x-bullet-as-of-sequence": "0" },
-      });
+      return route.fulfill(snapshot([]));
     }
     missionRecoveries += 1;
     if (missionRecoveries === 1) {
       return route.fulfill({ status: 200, contentType: "application/json", body: "[" });
     }
-    return route.fulfill({
-      json: [],
-      contentType: "application/json",
-      headers: { "x-bullet-as-of-sequence": "4" },
-    });
+    return route.fulfill(snapshot([], 4));
   });
   await page.route("**/v1/outbox", (route) => {
     if (!gapEmitted) {
-      return route.fulfill({
-        json: { items: [] },
-        contentType: "application/json",
-        headers: { "x-bullet-as-of-sequence": "0" },
-      });
+      return route.fulfill(snapshot({ items: [] }));
     }
     outboxRecoveries += 1;
     if (outboxRecoveries === 1) {
       return route.fulfill({ status: 200, contentType: "application/json", body: "{" });
     }
-    return route.fulfill({
-      json: { items: [] },
-      contentType: "application/json",
-      headers: { "x-bullet-as-of-sequence": "4" },
-    });
+    return route.fulfill(snapshot({ items: [] }, 4));
   });
   await mockHealthOk(page);
 
@@ -263,20 +263,12 @@ test("an event-retention 410 rebases from a covering snapshot before reconnect",
 }) => {
   await page.clock.install();
   let retentionGap = false;
-  const snapshotSequence = (): string => (retentionGap ? "8" : "0");
+  const snapshotSequence = (): number => (retentionGap ? 8 : 0);
   await page.route("**/v1/missions", (route) =>
-    route.fulfill({
-      json: [],
-      contentType: "application/json",
-      headers: { "x-bullet-as-of-sequence": snapshotSequence() },
-    }),
+    route.fulfill(snapshot([], snapshotSequence())),
   );
   await page.route("**/v1/outbox", (route) =>
-    route.fulfill({
-      json: { items: [] },
-      contentType: "application/json",
-      headers: { "x-bullet-as-of-sequence": snapshotSequence() },
-    }),
+    route.fulfill(snapshot({ items: [] }, snapshotSequence())),
   );
   await mockHealthOk(page);
 
@@ -293,7 +285,7 @@ test("an event-retention 410 rebases from a covering snapshot before reconnect",
       await route.fulfill({
         status: 410,
         contentType: "application/problem+json",
-        body: '{"code":"EVENT_RETENTION_GAP"}',
+        body: '{"code":"REPLAY_UNAVAILABLE"}',
       });
       return;
     }

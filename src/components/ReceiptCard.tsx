@@ -9,8 +9,8 @@ export function ReceiptCard({ receipt }: { receipt: DemoReceipt }) {
         <dd>{receipt.mission_id}</dd>
         <dt>plan hash</dt>
         <dd>{receipt.plan_hash}</dd>
-        <dt>fence</dt>
-        <dd>{receipt.fence}</dd>
+        <dt>first fence</dt>
+        <dd>{receipt.fence_first}</dd>
         <dt>live attempt</dt>
         <dd>{receipt.attempt_id}</dd>
         <dt>second fence</dt>

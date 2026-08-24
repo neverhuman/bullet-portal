@@ -11,8 +11,10 @@ import {
   isHealth,
   isMissionList,
   isMissionView,
+  isNullableReadyView,
   isOutboxView,
-  isReadyView,
+  isSnapshotEnvelope,
+  SNAPSHOT_SOURCE,
   type ResponseValidator,
 } from "./apiValidation";
 
@@ -27,7 +29,9 @@ function hasMediaType(contentType: string, expected: string): boolean {
 
 export type SnapshotRead<T> = {
   data: T;
-  asOfSequence: number | null;
+  asOfSequence: number;
+  observedAt: string;
+  source: typeof SNAPSHOT_SOURCE;
 };
 
 export class ApiError extends Error {
@@ -56,11 +60,15 @@ export function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-async function readJson<T>(
-  path: string,
-  validate: ResponseValidator<T>,
-  init?: RequestInit,
-): Promise<SnapshotRead<T>> {
+type JsonRead = {
+  body: unknown;
+  headers: Headers;
+  method: string;
+  status: number;
+  url: string;
+};
+
+async function fetchJson(path: string, init?: RequestInit): Promise<JsonRead> {
   const method = init?.method ?? "GET";
   const url = `${apiBase}${path}`;
   const controller = new AbortController();
@@ -88,9 +96,9 @@ async function readJson<T>(
         method !== "GET" && method !== "HEAD",
       );
     }
-    let data: unknown;
+    let body: unknown;
     try {
-      data = await response.json();
+      body = await response.json();
     } catch {
       throw new ApiError(
         method,
@@ -102,57 +110,89 @@ async function readJson<T>(
         method !== "GET" && method !== "HEAD",
       );
     }
-    if (!validate(data)) {
-      throw new ApiError(
-        method,
-        url,
-        response.status,
-        "response body failed schema validation",
-        method !== "GET" && method !== "HEAD",
-      );
-    }
-    return { data, asOfSequence: readSnapshotSequence(response.headers) };
+    return { body, headers: response.headers, method, status: response.status, url };
   } finally {
     clearTimeout(timer);
   }
 }
 
-function readSnapshotSequence(headers: Headers): number | null {
+function schemaError(read: JsonRead, detail: string): ApiError {
+  return new ApiError(
+    read.method,
+    read.url,
+    read.status,
+    detail,
+    read.method !== "GET" && read.method !== "HEAD",
+  );
+}
+
+async function readJson<T>(
+  path: string,
+  validate: ResponseValidator<T>,
+  init?: RequestInit,
+): Promise<T> {
+  const read = await fetchJson(path, init);
+  if (!validate(read.body)) {
+    throw schemaError(read, "response body failed schema validation");
+  }
+  return read.body;
+}
+
+async function readSnapshot<T>(
+  path: string,
+  validateData: ResponseValidator<T>,
+): Promise<SnapshotRead<T>> {
+  const read = await fetchJson(path);
+  if (!isSnapshotEnvelope(read.body, validateData)) {
+    throw schemaError(read, "snapshot body failed schema validation");
+  }
+  const headerSequence = readSnapshotSequence(read.headers, read);
+  if (headerSequence !== read.body.as_of_sequence) {
+    throw schemaError(read, "snapshot watermark header/body mismatch");
+  }
+  return {
+    data: read.body.data,
+    asOfSequence: read.body.as_of_sequence,
+    observedAt: read.body.observed_at,
+    source: read.body.source,
+  };
+}
+
+function readSnapshotSequence(headers: Headers, read: JsonRead): number {
   const raw = headers.get(SNAPSHOT_SEQUENCE_HEADER);
-  if (raw === null || !/^\d+$/.test(raw)) {
-    return null;
+  if (raw === null) {
+    throw schemaError(read, "snapshot watermark header is missing");
+  }
+  if (!/^(?:0|[1-9]\d*)$/.test(raw)) {
+    throw schemaError(read, "snapshot watermark header is invalid");
   }
   const value = Number(raw);
-  return Number.isSafeInteger(value) ? value : null;
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw schemaError(read, "snapshot watermark header is invalid");
+  }
+  return value;
 }
 
 export function listMissions(): Promise<SnapshotRead<Mission[]>> {
-  return readJson("/v1/missions", isMissionList);
+  return readSnapshot("/v1/missions", isMissionList);
 }
 
 export async function runDemo(): Promise<DemoReceipt> {
-  return (await readJson("/v1/demo/run", isDemoReceipt, { method: "POST" })).data;
+  return readJson("/v1/demo/run", isDemoReceipt, { method: "POST" });
 }
 
 export function fetchOutbox(): Promise<SnapshotRead<OutboxView>> {
-  return readJson("/v1/outbox", isOutboxView);
+  return readSnapshot("/v1/outbox", isOutboxView);
 }
 
 export async function fetchHealth(): Promise<Health> {
-  return (await readJson("/health", isHealth)).data;
+  return readJson("/health", isHealth);
 }
 
 export function getMission(id: string): Promise<SnapshotRead<MissionView>> {
-  return readJson(`/v1/missions/${id}`, isMissionView);
+  return readSnapshot(`/v1/missions/${id}`, isMissionView);
 }
 
-export async function fetchReady(): Promise<SnapshotRead<ReadyView | null>> {
-  try {
-    return await readJson("/v1/ready", isReadyView);
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 404) {
-      return { data: null, asOfSequence: null };
-    }
-    throw err;
-  }
+export function fetchReady(): Promise<SnapshotRead<ReadyView | null>> {
+  return readSnapshot("/v1/ready", isNullableReadyView);
 }

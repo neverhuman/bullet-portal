@@ -30,8 +30,8 @@ type AttemptBody = {
 
 type Load<T> =
   | { kind: "loading" }
-  | { kind: "value"; asOf: number | null; body: T }
-  | { kind: "unknown"; text: string };
+  | { kind: "value"; asOf: number; observedAt: string; source: string; body: T }
+  | { kind: "unknown"; text: string; observedAt: string; source: "portal/local" };
 
 export function ProjectedSurface({ surface }: { surface: Surface }) {
   if (surface.id === "mission-graph") {
@@ -59,22 +59,19 @@ function MissionGraph({ surface }: { surface: Surface }) {
         }
         setLoad({
           kind: "value",
-          asOf: atomicSequence([missions, ...graphReads]),
+          ...atomicSnapshot([missions, ...graphReads]),
           body: { missions: missions.data, graphs: graphReads.map((read) => read.data) },
         });
       } catch (err) {
         if (!controller.signal.aborted) {
-          setLoad({
-            kind: "unknown",
-            text: `${surface.title}: control plane unreachable (${errorText(err)})`,
-          });
+          setLoad(localUnknown(`${surface.title}: control plane unreachable (${errorText(err)})`));
         }
       }
     })();
     return () => controller.abort();
   }, [surface.title]);
   return (
-    <SurfaceShell surface={surface} asOf={asOfOf(load)}>
+    <SurfaceShell surface={surface} load={load}>
       {load.kind === "loading" ? (
         <p data-testid="mission-graph-loading">loading projection</p>
       ) : load.kind === "unknown" ? (
@@ -104,22 +101,19 @@ function LiveAttempt({ surface }: { surface: Surface }) {
         }
         setLoad({
           kind: "value",
-          asOf: atomicSequence([missions, ready, ...graphReads]),
+          ...atomicSnapshot([missions, ready, ...graphReads]),
           body: { ready: ready.data, graphs: graphReads.map((read) => read.data) },
         });
       } catch (err) {
         if (!controller.signal.aborted) {
-          setLoad({
-            kind: "unknown",
-            text: `${surface.title}: control plane unreachable (${errorText(err)})`,
-          });
+          setLoad(localUnknown(`${surface.title}: control plane unreachable (${errorText(err)})`));
         }
       }
     })();
     return () => controller.abort();
   }, [surface.title]);
   return (
-    <SurfaceShell surface={surface} asOf={asOfOf(load)}>
+    <SurfaceShell surface={surface} load={load}>
       {load.kind === "loading" ? (
         <p data-testid="live-attempt-loading">loading projection</p>
       ) : load.kind === "unknown" ? (
@@ -143,20 +137,17 @@ function IncidentsAudit({ surface }: { surface: Surface }) {
         if (controller.signal.aborted) {
           return;
         }
-        setLoad({ kind: "value", asOf: outbox.asOfSequence, body: outbox.data });
+        setLoad({ kind: "value", ...atomicSnapshot([outbox]), body: outbox.data });
       } catch (err) {
         if (!controller.signal.aborted) {
-          setLoad({
-            kind: "unknown",
-            text: `${surface.title}: control plane unreachable (${errorText(err)})`,
-          });
+          setLoad(localUnknown(`${surface.title}: control plane unreachable (${errorText(err)})`));
         }
       }
     })();
     return () => controller.abort();
   }, [surface.title]);
   return (
-    <SurfaceShell surface={surface} asOf={asOfOf(load)}>
+    <SurfaceShell surface={surface} load={load}>
       {load.kind === "loading" ? (
         <p data-testid="incidents-audit-loading">loading projection</p>
       ) : load.kind === "unknown" ? (
@@ -170,20 +161,21 @@ function IncidentsAudit({ surface }: { surface: Surface }) {
   );
 }
 
-function SurfaceShell({
+function SurfaceShell<T>({
   surface,
-  asOf,
+  load,
   children,
 }: {
   surface: Surface;
-  asOf: string;
+  load: Load<T>;
   children: ReactNode;
 }) {
+  const metadata = loadMetadata(load);
   return (
     <section className="card" data-testid={`surface-${surface.id}`}>
       <h1>{surface.title}</h1>
       <p className="tagline">
-        spec §{surface.spec} · as_of_sequence {asOf} · confidence published
+        spec §{surface.spec} · as_of_sequence {metadata.asOf} · source {metadata.source} · observed_at {metadata.observedAt} · confidence {metadata.confidence}
       </p>
       <p>Answers: {surface.answers}</p>
       {children}
@@ -199,17 +191,61 @@ function Unknown({ id, text }: { id: string; text: string }) {
   );
 }
 
-function asOfOf<T>(load: Load<T>): string {
-  return load.kind === "value" && load.asOf !== null ? String(load.asOf) : "unknown";
+function localUnknown(text: string): Load<never> {
+  return {
+    kind: "unknown",
+    text,
+    observedAt: new Date().toISOString(),
+    source: "portal/local",
+  };
 }
 
-function atomicSequence(reads: SnapshotRead<unknown>[]): number {
-  const first = reads[0]?.asOfSequence;
-  if (first === null || first === undefined) {
+function atomicSnapshot(reads: SnapshotRead<unknown>[]): {
+  asOf: number;
+  observedAt: string;
+  source: string;
+} {
+  const first = reads[0];
+  if (first === undefined) {
     throw new Error("SNAPSHOT_WATERMARK_MISSING");
   }
-  if (reads.some((read) => read.asOfSequence !== first)) {
+  if (reads.some((read) => read.asOfSequence !== first.asOfSequence)) {
     throw new Error("SNAPSHOT_WATERMARK_MISMATCH");
   }
-  return first;
+  if (reads.some((read) => read.source !== first.source)) {
+    throw new Error("SNAPSHOT_SOURCE_MISMATCH");
+  }
+  const latest = reads.reduce((current, read) =>
+    Date.parse(read.observedAt) > Date.parse(current.observedAt) ? read : current,
+  );
+  return {
+    asOf: first.asOfSequence,
+    observedAt: latest.observedAt,
+    source: first.source,
+  };
+}
+
+function loadMetadata<T>(load: Load<T>): {
+  asOf: string;
+  observedAt: string;
+  source: string;
+  confidence: "published" | "unknown";
+} {
+  if (load.kind === "value") {
+    return {
+      asOf: String(load.asOf),
+      observedAt: load.observedAt,
+      source: load.source,
+      confidence: "published",
+    };
+  }
+  if (load.kind === "unknown") {
+    return {
+      asOf: "unknown",
+      observedAt: load.observedAt,
+      source: load.source,
+      confidence: "unknown",
+    };
+  }
+  return { asOf: "unknown", observedAt: "unknown", source: "unknown", confidence: "unknown" };
 }

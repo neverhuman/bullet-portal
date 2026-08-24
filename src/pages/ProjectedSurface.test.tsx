@@ -8,7 +8,12 @@ afterEach(() => {
 });
 
 function json(data: unknown, sequence = "3"): Response {
-  return new Response(JSON.stringify(data), {
+  return new Response(JSON.stringify({
+    data,
+    as_of_sequence: Number(sequence),
+    observed_at: "2026-08-24T22:00:00.000Z",
+    source: "bullet-kernel/sqlite-ledger",
+  }), {
     status: 200,
     headers: {
       "content-type": "application/json",
@@ -50,6 +55,12 @@ describe("ProjectedSurface", () => {
     await waitFor(() => {
       expect(screen.getByTestId("mission-graph-projection")).toHaveTextContent("mis_demo");
     });
+    expect(screen.getByTestId("surface-mission-graph")).toHaveTextContent(
+      "source bullet-kernel/sqlite-ledger",
+    );
+    expect(screen.getByTestId("surface-mission-graph")).toHaveTextContent(
+      "observed_at 2026-08-24T22:00:00.000Z",
+    );
   });
 
   it("renders unknown when farmd is unreachable", async () => {

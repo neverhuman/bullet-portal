@@ -89,8 +89,14 @@ hook owns the exclusive sequence cursor and carries it across reconnects.
 ## Error handling
 
 - `src/api.ts` wraps every request in a 10s `AbortController` timeout and a
-  JSON content-type check; failures throw `ApiError` carrying method, URL,
-  and status, and that text is what the UI shows.
+  JSON content-type check. Projection reads additionally require the exact
+  four-field snapshot body, current Kernel source, RFC 3339 observation time,
+  safe nonnegative sequence, and an equal required watermark header. Failures
+  throw `ApiError` carrying method, URL, and status, and that text is what the
+  UI shows. Health and the demo mutation retain their non-snapshot JSON shapes.
+- Projection value timestamps and source labels come from the validated Kernel
+  snapshot. Transport/schema failures are timestamped locally as
+  `portal/local`; a 404 is never converted into a successful empty projection.
 - An error boundary around the app renders the failure reason — no white
   screens.
 - All wire DTOs come from `src/generated/api.ts`, a generated zone copied

@@ -17,9 +17,12 @@ function MissionsBody({ missions }: { missions: Loadable<Mission[]> }) {
   }
   if (missions.kind === "unknown") {
     return (
-      <p className="unknown" data-testid="missions-unknown">
-        {renderObservation({ kind: "unknown", text: missions.reason })}
-      </p>
+      <>
+        <p className="unknown" data-testid="missions-unknown">
+          {renderObservation({ kind: "unknown", text: missions.reason })}
+        </p>
+        <p className="source">source: {missions.source} (observed {missions.observedAt})</p>
+      </>
     );
   }
   return (
@@ -32,7 +35,7 @@ function MissionsBody({ missions }: { missions: Loadable<Mission[]> }) {
           </li>
         ))}
       </ul>
-      <p className="source">source: GET /v1/missions (observed {missions.observedAt})</p>
+      <p className="source">source: {missions.source} via GET /v1/missions (observed {missions.observedAt})</p>
     </>
   );
 }

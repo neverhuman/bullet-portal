@@ -27,9 +27,12 @@ function OutboxBody({ outbox }: { outbox: Loadable<OutboxView> }) {
   }
   if (outbox.kind === "unknown") {
     return (
-      <p className="unknown" data-testid="outbox-unknown">
-        {renderObservation({ kind: "unknown", text: outbox.reason })}
-      </p>
+      <>
+        <p className="unknown" data-testid="outbox-unknown">
+          {renderObservation({ kind: "unknown", text: outbox.reason })}
+        </p>
+        <p className="source">source: {outbox.source} (observed {outbox.observedAt})</p>
+      </>
     );
   }
   return (
@@ -45,7 +48,7 @@ function OutboxBody({ outbox }: { outbox: Loadable<OutboxView> }) {
           ))}
         </ul>
       )}
-      <p className="source">source: GET /v1/outbox (observed {outbox.observedAt})</p>
+      <p className="source">source: {outbox.source} via GET /v1/outbox (observed {outbox.observedAt})</p>
     </>
   );
 }

@@ -2,8 +2,8 @@ name: ci
 
 # Thin workflow. Every job delegates to ops/ci/<lane>.sh so local runs
 # (scripts/ci-local.sh <lane>, just <lane>) and hosted CI execute the same
-# commands. Portal only: never compiles Rust; Playwright is the contract lane,
-# not the required lane. Hosted security provisions checksum-pinned gitleaks.
+# commands. Required builds the exact sibling farmd and runs mocked plus real
+# Playwright; missing family provisioning fails closed. Hosted security provisions checksum-pinned gitleaks.
 # Jankurai remains a fail-closed local/release gate and is not registered here
 # until a portable pinned distribution exists. Every third-party action is
 # pinned to a full 40-character commit SHA.
@@ -54,7 +54,9 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci --no-fund --no-audit
-      - name: Required (tsc + vitest + build)
+      - name: Playwright browsers
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+      - name: Required (fast + mocked and real farmd browser proof)
         run: bash ops/ci/required.sh
 
   contract:

@@ -8,7 +8,7 @@ import type { DemoReceipt, Mission, OutboxView } from "../generated/api";
 import { useEventStream } from "../hooks/useEventStream";
 import { useHealthProbe } from "../hooks/useHealthProbe";
 import type { Loadable } from "../loadable";
-import { toUnknown, toValue } from "../loadable";
+import { toSnapshotValue, toUnknown } from "../loadable";
 
 type MutationPhase = "idle" | "pending" | "verified" | "failed" | "unknown";
 
@@ -32,7 +32,7 @@ export function ControlTower() {
   const refreshMissions = useCallback(async (): Promise<number | null> => {
     try {
       const snapshot = await listMissions();
-      setMissions(toValue(snapshot.data));
+      setMissions(toSnapshotValue(snapshot.data, snapshot.observedAt, snapshot.source));
       return snapshot.asOfSequence;
     } catch (err) {
       setMissions(toUnknown(`control plane unreachable (${errorText(err)})`));
@@ -43,7 +43,7 @@ export function ControlTower() {
   const refreshOutbox = useCallback(async (): Promise<number | null> => {
     try {
       const snapshot = await fetchOutbox();
-      setOutbox(toValue(snapshot.data));
+      setOutbox(toSnapshotValue(snapshot.data, snapshot.observedAt, snapshot.source));
       return snapshot.asOfSequence;
     } catch (err) {
       setOutbox(toUnknown(`outbox unreachable (${errorText(err)})`));

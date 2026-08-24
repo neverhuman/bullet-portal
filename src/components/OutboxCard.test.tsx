@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { OutboxItem, OutboxView } from "../generated/api";
-import { toUnknown, toValue } from "../loadable";
+import { toSnapshotValue, toUnknown, toValue } from "../loadable";
 import { OutboxCard } from "./OutboxCard";
 
 function item(seq: number, phase: string): OutboxItem {
@@ -35,8 +35,19 @@ describe("OutboxCard", () => {
   });
 
   it("renders empty as verified only from a value, and failure as unknown", () => {
-    const { rerender } = render(<OutboxCard outbox={toValue<OutboxView>({ items: [] })} />);
+    const { rerender } = render(
+      <OutboxCard
+        outbox={toSnapshotValue(
+          { items: [] },
+          "2026-08-24T22:00:00.000Z",
+          "bullet-kernel/sqlite-ledger",
+        )}
+      />,
+    );
     expect(screen.getByTestId("outbox-empty")).toHaveTextContent("outbox: empty (verified)");
+    expect(screen.getByText(/source: bullet-kernel\/sqlite-ledger/)).toHaveTextContent(
+      "observed 2026-08-24T22:00:00.000Z",
+    );
     rerender(
       <OutboxCard
         outbox={toUnknown<OutboxView>("outbox unreachable (GET /v1/outbox failed: HTTP 500)")}
@@ -44,5 +55,6 @@ describe("OutboxCard", () => {
     );
     expect(screen.queryByTestId("outbox-empty")).not.toBeInTheDocument();
     expect(screen.getByTestId("outbox-unknown")).toHaveTextContent("unknown: outbox unreachable");
+    expect(screen.getByText(/source: portal\/local/)).toBeInTheDocument();
   });
 });

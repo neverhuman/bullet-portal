@@ -48,12 +48,14 @@ browser lanes need.
 | Lane | Command | Contents |
 | --- | --- | --- |
 | fast | `just fast` | tsc, vitest (unit + component, jsdom), production build |
-| required | `just check` | the fast lane |
+| required | `just check` | fast plus mocked Playwright and a locally built sibling farmd real-process E2E; missing sibling Kernel fails closed |
 | contract | `just contract` | Playwright against mocked farmd routes (`playwright.config.ts`) |
 | security | `just security` | gitleaks (no-git) plus `npm audit --omit=dev`; a missing tool fails |
 | audit | `bash ops/ci/audit.sh` | Jankurai audit against a committed ratchet floor; artifacts under `.jankurai/` |
-| nightly | `bash ops/ci/nightly.sh` | builds farmd from the sibling `../bullet-kernel` checkout and runs the synthetic demo projection test through a Vite development server; component evidence only, and fails closed without the sibling |
+| nightly | `bash ops/ci/nightly.sh` | repeats the real-process farmd/browser proof outside required; fails closed without the sibling Kernel |
 
-`.github/workflows` runs exactly these scripts. Runners must provide
-`gitleaks` and `jankurai`; the nightly lane additionally needs the family
-checkout and a Rust toolchain.
+`.github/workflows` runs these scripts. Runners must provide `gitleaks` and
+`jankurai`; required and nightly additionally need the exact sibling family
+checkout, a Rust toolchain, and Chromium. Standalone hosted provisioning of
+that pinned Kernel subject is not yet registered, so hosted required is not
+release evidence and fails closed rather than substituting mocks.

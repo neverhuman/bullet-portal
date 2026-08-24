@@ -1,5 +1,24 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, fetchHealth, listMissions, runDemo } from "./api";
+import { ApiError, fetchHealth, fetchReady, listMissions, runDemo } from "./api";
+
+const OBSERVED_AT = "2026-08-24T22:00:00.000Z";
+
+function snapshot(data: unknown, sequence = 42): Record<string, unknown> {
+  return {
+    data,
+    as_of_sequence: sequence,
+    observed_at: OBSERVED_AT,
+    source: "bullet-kernel/sqlite-ledger",
+  };
+}
+
+function jsonResponse(body: unknown, sequenceHeader: string | null = "42"): Response {
+  const headers = new Headers({ "content-type": "application/json" });
+  if (sequenceHeader !== null) {
+    headers.set("x-bullet-as-of-sequence", sequenceHeader);
+  }
+  return new Response(JSON.stringify(body), { status: 200, headers });
+}
 
 describe("api transport honesty", () => {
   afterEach(() => {
@@ -101,14 +120,22 @@ describe("api transport honesty", () => {
       "fetch",
       vi.fn(() =>
         Promise.resolve(
-          new Response("[]", {
+          new Response(JSON.stringify(snapshot([])), {
             status: 200,
-            headers: { "content-type": "Application/JSON; Charset=UTF-8" },
+            headers: {
+              "content-type": "Application/JSON; Charset=UTF-8",
+              "x-bullet-as-of-sequence": "42",
+            },
           }),
         ),
       ),
     );
-    await expect(listMissions()).resolves.toEqual({ data: [], asOfSequence: null });
+    await expect(listMissions()).resolves.toEqual({
+      data: [],
+      asOfSequence: 42,
+      observedAt: OBSERVED_AT,
+      source: "bullet-kernel/sqlite-ledger",
+    });
   });
 
   it("carries method, url, and status on HTTP failures", async () => {
@@ -132,32 +159,30 @@ describe("api transport honesty", () => {
       "fetch",
       vi.fn(() =>
         Promise.resolve(
-          new Response("[]", {
-            status: 200,
-            headers: {
-              "content-type": "application/json",
-              "x-bullet-as-of-sequence": "42",
-            },
-          }),
+          jsonResponse(snapshot([])),
         ),
       ),
     );
-    await expect(listMissions()).resolves.toEqual({ data: [], asOfSequence: 42 });
+    await expect(listMissions()).resolves.toEqual({
+      data: [],
+      asOfSequence: 42,
+      observedAt: OBSERVED_AT,
+      source: "bullet-kernel/sqlite-ledger",
+    });
   });
 
-  it("keeps the watermark unknown when the server omits it", async () => {
+  it("rejects a successful snapshot when the required watermark header is absent", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
         Promise.resolve(
-          new Response("[]", {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          }),
+          jsonResponse(snapshot([]), null),
         ),
       ),
     );
-    await expect(listMissions()).resolves.toEqual({ data: [], asOfSequence: null });
+    await expect(listMissions()).rejects.toThrowError(
+      "GET /v1/missions failed: snapshot watermark header is missing",
+    );
   });
 
   it("rejects a schema-invalid JSON snapshot even when HTTP and watermark look successful", async () => {
@@ -165,18 +190,12 @@ describe("api transport honesty", () => {
       "fetch",
       vi.fn(() =>
         Promise.resolve(
-          new Response('{"not":"a mission list"}', {
-            status: 200,
-            headers: {
-              "content-type": "application/json",
-              "x-bullet-as-of-sequence": "42",
-            },
-          }),
+          jsonResponse(snapshot({ not: "a mission list" })),
         ),
       ),
     );
     await expect(listMissions()).rejects.toThrowError(
-      "GET /v1/missions failed: response body failed schema validation",
+      "GET /v1/missions failed: snapshot body failed schema validation",
     );
   });
 
@@ -219,5 +238,76 @@ describe("api transport honesty", () => {
     expect(err).toBeInstanceOf(ApiError);
     expect(err?.status).toBe(200);
     expect(err?.outcomeUnknown).toBe(true);
+  });
+
+  it("rejects malformed or non-authoritative snapshot envelope fields", async () => {
+    const cases = [
+      { ...snapshot([]), source: "portal/local" },
+      { ...snapshot([]), observed_at: "not-rfc3339" },
+      { ...snapshot([]), observed_at: "2026-02-30T00:00:00Z" },
+      { ...snapshot([]), as_of_sequence: -1 },
+      { ...snapshot([]), as_of_sequence: 1.5 },
+      { ...snapshot([]), as_of_sequence: Number.MAX_SAFE_INTEGER + 1 },
+      { ...snapshot([]), optimistic: true },
+      { data: [], as_of_sequence: 42, observed_at: OBSERVED_AT },
+    ];
+    for (const body of cases) {
+      vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(body))));
+      await expect(listMissions()).rejects.toThrowError(
+        "GET /v1/missions failed: snapshot body failed schema validation",
+      );
+    }
+  });
+
+  it("rejects malformed or mismatched snapshot watermark headers", async () => {
+    for (const header of ["", "-1", "+42", "042", "1.5", "9007199254740992"]) {
+      vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(snapshot([]), header))));
+      await expect(listMissions()).rejects.toThrowError(
+        "GET /v1/missions failed: snapshot watermark header is invalid",
+      );
+    }
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(snapshot([]), "41"))));
+    await expect(listMissions()).rejects.toThrowError(
+      "GET /v1/missions failed: snapshot watermark header/body mismatch",
+    );
+  });
+
+  it("treats ready data null as verified empty and never infers empty from 404", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(snapshot(null)))));
+    await expect(fetchReady()).resolves.toEqual({
+      data: null,
+      asOfSequence: 42,
+      observedAt: OBSERVED_AT,
+      source: "bullet-kernel/sqlite-ledger",
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response("missing", { status: 404 }))),
+    );
+    await expect(fetchReady()).rejects.toThrowError("GET /v1/ready failed: HTTP 404");
+  });
+
+  it("keeps health and demo mutation on their non-snapshot JSON contracts", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse({ status: "ok" }, null))));
+    await expect(fetchHealth()).resolves.toEqual({ status: "ok" });
+
+    const receipt = {
+      mission_id: "mis_demo",
+      plan_hash: "abc",
+      fence_first: 1,
+      attempt_id: "atm_first",
+      fence_second: 2,
+      attempt_second_id: "atm_second",
+      stale_attempt_id: "atm_first",
+      candidate_head: "b".repeat(40),
+      evidence_result: "PASS",
+      effect_outcome: "verified",
+      effect_unknown_outcome: "unknown",
+      materialize_idempotent: true,
+      stale_refused: true,
+    };
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(receipt, null))));
+    await expect(runDemo()).resolves.toEqual(receipt);
   });
 });

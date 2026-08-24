@@ -26,7 +26,7 @@ const mocked = {
 const receipt: DemoReceipt = {
   mission_id: "mis_demo",
   plan_hash: "abc",
-  fence: 1,
+  fence_first: 1,
   attempt_id: "atm_live",
   fence_second: 2,
   attempt_second_id: "atm_second",
@@ -39,14 +39,23 @@ const receipt: DemoReceipt = {
   stale_refused: true,
 };
 
+function snapshot<T>(data: T, asOfSequence = 0): api.SnapshotRead<T> {
+  return {
+    data,
+    asOfSequence,
+    observedAt: "2026-08-24T22:00:00.000Z",
+    source: "bullet-kernel/sqlite-ledger",
+  };
+}
+
 function missionsError(): api.ApiError {
   return new api.ApiError("GET", "/v1/missions", 500, "HTTP 500");
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocked.listMissions.mockResolvedValue({ data: [], asOfSequence: null });
-  mocked.fetchOutbox.mockResolvedValue({ data: { items: [] }, asOfSequence: null });
+  mocked.listMissions.mockResolvedValue(snapshot([]));
+  mocked.fetchOutbox.mockResolvedValue(snapshot({ items: [] }));
   mocked.fetchHealth.mockResolvedValue({ status: "ok" });
   mocked.runDemo.mockResolvedValue(receipt);
 });
@@ -77,7 +86,7 @@ describe("ControlTower honesty", () => {
 
   it("keeps the verified phase when the follow-up refresh fails", async () => {
     mocked.listMissions
-      .mockResolvedValueOnce({ data: [], asOfSequence: null })
+      .mockResolvedValueOnce(snapshot([]))
       .mockRejectedValueOnce(missionsError());
     render(<ControlTower />);
     await screen.findByTestId("missions-empty");
