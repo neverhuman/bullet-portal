@@ -4,11 +4,9 @@ The Control Tower is a projection of the kernel ledger. Hash routes
 `#/<surface-id>` cover every spec §25 surface. Surfaces without a farmd
 projection render `unknown`, never an empty success list.
 
-AGENT_CHAT.md is a temporary multi-agent wire. After this portal ships Live
-Attempt + Incidents/Audit, operators diagnose from `/v1/events`, not the
-markdown log. The browser never
-holds authority: a click creates a durable command that renders as pending
-until the ledger's recorded result comes back, and no view mutates
+Operators diagnose from durable projections and `/v1/events`. The browser
+never holds authority: a click creates a durable command that renders as
+pending until the ledger's recorded result comes back, and no view mutates
 authoritative state optimistically.
 
 ## Status vocabulary
