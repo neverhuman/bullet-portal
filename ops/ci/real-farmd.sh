@@ -4,6 +4,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 family_root="$(cd "$REPO_ROOT/.." && pwd)"
 kernel_root="$family_root/bullet-kernel"
+if [[ ! -f "$kernel_root/Cargo.toml" ]]; then
+  echo "[ci] sibling bullet-kernel checkout required at $kernel_root" >&2
+  exit 1
+fi
 proof_dir="$(mktemp -d)"
 farmd_pid=""
 

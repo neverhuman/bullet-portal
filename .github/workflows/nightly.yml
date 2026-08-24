@@ -1,5 +1,10 @@
 name: nightly
 
+# Offline real-process lane (ops/ci/nightly.sh -> ops/ci/real-farmd.sh): builds
+# farmd from the sibling bullet-kernel checkout and runs the browser suite
+# against it. No live provider. Without the sibling checkout it fails closed;
+# a hosted runner therefore needs the family checkout, not this repo alone.
+
 on:
   schedule:
     - cron: "17 6 * * *"
@@ -8,15 +13,26 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: nightly-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   nightly:
+    name: real-farmd-lane
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - name: Nightly (skip if unset)
-        run: bash scripts/ci-local.sh nightly
-        env:
-          BULLET_LIVE_PORTAL: ${{ secrets.BULLET_LIVE_PORTAL }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install
+        run: npm ci --no-fund --no-audit
+      - name: Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: Nightly (real local farmd)
+        run: bash ops/ci/nightly.sh

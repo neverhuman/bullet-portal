@@ -1,8 +1,18 @@
 # Portal architecture
 
 The Control Tower is a projection of the kernel ledger. Hash routes
-`#/<surface-id>` cover every spec §25 surface. Surfaces without a farmd
-projection render `unknown`, never an empty success list.
+`#/<surface-id>` cover every spec §25 surface. Control Tower, Mission Graph,
+Live Attempt, and Incidents & Audit read farmd projections; the other eleven
+surfaces have no farmd projection and render `unknown`, never an empty
+success list.
+
+The three projected surfaces (`src/pages/ProjectedSurface.tsx`) combine
+`GET /v1/missions/{id}` and `GET /v1/ready` and require both responses to
+carry the same `X-Bullet-As-Of-Sequence` watermark; a mismatch renders
+`unknown` with `SNAPSHOT_WATERMARK_MISMATCH`. `/v1/ready` answers 404 while
+the ready queue is empty, which the client maps to a null watermark, so an
+idle farmd shows Live Attempt as `unknown` rather than as a healthy empty
+list.
 
 Operators diagnose from durable projections and `/v1/events`. The browser
 never holds authority: a click creates a durable command that renders as
@@ -37,17 +47,22 @@ CONTRADICTORY. Portal rendering:
 
 ## Sources and confidence
 
-Every card names its source and observed-at time (`GET /v1/missions`,
-`GET /v1/outbox`, `farmd /health`). The header line shows `as_of_sequence`,
-projection lag, source health from a real `/health` probe (10s timeout), and
-the stream connection state.
+Observation cards with a value name their source and observed-at time
+(`GET /v1/missions`, `GET /v1/outbox`, `farmd /health`); projected surfaces
+name their spec section and `as_of_sequence`. The Control Tower header shows
+`as_of_sequence`, projection lag, source health from a real `/health` probe
+(10s timeout), and the stream connection state. Endpoints consumed:
+`GET /v1/missions`, `GET /v1/missions/{id}`, `GET /v1/outbox`,
+`GET /v1/ready`, `POST /v1/demo/run`, `GET /health`, and
+`GET /v1/events?after=<seq>`.
 
 ## Event stream
 
 `src/hooks/useEventStream.ts` consumes `GET /v1/events?after=<seq>`. Kernel
 framing: SSE `id` = ledger seq and each default-message `data` is the generated
-`EventEnvelope` JSON. The fetch-based SSE parser (`src/sse.ts`) skips keep-alive
-comments and retains the exclusive sequence cursor across reconnects.
+`Event` JSON (`id`, `seq`, `at`, `kind`, `body`). The fetch-based SSE parser
+(`src/sse.ts`) validates the content type and skips keep-alive comments; the
+hook owns the exclusive sequence cursor and carries it across reconnects.
 
 - sequence comes from `Event.seq` (falling back to the SSE id); dedupe uses
   `Event.id` (falling back to the SSE id) with bounded memory;
@@ -68,6 +83,9 @@ comments and retains the exclusive sequence cursor across reconnects.
   and status, and that text is what the UI shows.
 - An error boundary around the app renders the failure reason — no white
   screens.
-- All DTOs come from `src/generated/api.ts`, a generated zone re-synced
-  verbatim from `bullet-kernel/contracts/generated/api.ts`; the portal adds
-  no handwritten DTOs.
+- All wire DTOs come from `src/generated/api.ts`, a generated zone copied
+  verbatim from `bullet-kernel/contracts/generated/api.ts` (regenerate with
+  `cargo run -p bullet -- contracts generate` in the kernel, then `just setup`
+  from the hub copies it). The portal declares no duplicate of a generated
+  DTO; its only local shapes are view-side (`ParsedEvent`, projection
+  bodies) and never cross the wire.

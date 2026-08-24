@@ -1,6 +1,11 @@
 name: ci
 
-# Portal only. Never compiles Rust. Playwright is contract, not required.
+# Thin workflow. Every job delegates to ops/ci/<lane>.sh so local runs
+# (scripts/ci-local.sh <lane>, just <lane>) and hosted CI execute the same
+# commands. Portal only: never compiles Rust; Playwright is the contract lane,
+# not the required lane. Runners must provide gitleaks and jankurai; a missing
+# tool fails the lane instead of skipping. Every third-party action is pinned
+# to a full 40-character commit SHA.
 
 on:
   push:
@@ -16,7 +21,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  required:
+  fast:
+    name: fast-lane
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -29,10 +35,29 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci --no-fund --no-audit
-      - name: Required
-        run: bash scripts/ci-local.sh required
+      - name: Deterministic fast lane
+        run: bash ops/ci/fast.sh
+
+  required:
+    name: required-lane
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: fast
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install
+        run: npm ci --no-fund --no-audit
+      - name: Required (tsc + vitest + build)
+        run: bash ops/ci/required.sh
 
   contract:
+    name: contract-lane
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: required
@@ -49,9 +74,10 @@ jobs:
       - name: Playwright browsers
         run: npx playwright install --with-deps chromium
       - name: Contract (mocked API)
-        run: bash scripts/ci-local.sh contract
+        run: bash ops/ci/contract.sh
 
   security:
+    name: security-lane
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -64,5 +90,22 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci --no-fund --no-audit
-      - name: Security
-        run: bash scripts/ci-local.sh security
+      - name: Security (gitleaks + npm audit)
+        run: bash ops/ci/security.sh
+
+  audit:
+    name: jankurai-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Audit (ratcheted floor)
+        run: bash ops/ci/audit.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: repo-score
+          path: |
+            .jankurai/repo-score.json
+            .jankurai/repo-score.md
