@@ -4,6 +4,11 @@ Operations portal for Bullet Farm. Projection only — the browser holds no
 authority: every view names its observation source, and UNKNOWN is rendered
 as unknown, never as healthy and never as an authoritative empty list.
 
+Current status is component-level only. Control Tower snapshot/SSE recovery and navigation are
+tested; surfaces without a covering generated projection remain explicitly UNKNOWN. The portal has
+no signed-authority, credential, forge, holdout, or integration path, and it does not establish a
+five-plane transaction or production-readiness claim.
+
 ## Develop
 
 ```bash
