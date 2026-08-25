@@ -3,13 +3,14 @@
 // Command: just contract-generate
 // DO NOT EDIT BY HAND.
 export const SCHEMA_VERSION = "v1alpha1" as const;
-export const SCHEMA_BUNDLE_HASH = "0a6df08780940bd2363068a2c958ffc9d5d6c346ce760ccacce663fd853d7099" as const;
+export const SCHEMA_BUNDLE_HASH = "e75054c8887cbb034105b3bc01012e425cb14fd97ebe2422999947fe000e575f" as const;
 export const INVARIANT_REGISTRY_HASH = "978a8b4ebb14ff0c978afb431c154647adef2f9839de322356a765c59a0c3858" as const;
-export const POLICY_SNAPSHOT_HASH = "b9860c3a8856f820d0e960b064dd470963923ca706d57634568cd5cbfd962063" as const;
+export const POLICY_SNAPSHOT_HASH = "55d42dc1827360fdb42f76a0e4be8bd549e6432f33734af82e10edafd92c51c1" as const;
 export const CANONICAL_GOLDEN_JSON = "{\"a\":\"é\",\"array\":[true,null,17],\"z\":\"last\"}" as const;
 export const CANONICAL_GOLDEN_HASH = "1d800cb94962906f78d42cb8cc84c2c078311a50e35ca515240b800abc3d2263" as const;
 export const AUTHORITY_GOLDEN_HASH = "4ff1ce8a4ba7a37ae705a8d2459e5a9d900abe55610f6d6984fe514cd37860df" as const;
-export type AuthorityAudienceV1 = "bullet-gitd" | "effect-broker";
+export const LAUNCH_GRANT_GOLDEN_HASH = "5f89dde4a6e9c6d4b19631dd99607418012f1cbe57bfad89e8de4016254df4b0" as const;
+export type AuthorityAudienceV1 = "bullet-gitd" | "effect-broker" | "provider-runner";
 export type MutationOperationV1 = "clone-workspace" | "read-workspace" | "apply-patch" | "checkpoint" | "prepare-candidate" | "preserve-workspace" | "cleanup-workspace" | "dispatch-effect" | "reconcile-effect";
 export type AuthorityDecisionV1 = "authorized" | "settled" | "refused";
 export type ReplayDispositionV1 = "fresh" | "exact-replay" | "conflict";
@@ -548,6 +549,51 @@ export interface IssuerKeyV1 {
   retain_until_unix_ms: number;
 }
 
+export interface LaunchGrantClaimsV1 {
+  schema_version: string;
+  grant_id: string;
+  audience: AuthorityAudienceV1;
+  operation: string;
+  issuer: string;
+  key_id: string;
+  issued_at_unix_ms: number;
+  not_before_unix_ms: number;
+  expires_at_unix_ms: number;
+  grant_nonce: string;
+  mission_id: string;
+  repository_id: string;
+  graph_revision_id: string;
+  work_package_id: string;
+  variant_id: string;
+  attempt_id: string;
+  attempt_fence: number;
+  runner_id: string;
+  runner_epoch: number;
+  workspace_id: string;
+  workspace_nonce_digest: string;
+  authority_epoch: number;
+  freeze_generation: number;
+  provider: string;
+  adapter: string;
+  provider_profile_id: string;
+  model: string;
+  credential_generation: number;
+  protocol: string;
+  executable_path: string;
+  executable_digest: string;
+  descriptor_digest: string;
+  capability_digest: string;
+  policy_snapshot_digest: string;
+  policy_generation: number;
+  sandbox_manifest_digest: string;
+  environment_digest: string;
+  gate_ids: string[];
+  budget_reservation_id: string;
+  max_invocations: number;
+  max_wall_clock_ms: number;
+  max_cost_micro_usd: number;
+}
+
 export interface LaunchGrantV1 {
   schema_version: string;
   authority_envelope_digest: string;
@@ -882,6 +928,13 @@ export interface SentinelResult {
 }
 
 export interface SignedAuthorityEnvelopeV1 {
+  schema_version: string;
+  issuer: string;
+  key_id: string;
+  paseto: string;
+}
+
+export interface SignedLaunchGrantV1 {
   schema_version: string;
   issuer: string;
   key_id: string;
