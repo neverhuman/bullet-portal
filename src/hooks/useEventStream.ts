@@ -74,35 +74,45 @@ export type Tracker = {
 };
 
 export function createTracker(cap: number): Tracker {
-  const seen = new Set<string>();
-  const order: string[] = [];
+  const seenIds = new Map<string, number>();
+  const seenSequences = new Map<number, string>();
+  const order: ParsedEvent[] = [];
   let lastSeq = 0;
   let requiredThrough: number | null = null;
+  const requireThrough = (sequence: number): void => {
+    requiredThrough = Math.max(requiredThrough ?? 0, sequence);
+  };
   return {
     lastSeq: () => lastSeq,
     stale: () => requiredThrough !== null,
     requiredThrough: () => requiredThrough,
     accept(event) {
-      if (seen.has(event.id)) {
-        return "duplicate";
+      const knownSequence = seenIds.get(event.id);
+      const knownId = seenSequences.get(event.seq);
+      if (knownSequence !== undefined || knownId !== undefined) {
+        if (knownSequence === event.seq && knownId === event.id) {
+          return "duplicate";
+        }
+        requireThrough(Math.max(lastSeq + 1, event.seq));
+        return "gap";
       }
       if (event.seq <= lastSeq) {
-        return "duplicate";
+        requireThrough(lastSeq + 1);
+        return "gap";
       }
       if (event.seq > lastSeq + 1) {
-        requiredThrough = Math.max(requiredThrough ?? 0, event.seq);
+        requireThrough(event.seq);
         return "gap";
       }
       lastSeq = event.seq;
-      rememberId(event.id, seen, order, cap);
+      rememberEvent(event, seenIds, seenSequences, order, cap);
       if (requiredThrough !== null && lastSeq >= requiredThrough) {
         requiredThrough = null;
       }
       return "ok";
     },
     markUncertain() {
-      const next = lastSeq + 1;
-      requiredThrough = Math.max(requiredThrough ?? 0, next);
+      requireThrough(lastSeq + 1);
     },
     applySnapshot(watermark) {
       const required = requiredThrough ?? lastSeq;
@@ -116,13 +126,21 @@ export function createTracker(cap: number): Tracker {
   };
 }
 
-function rememberId(id: string, seen: Set<string>, order: string[], cap: number): void {
-  seen.add(id);
-  order.push(id);
+function rememberEvent(
+  event: ParsedEvent,
+  seenIds: Map<string, number>,
+  seenSequences: Map<number, string>,
+  order: ParsedEvent[],
+  cap: number,
+): void {
+  seenIds.set(event.id, event.seq);
+  seenSequences.set(event.seq, event.id);
+  order.push(event);
   if (order.length > cap) {
     const oldest = order.shift();
     if (oldest !== undefined) {
-      seen.delete(oldest);
+      seenIds.delete(oldest.id);
+      seenSequences.delete(oldest.seq);
     }
   }
 }

@@ -44,13 +44,29 @@ describe("event tracker", () => {
   it("dedupes ids, enforces monotonic seq, and flags gaps", () => {
     const tracker = createTracker(8);
     expect(tracker.accept({ id: "a", seq: 1, at: "t" })).toBe("ok");
-    expect(tracker.accept({ id: "a", seq: 2, at: "t" })).toBe("duplicate");
-    expect(tracker.accept({ id: "b", seq: 1, at: "t" })).toBe("duplicate");
+    expect(tracker.accept({ id: "a", seq: 1, at: "t" })).toBe("duplicate");
+    expect(tracker.accept({ id: "b", seq: 1, at: "t" })).toBe("gap");
     expect(tracker.accept({ id: "c", seq: 2, at: "t" })).toBe("ok");
     expect(tracker.accept({ id: "d", seq: 5, at: "t" })).toBe("gap");
     expect(tracker.lastSeq()).toBe(2);
     expect(tracker.stale()).toBe(true);
     expect(tracker.requiredThrough()).toBe(5);
+  });
+
+  it("treats reused ids and unrecognized old sequences as conflicts, not duplicates", () => {
+    const reusedId = createTracker(8);
+    expect(reusedId.accept({ id: "a", seq: 1, at: "t" })).toBe("ok");
+    expect(reusedId.accept({ id: "a", seq: 2, at: "t" })).toBe("gap");
+    expect(reusedId.lastSeq()).toBe(1);
+    expect(reusedId.applySnapshot(1)).toBe(false);
+    expect(reusedId.applySnapshot(2)).toBe(true);
+
+    const evicted = createTracker(1);
+    expect(evicted.accept({ id: "a", seq: 1, at: "t" })).toBe("ok");
+    expect(evicted.accept({ id: "b", seq: 2, at: "t" })).toBe("ok");
+    expect(evicted.accept({ id: "a", seq: 1, at: "t" })).toBe("gap");
+    expect(evicted.lastSeq()).toBe(2);
+    expect(evicted.requiredThrough()).toBe(3);
   });
 
   it("keeps cursor 2 and STALE after 1,2,4 until a watermark covers 4", () => {

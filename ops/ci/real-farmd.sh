@@ -10,6 +10,10 @@ if [[ ! -f "$kernel_root/Cargo.toml" ]]; then
 fi
 proof_dir="$(mktemp -d)"
 farmd_pid=""
+worker_token="wrk_2222222222222222222222222222222222222222222222222222222222222222"
+worker_token_file="$proof_dir/worker.token"
+umask 077
+printf '%s\n' "$worker_token" >"$worker_token_file"
 
 finish() {
   if [[ -n "$farmd_pid" ]]; then
@@ -28,6 +32,7 @@ log "build local farmd"
 farmd_bin="$kernel_root/target/debug/bullet-farmd"
 "$farmd_bin" --data-dir "$proof_dir/data" --bind 127.0.0.1:7420 \
   --portal-origin http://127.0.0.1:5173 \
+  --worker-token-file "$worker_token_file" \
   >"$proof_dir/farmd.log" 2>&1 &
 farmd_pid="$!"
 
@@ -53,4 +58,5 @@ fi
 cd "$REPO_ROOT"
 BULLET_FARMD_URL=http://127.0.0.1:7420 \
   BULLET_BOOTSTRAP_TOKEN="$bootstrap_token" \
+  BULLET_WORKER_TOKEN="$worker_token" \
   ./node_modules/.bin/playwright test --config playwright.real.config.ts
