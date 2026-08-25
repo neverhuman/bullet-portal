@@ -46,17 +46,19 @@ npm run dev        # http://127.0.0.1:5173
 ```
 
 The dev server proxies `/v1`, `/health`, and `/openapi.yaml` to
-`http://127.0.0.1:7420` (bullet-farmd). Keep `VITE_BULLET_API` unset during
-development so browser requests remain same-origin through that proxy. The
-hub's `just portal` launcher enforces this rule.
+`http://127.0.0.1:7420` (bullet-farmd). Browser requests remain same-origin
+through that proxy. `VITE_BULLET_API` is unsupported: Vite configuration
+refuses any nonempty override before serving or building.
 
 ## Build and preview
 
-`VITE_BULLET_API` is read at build time and baked into the bundle
-(`src/api.ts`). The loopback-only `npm run preview` proof server serves the
-built `dist` bytes and proxies only `/v1`, `/health`, and `/openapi.yaml`
-to loopback farmd. It is a CI/developer preview boundary, not the release
-server; the packaged Rust distribution must embed the same built bytes.
+`src/api.ts` uses an immutable empty API prefix, so every request is relative
+to the bundle origin. A nonempty `VITE_BULLET_API` makes Vite fail with typed
+`VITE_BULLET_API_UNSUPPORTED`; it is never baked into the bundle. The
+loopback-only `npm run preview` proof server serves the built `dist` bytes and
+proxies only `/v1`, `/health`, and `/openapi.yaml` to loopback farmd. It is a
+CI/developer preview boundary, not the release server; the packaged Rust
+distribution must embed the same built bytes.
 Pointing a browser bundle directly at `http://127.0.0.1:7420` is not supported.
 
 `npm run bundle:generate` writes the exact `dist` bundle manifest

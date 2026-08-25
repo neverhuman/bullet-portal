@@ -35,7 +35,7 @@ import {
   type ResponseValidator,
 } from "./apiValidation";
 
-export const apiBase: string = import.meta.env.VITE_BULLET_API ?? "";
+export const apiBase = "";
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const SNAPSHOT_SEQUENCE_HEADER = "x-bullet-as-of-sequence";

@@ -190,8 +190,9 @@ cross-checked against the body, one shared watermark per composed view — and s
 is authority: same-origin does not relax the one-time bootstrap exchange, the
 HttpOnly `SameSite=Strict` session cookie, the session-bound `X-Bullet-CSRF`
 header, or farmd's exact-`Origin` refusal (`ORIGIN_REQUIRED`/`ORIGIN_DENIED`).
-`VITE_BULLET_API` stays unset there too: the built bundle uses relative paths,
-which are same-origin by construction.
+The built bundle uses only relative paths, which are same-origin by
+construction. Vite refuses a nonempty `VITE_BULLET_API` before it can alter the
+bundle subject.
 
 ## Parity checks
 

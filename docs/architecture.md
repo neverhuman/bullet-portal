@@ -96,8 +96,9 @@ connection state. Endpoints consumed (`src/api.ts` and
 
 Development and built-bundle proof are same-origin: Vite dev and preview
 proxy only `/v1`, `/health`, and `/openapi.yaml` to loopback farmd. Farmd does
-not expose wildcard CORS, so the hub launcher clears `VITE_BULLET_API` instead
-of directing browser requests to a different origin. The real-farmd browser
+not expose wildcard CORS. Product requests use a literal empty API prefix, and
+Vite refuses nonempty `VITE_BULLET_API` configuration rather than directing a
+browser bundle to another origin. The real-farmd browser
 lane (`ops/ci/real-farmd.sh`, `e2e/real-farmd.spec.ts`, 2 tests) rebuilds and
 serves `dist`, builds the sibling `bullet-kernel` farmd, captures its one-time
 bootstrap without logging it, proves cookie/Origin/CSRF/202/status

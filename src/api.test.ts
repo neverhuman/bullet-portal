@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
+  apiBase,
   exchangeBootstrap,
   fetchContextLineage,
   fetchHealth,
@@ -311,6 +312,7 @@ describe("api transport honesty", () => {
   });
 
   it("requires exact HTTP 202 and sends the session-bound CSRF token", async () => {
+    expect(apiBase).toBe("");
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
