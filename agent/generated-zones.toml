@@ -5,7 +5,7 @@
 [[zone]]
 path = "src/generated/api.ts"
 source = "bullet-kernel:contracts/openapi.yaml"
-command = "bash ops/ci/contract.sh"
+command = "(cd ../bullet-kernel && cargo run --locked --quiet -p bullet --bin bullet -- contracts generate) && bash ../bullet-farm/scripts/sync-family-contracts.sh"
 owner = "contracts"
 read_only = true
 write_policy = "generator_only"
