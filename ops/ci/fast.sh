@@ -18,5 +18,14 @@ if ! grep -Fq 'VITE_BULLET_API_UNSUPPORTED' "$reports/vite-api-override.log"; th
   printf '[ci] VITE_BULLET_API_UNSUPPORTED: typed refusal was not observed\n' >&2
   exit 1
 fi
+if BULLET_FARMD_TEST_PROXY="https://attacker.invalid:7443" npm run build \
+  >"$reports/farmd-test-proxy-override.log" 2>&1; then
+  printf '[ci] BULLET_FARMD_TEST_PROXY_INVALID: non-loopback proxy was accepted\n' >&2
+  exit 1
+fi
+if ! grep -Fq 'BULLET_FARMD_TEST_PROXY_INVALID' "$reports/farmd-test-proxy-override.log"; then
+  printf '[ci] BULLET_FARMD_TEST_PROXY_INVALID: typed refusal was not observed\n' >&2
+  exit 1
+fi
 npm run build
 log "fast lane passed"

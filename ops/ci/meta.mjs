@@ -99,6 +99,10 @@ assert(
   "exact 106-test Vitest identity ratchet absent",
 );
 assert(
+  read("ops/ci/fast.sh").includes("BULLET_FARMD_TEST_PROXY_INVALID"),
+  "hostile farmd test-proxy refusal absent",
+);
+assert(
   read("ops/ci/contract.sh").includes('assert-report.mjs junit "$reports/playwright.xml" 10'),
   "exact 10-test mocked Playwright identity ratchet absent",
 );

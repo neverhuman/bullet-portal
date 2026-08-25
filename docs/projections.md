@@ -183,8 +183,12 @@ correction belongs to `src/surfaces.ts`, not to this document.
 
 ## Packaged same-origin serving
 
-In the proxied lanes the browser origin (`127.0.0.1:5173`) differs from farmd's
-(`127.0.0.1:7420`) and Vite forwards `/api/v1`, `/health`, and `/openapi.yaml`. In
+In ordinary development the browser origin (`127.0.0.1:5173`) differs from
+farmd's (`127.0.0.1:7420`) and Vite forwards `/api/v1`, `/health`, and
+`/openapi.yaml`. The real-family lane asks farmd to bind an ephemeral loopback
+port, validates the reported numeric origin, and supplies it only through
+`BULLET_FARMD_TEST_PROXY`; non-loopback or malformed values refuse during the
+build. In
 the packaged lane there is one origin: farmd serves `index.html` and
 `/assets/*` itself and `--portal-origin` equals that origin. The projection
 contract is unchanged — one atomic snapshot per route, `x-bullet-as-of-sequence`
