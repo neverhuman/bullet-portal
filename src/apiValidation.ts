@@ -21,9 +21,6 @@ import type {
 
 export type ResponseValidator<T> = (value: unknown) => value is T;
 
-const schemaCompiler = new Ajv2020({ allErrors: false, strict: true });
-schemaCompiler.addSchema(PUBLIC_API_RUNTIME_SCHEMA);
-
 function compileGeneratedValidator<T>(reference: string): ResponseValidator<T> {
   const validate = schemaCompiler.getSchema<T>(reference);
   if (validate === undefined) {
@@ -31,17 +28,6 @@ function compileGeneratedValidator<T>(reference: string): ResponseValidator<T> {
   }
   return (value): value is T => validate(value) === true;
 }
-
-const validatesCommandStatus = compileGeneratedValidator<CommandStatus>(
-  PUBLIC_API_RUNTIME_REFS.CommandStatus,
-);
-const validatesMission = compileGeneratedValidator<Mission>(PUBLIC_API_RUNTIME_REFS.Mission);
-const validatesMissionView = compileGeneratedValidator<MissionView>(
-  PUBLIC_API_RUNTIME_REFS.MissionView,
-);
-const validatesReadyView = compileGeneratedValidator<ReadyView>(
-  PUBLIC_API_RUNTIME_REFS.ReadyView,
-);
 
 export const SNAPSHOT_SOURCE = "bullet-kernel/sqlite-ledger" as const;
 
@@ -84,6 +70,21 @@ export function isRfc3339(value: unknown): value is string {
   const day = Number(match[3]);
   return day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
+
+const schemaCompiler = new Ajv2020({ allErrors: false, strict: true });
+schemaCompiler.addFormat("date-time", { type: "string", validate: isRfc3339 });
+schemaCompiler.addSchema(PUBLIC_API_RUNTIME_SCHEMA);
+
+const validatesCommandStatus = compileGeneratedValidator<CommandStatus>(
+  PUBLIC_API_RUNTIME_REFS.CommandStatus,
+);
+const validatesMission = compileGeneratedValidator<Mission>(PUBLIC_API_RUNTIME_REFS.Mission);
+const validatesMissionView = compileGeneratedValidator<MissionView>(
+  PUBLIC_API_RUNTIME_REFS.MissionView,
+);
+const validatesReadyView = compileGeneratedValidator<ReadyView>(
+  PUBLIC_API_RUNTIME_REFS.ReadyView,
+);
 
 export function isSnapshotEnvelope<T>(
   value: unknown,
@@ -214,85 +215,12 @@ const validatesQualityLabView = compileGeneratedValidator<QualityLabView>(
   PUBLIC_API_RUNTIME_REFS.QualityLabView,
 );
 const validatesAuditView = compileGeneratedValidator<AuditView>(PUBLIC_API_RUNTIME_REFS.AuditView);
+const validatesContextLineageView = compileGeneratedValidator<ContextLineageView>(
+  PUBLIC_API_RUNTIME_REFS.ContextLineageView,
+);
 
-const CONTEXT_CAPSULE_ID = /^ctx_[0-9a-f]{64}$/;
-const MISSION_ID = /^mis_[0-9a-f]{64}$/;
-const WORK_PACKAGE_ID = /^wpk_[0-9a-f]{64}$/;
-const PLAN_REVISION_ID = /^pln_[0-9a-f]{64}$/;
-const DIGEST = /^[0-9a-f]{64}$/;
-const TASK_CLASSES = new Set([
-  "deterministic_transform",
-  "extract_structured",
-  "classify_route",
-  "summarize_local",
-  "compress_context",
-  "mechanical_code_edit",
-  "bounded_bug_fix",
-  "feature_implementation",
-  "broad_refactor",
-  "architecture_design",
-  "security_analysis",
-  "migration_design",
-  "code_review",
-  "fusion_rank",
-  "fusion_synthesize",
-  "completion_assessment",
-]);
-
-/**
- * Context Lineage is generated as a public DTO, but is not yet one of the
- * generator's AJV roots. Keep this strict validator adjacent to the generated
- * validators; it validates the generated type without defining a second DTO.
- */
-export const isContextLineageView: ResponseValidator<ContextLineageView> = (
-  value,
-): value is ContextLineageView =>
-  isRecord(value) &&
-  hasExactKeys(value, ["capsules"]) &&
-  Array.isArray(value.capsules) &&
-  value.capsules.every(
-    (capsule) =>
-      isRecord(capsule) &&
-      hasExactKeys(capsule, [
-        "compression",
-        "content_digest",
-        "dropped_decision_digests",
-        "id",
-        "mission_id",
-        "objective_digest",
-        "package_title_digest",
-        "parent_id",
-        "plan_revision_id",
-        "recorded_at",
-        "revision",
-        "schema_version",
-        "task_class",
-        "work_package_id",
-      ]) &&
-      capsule.schema_version === "bullet.context-capsule.initial.v1" &&
-      typeof capsule.id === "string" &&
-      CONTEXT_CAPSULE_ID.test(capsule.id) &&
-      typeof capsule.mission_id === "string" &&
-      MISSION_ID.test(capsule.mission_id) &&
-      typeof capsule.work_package_id === "string" &&
-      WORK_PACKAGE_ID.test(capsule.work_package_id) &&
-      typeof capsule.plan_revision_id === "string" &&
-      PLAN_REVISION_ID.test(capsule.plan_revision_id) &&
-      capsule.revision === 1 &&
-      capsule.parent_id === null &&
-      typeof capsule.task_class === "string" &&
-      TASK_CLASSES.has(capsule.task_class) &&
-      typeof capsule.objective_digest === "string" &&
-      DIGEST.test(capsule.objective_digest) &&
-      typeof capsule.package_title_digest === "string" &&
-      DIGEST.test(capsule.package_title_digest) &&
-      typeof capsule.content_digest === "string" &&
-      DIGEST.test(capsule.content_digest) &&
-      capsule.compression === "none" &&
-      Array.isArray(capsule.dropped_decision_digests) &&
-      capsule.dropped_decision_digests.length === 0 &&
-      isRfc3339(capsule.recorded_at),
-  );
+export const isContextLineageView: ResponseValidator<ContextLineageView> =
+  validatesContextLineageView;
 
 export const isFleetView: ResponseValidator<FleetView> = validatesFleetView;
 

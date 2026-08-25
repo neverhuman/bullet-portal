@@ -258,6 +258,46 @@ describe("generated projection validators", () => {
     expect(isQualityLabView({ ...lab, evidence: [{ ...evidence, outcome: "passed" }] })).toBe(false);
   });
 
+  it("accepts all and only the 16 generated TaskClass values", () => {
+    const taskClasses = [
+      "deterministic_transform",
+      "extract_structured",
+      "classify_route",
+      "summarize_local",
+      "compress_context",
+      "mechanical_code_edit",
+      "bounded_bug_fix",
+      "feature_implementation",
+      "broad_refactor",
+      "architecture_design",
+      "security_analysis",
+      "migration_design",
+      "code_review",
+      "fusion_rank",
+      "fusion_synthesize",
+      "completion_assessment",
+    ];
+    expect(taskClasses).toHaveLength(16);
+    for (const taskClass of taskClasses) {
+      expect(
+        isContextLineageView({ capsules: [{ ...contextCapsule, task_class: taskClass }] }),
+      ).toBe(true);
+    }
+    for (const taskClass of ["", "unknown", "SecurityAnalysis", null, 16]) {
+      expect(
+        isContextLineageView({ capsules: [{ ...contextCapsule, task_class: taskClass }] }),
+      ).toBe(false);
+    }
+  });
+
+  it("rejects malformed Context Lineage timestamps through the generated AJV root", () => {
+    for (const recordedAt of ["", "2026-02-30T00:00:00Z", "2026-08-25", 0, null]) {
+      expect(
+        isContextLineageView({ capsules: [{ ...contextCapsule, recorded_at: recordedAt }] }),
+      ).toBe(false);
+    }
+  });
+
   it("rejects numeric values outside the authority envelope", () => {
     expect(
       isContextLineageView({ capsules: [{ ...contextCapsule, revision: 2 }] }),
