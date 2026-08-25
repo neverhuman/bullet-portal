@@ -3,9 +3,9 @@
 // Command: just contract-generate
 // DO NOT EDIT BY HAND.
 export const SCHEMA_VERSION = "v1alpha1" as const;
-export const SCHEMA_BUNDLE_HASH = "e75054c8887cbb034105b3bc01012e425cb14fd97ebe2422999947fe000e575f" as const;
+export const SCHEMA_BUNDLE_HASH = "10b1d059d7a621a7bc65492ae87715c14a8e41eaa9d52b773d7ae96a67806103" as const;
 export const INVARIANT_REGISTRY_HASH = "978a8b4ebb14ff0c978afb431c154647adef2f9839de322356a765c59a0c3858" as const;
-export const POLICY_SNAPSHOT_HASH = "55d42dc1827360fdb42f76a0e4be8bd549e6432f33734af82e10edafd92c51c1" as const;
+export const POLICY_SNAPSHOT_HASH = "5b007a784003f42a2e4f7781718178f533b899df334afad5127cd466d192ed31" as const;
 export const CANONICAL_GOLDEN_JSON = "{\"a\":\"é\",\"array\":[true,null,17],\"z\":\"last\"}" as const;
 export const CANONICAL_GOLDEN_HASH = "1d800cb94962906f78d42cb8cc84c2c078311a50e35ca515240b800abc3d2263" as const;
 export const AUTHORITY_GOLDEN_HASH = "4ff1ce8a4ba7a37ae705a8d2459e5a9d900abe55610f6d6984fe514cd37860df" as const;
