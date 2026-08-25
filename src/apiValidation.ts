@@ -41,6 +41,17 @@ function hasExactKeys(value: Record<string, unknown>, expected: readonly string[
 }
 
 const RFC3339 = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
+const MISSION_ID = /^mis_[0-9a-f]{64}$/;
+const ORGANIZATION_ID = /^org_[0-9a-f]{64}$/;
+const REPOSITORY_ID = /^rep_[0-9a-f]{64}$/;
+const ACCEPTANCE_CONTRACT_ID = /^acc_[0-9a-f]{64}$/;
+const WORK_PACKAGE_ID = /^wpk_[0-9a-f]{64}$/;
+const PLAN_REVISION_ID = /^pln_[0-9a-f]{64}$/;
+const VARIANT_ID = /^var_[0-9a-f]{64}$/;
+
+function matches(value: unknown, pattern: RegExp): value is string {
+  return typeof value === "string" && pattern.test(value);
+}
 
 export function isRfc3339(value: unknown): value is string {
   if (typeof value !== "string") {
@@ -80,25 +91,35 @@ export const isHealth: ResponseValidator<Health> = (value): value is Health =>
 
 export const isMission: ResponseValidator<Mission> = (value): value is Mission =>
   isRecord(value) &&
-  hasStrings(value, [
+  hasExactKeys(value, [
+    "acceptance_contract_id",
     "id",
+    "objective",
     "organization_id",
     "repository_id",
-    "title",
-    "objective",
-    "acceptance_contract_id",
     "state",
-  ]);
+    "title",
+  ]) &&
+  matches(value.id, MISSION_ID) &&
+  matches(value.organization_id, ORGANIZATION_ID) &&
+  matches(value.repository_id, REPOSITORY_ID) &&
+  matches(value.acceptance_contract_id, ACCEPTANCE_CONTRACT_ID) &&
+  hasStrings(value, ["title", "objective", "state"]);
 
 export const isMissionList: ResponseValidator<Mission[]> = (value): value is Mission[] =>
   Array.isArray(value) && value.every(isMission);
 
 const isWorkPackage: ResponseValidator<WorkPackage> = (value): value is WorkPackage =>
   isRecord(value) &&
-  hasStrings(value, ["id", "mission_id", "plan_revision_id", "task_class", "title", "state"]);
+  hasExactKeys(value, ["id", "mission_id", "plan_revision_id", "state", "task_class", "title"]) &&
+  matches(value.id, WORK_PACKAGE_ID) &&
+  matches(value.mission_id, MISSION_ID) &&
+  matches(value.plan_revision_id, PLAN_REVISION_ID) &&
+  hasStrings(value, ["task_class", "title", "state"]);
 
 export const isMissionView: ResponseValidator<MissionView> = (value): value is MissionView =>
   isRecord(value) &&
+  hasExactKeys(value, ["fence", "mission", "packages"]) &&
   isMission(value.mission) &&
   Array.isArray(value.packages) &&
   value.packages.every(isWorkPackage) &&
@@ -136,7 +157,11 @@ export const isOutboxView: ResponseValidator<OutboxView> = (value): value is Out
 
 export const isReadyView: ResponseValidator<ReadyView> = (value): value is ReadyView =>
   isRecord(value) &&
-  hasStrings(value, ["work_package_id", "mission_id", "variant_id", "title", "enqueued_at"]);
+  hasExactKeys(value, ["enqueued_at", "mission_id", "title", "variant_id", "work_package_id"]) &&
+  matches(value.work_package_id, WORK_PACKAGE_ID) &&
+  matches(value.mission_id, MISSION_ID) &&
+  matches(value.variant_id, VARIANT_ID) &&
+  hasStrings(value, ["title", "enqueued_at"]);
 
 export const isNullableReadyView: ResponseValidator<ReadyView | null> = (
   value,

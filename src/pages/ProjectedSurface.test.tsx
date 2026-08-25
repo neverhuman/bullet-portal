@@ -3,6 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { surfaceById } from "../surfaces";
 import { ProjectedSurface } from "./ProjectedSurface";
 
+const missionId = `mis_${"1".repeat(64)}`;
+const organizationId = `org_${"2".repeat(64)}`;
+const repositoryId = `rep_${"3".repeat(64)}`;
+const acceptanceContractId = `acc_${"4".repeat(64)}`;
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -25,12 +30,12 @@ function json(data: unknown, sequence = "3"): Response {
 describe("ProjectedSurface", () => {
   it("renders mission graph from farmd missions", async () => {
     const mission = {
-      id: "mis_demo",
-      organization_id: "org_x",
-      repository_id: "repo_x",
+      id: missionId,
+      organization_id: organizationId,
+      repository_id: repositoryId,
       title: "t",
       objective: "o",
-      acceptance_contract_id: "acc_x",
+      acceptance_contract_id: acceptanceContractId,
       state: "active",
     };
     vi.stubGlobal(
@@ -40,7 +45,7 @@ describe("ProjectedSurface", () => {
         if (url.endsWith("/v1/missions")) {
           return json([mission]);
         }
-        if (url.endsWith("/v1/missions/mis_demo")) {
+        if (url.endsWith(`/v1/missions/${missionId}`)) {
           return json({ mission, packages: [], fence: 2 });
         }
         return new Response("missing", { status: 404 });
@@ -53,7 +58,7 @@ describe("ProjectedSurface", () => {
     }
     render(<ProjectedSurface surface={surface} />);
     await waitFor(() => {
-      expect(screen.getByTestId("mission-graph-projection")).toHaveTextContent("mis_demo");
+      expect(screen.getByTestId("mission-graph-projection")).toHaveTextContent(missionId);
     });
     expect(screen.getByTestId("surface-mission-graph")).toHaveTextContent(
       "source bullet-kernel/sqlite-ledger",
@@ -83,12 +88,12 @@ describe("ProjectedSurface", () => {
 
   it("refuses to combine projection snapshots from different sequences", async () => {
     const mission = {
-      id: "mis_demo",
-      organization_id: "org_x",
-      repository_id: "repo_x",
+      id: missionId,
+      organization_id: organizationId,
+      repository_id: repositoryId,
       title: "t",
       objective: "o",
-      acceptance_contract_id: "acc_x",
+      acceptance_contract_id: acceptanceContractId,
       state: "active",
     };
     vi.stubGlobal(
