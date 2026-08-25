@@ -276,7 +276,7 @@ jobs:
           retention-days: 14
 
   required:
-    name: CI / required
+    name: required
     if: ${{ always() }}
     needs: [fast, lint, contract, security, docs]
     runs-on: ubuntu-24.04

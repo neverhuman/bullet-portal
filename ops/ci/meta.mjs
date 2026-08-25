@@ -40,7 +40,9 @@ assert(!workflow.includes("cache:"), "required workflow configures a cache");
 assert(workflow.match(/persist-credentials: false/g)?.length === 6, "a required checkout may retain credentials");
 assert(workflow.match(/node-version: "22\.23\.2"/g)?.length === 6, "Node pin drifted");
 assert(workflow.match(/npm@10\.9\.8/g)?.length === 5, "npm pin drifted");
-assert(workflow.includes("name: CI / required"), "stable required context absent");
+assert(/^name: CI$/m.test(workflow), "stable workflow name drifted");
+assert(/^  required:\n    name: required$/m.test(workflow), "stable required job name drifted");
+assert(!workflow.includes("name: CI / required"), "required job duplicates the workflow name");
 assert(workflow.includes("if: ${{ always() }}"), "aggregator is not if: always()");
 assert(
   workflow.includes("cancel-in-progress: ${{ github.event_name == 'pull_request' }}"),
