@@ -4,6 +4,7 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 cd "$REPO_ROOT"
+require_node_floor
 log "security lane"
 require_tool gitleaks || exit 1
 require_tool zizmor || exit 1

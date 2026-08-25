@@ -9,6 +9,8 @@
 # is added there, add its tool row here in the same change; a lane with no row
 # is a usage error, never a silent pass.
 set -euo pipefail
+# shellcheck source=ops/ci/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../ops/ci/lib.sh"
 
 lane="${1:-all}"
 case "$lane" in
@@ -16,15 +18,15 @@ case "$lane" in
   lint)     tools=(actionlint bash dirname find git shellcheck sort) ;;
   contract) tools=(bash dirname git node npm) ;;
   security) tools=(bash dirname git gitleaks grep mktemp node npm zizmor) ;;
-  docs)     tools=(bash dirname git node npm) ;;
-  required) tools=(actionlint bash dirname find git gitleaks grep mktemp node npm shellcheck sort zizmor) ;;
+  docs)     tools=(bash chmod cp dirname git grep mkdir mktemp node npm rm) ;;
+  required) tools=(actionlint bash chmod cp dirname find git gitleaks grep mkdir mktemp node npm rm shellcheck sort zizmor) ;;
   coverage) tools=(bash dirname git node npm) ;;
   portable) tools=(bash dirname git node npm) ;;
   scheduled-hygiene) tools=(bash dirname git gitleaks node npm) ;;
   family|packaged-farmd) tools=(bash cargo dirname git node npm rustc uname) ;;
   audit)    tools=(bash dirname git jankurai mkdir) ;;
   nightly)  tools=(bash dirname git node npm) ;;
-  all)      tools=(actionlint bash cargo dirname find git gitleaks grep jankurai mkdir mktemp node npm rustc shellcheck sort uname zizmor) ;;
+  all)      tools=(actionlint bash cargo chmod cp dirname find git gitleaks grep jankurai mkdir mktemp node npm rm rustc shellcheck sort uname zizmor) ;;
   *)
     echo "ci-doctor: expected fast|lint|contract|security|docs|required|coverage|portable|scheduled-hygiene|family|packaged-farmd|audit|nightly|all" >&2
     exit 2
@@ -40,16 +42,10 @@ for tool in "${tools[@]}"; do
 done
 [[ "$missing" -eq 0 ]] || exit 1
 
-# `require_node_floor` in ops/ci/lib.sh refuses Node <22 or npm <10. Report the
-# same floor here instead of failing three minutes into a test run.
+# `require_node_floor` retains its historical name but enforces the exact local
+# and hosted Node/npm identities. Refuse drift before starting a lane.
 if [[ "$lane" =~ ^(fast|lint|contract|security|docs|required|coverage|portable|scheduled-hygiene|family|packaged-farmd|nightly|all)$ ]]; then
-  node_major="$(node --version)"; node_major="${node_major#v}"; node_major="${node_major%%.*}"
-  npm_major="$(npm --version)"; npm_major="${npm_major%%.*}"
-  if (( node_major < 22 || npm_major < 10 )); then
-    printf 'ci-doctor: Node >=22 and npm >=10 required (found %s / %s)\n' \
-      "$(node --version)" "$(npm --version)" >&2
-    exit 1
-  fi
+  require_node_floor
 fi
 if [[ "$lane" =~ ^(security|required|scheduled-hygiene|all)$ ]]; then
   [[ "$(gitleaks version)" == "8.21.2" ]] || {

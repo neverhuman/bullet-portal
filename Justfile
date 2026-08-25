@@ -2,6 +2,8 @@ default:
     @just --list
 
 setup:
+    node ops/ci/preinstall-scan.mjs
+    bash -c 'source ops/ci/lib.sh; require_node_floor'
     npm ci --ignore-scripts --no-fund --no-audit
     ./node_modules/.bin/playwright install chromium
 

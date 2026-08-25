@@ -29,7 +29,7 @@ requires_network = false
 name = "security"
 command = "just security"
 purpose = "gitleaks 8.21.2 secret scan, a detector canary that fails the lane if gitleaks accepts a planted credential, the CSRF storage-symbol guard, npm audit over the whole graph, and zizmor 1.25.2 over the workflow bytes"
-requires_network = false
+requires_network = true
 
 [[lane]]
 name = "docs"
@@ -41,7 +41,7 @@ requires_network = false
 name = "required"
 command = "just check"
 purpose = "canonical local merge gate: fast, lint, contract, security and docs, sequentially and exactly once, each with an observation record"
-requires_network = false
+requires_network = true
 
 [[lane]]
 name = "family"

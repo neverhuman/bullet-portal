@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+require_node_floor
 
 family_root="$(cd "$REPO_ROOT/.." && pwd)"
 kernel_root="$family_root/bullet-kernel"

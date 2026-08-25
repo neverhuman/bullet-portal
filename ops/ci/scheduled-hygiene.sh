@@ -2,6 +2,7 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 cd "$REPO_ROOT"
+require_node_floor
 require_tool gitleaks || exit 1
 [[ "$(gitleaks version)" == "8.21.2" ]] || {
   echo "[ci] gitleaks 8.21.2 required" >&2

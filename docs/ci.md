@@ -55,8 +55,13 @@ fork-PR permission read-back, and branch-protection read-back.
 ## Jeryu preparation
 
 `ci.toml` declares the same five local commands and a dependency convergence
-job. Every prepared job first runs `ops/ci/jeryu-activation-gate.sh`, which
-returns typed `JERYU_CI_ACTIVATION_BLOCKED` (exit 78). The proposed
+job. Each atomic job uses `ops/ci/jeryu-lane.sh` to invoke its local lane,
+emit one unsigned lane observation, sanitize it, and expose only the named
+observation and diagnostic paths. Every prepared job first runs
+`ops/ci/jeryu-activation-gate.sh`, which returns typed
+`JERYU_CI_ACTIVATION_BLOCKED` (exit 78). The convergence command also refuses
+when invoked directly because predecessor status and artifact binding remain
+unratified. The proposed
 `native-node-clean` profile, immutable subject provisioning, artifact handling,
 and required-context read-back are not ratified. Removing the gate or enabling
 a runner is an operator/forge action, not a documentation change. `Family /

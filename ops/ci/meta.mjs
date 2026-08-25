@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { validateNeeds } from "./aggregate.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
@@ -95,8 +96,8 @@ assert(!required.includes("real-farmd.sh"), "standalone required resolves real f
 const family = read("ops/ci/family.sh");
 assert(family.includes("ops/ci/real-farmd.sh"), "family lane lost real-farmd proof");
 assert(
-  read("ops/ci/fast.sh").includes('assert-report.mjs vitest "$reports/vitest.json" 106'),
-  "exact 106-test Vitest identity ratchet absent",
+  read("ops/ci/fast.sh").includes('assert-report.mjs vitest "$reports/vitest.json" 123'),
+  "exact 123-test Vitest identity ratchet absent",
 );
 assert(
   read("ops/ci/fast.sh").includes("BULLET_FARMD_TEST_PROXY_INVALID"),
@@ -118,11 +119,77 @@ assert(read("ops/ci/security.sh").includes("secret-canary.sh"), "secret canary a
 const ignoredFingerprints = read(".gitleaksignore").trim().split("\n").filter(Boolean);
 assert(ignoredFingerprints.length === 1, "historical secret ignore is not exact-singleton");
 const jeryu = read("ci.toml");
+const jeryuAdapter = read("ops/ci/jeryu-lane.sh");
+assert(
+  jeryuAdapter.includes('bash scripts/ci-local.sh "$lane"') &&
+    jeryuAdapter.includes("bash scripts/ci-observation.sh") &&
+    jeryuAdapter.includes("node ops/ci/sanitize-artifacts.mjs"),
+  "prepared Jeryu adapter bypasses a local lane, observation, or sanitization",
+);
 for (const lane of lanes) {
   assert(jeryu.includes(`id = "${lane}"`), `ci.toml lost ${lane}`);
-  assert(jeryu.includes(`bash scripts/ci-local.sh ${lane}`), `ci.toml bypasses local ${lane} lane`);
+  assert(
+    jeryu.includes(
+      `run = ["bash ops/ci/jeryu-activation-gate.sh", "bash ops/ci/jeryu-lane.sh ${lane}"]`,
+    ),
+    `ci.toml bypasses the gated local ${lane} adapter`,
+  );
+  assert(
+    jeryu.includes(`.ci-artifacts/observations/${lane}.json`),
+    `ci.toml does not export the ${lane} observation`,
+  );
 }
 assert(jeryu.includes('id = "required"'), "ci.toml required convergence absent");
+assert(!jeryu.includes('artifact_paths = [".ci-artifacts"]'), "ci.toml exports a broad artifact root");
+assert(
+  jeryu.includes(
+    'run = ["bash ops/ci/jeryu-activation-gate.sh", "node ops/ci/aggregate.mjs --jeryu"]',
+  ),
+  "ci.toml required convergence is not activation-gated",
+);
+const directJeryu = spawnSync(process.execPath, ["ops/ci/aggregate.mjs", "--jeryu"], {
+  encoding: "utf8",
+});
+assert(directJeryu.status !== 0, "unratified direct Jeryu convergence reported success");
+assert(
+  directJeryu.stderr.includes("JERYU_STATUS_BINDING_UNRATIFIED"),
+  "direct Jeryu refusal lost its stable code",
+);
+const justfile = read("Justfile");
+const setup = justfile.match(/^setup:\n((?:    .+\n)+)/m)?.[1] ?? "";
+assert(setup.includes("preinstall-scan.mjs"), "local setup lost source admission");
+assert(
+  setup.indexOf("preinstall-scan.mjs") < setup.indexOf("npm ci --ignore-scripts"),
+  "local setup installs before source admission",
+);
+assert(setup.includes("require_node_floor"), "local setup bypasses exact Node/npm admission");
+assert(
+  setup.indexOf("require_node_floor") < setup.indexOf("npm ci --ignore-scripts"),
+  "local setup checks Node/npm only after installation",
+);
+const toolchain = read("ops/ci/lib.sh");
+assert(
+  toolchain.includes('"v22.23.2"') && toolchain.includes('"10.9.8"'),
+  "local exact Node/npm identity drifted",
+);
+assert(
+  read("scripts/ci-doctor.sh").includes("require_node_floor"),
+  "ci-doctor bypasses the exact Node/npm check",
+);
+assert(
+  read("ops/ci/docs.sh").includes("bash ops/ci/toolchain-test.sh"),
+  "wrong-version hostile proof is not load-bearing",
+);
+const proofLanes = read("agent/proof-lanes.toml");
+for (const lane of ["security", "required"]) {
+  const definition = proofLanes.match(
+    new RegExp(`\\[\\[lane\\]\\]\\nname = "${lane}"\\n([\\s\\S]*?)(?=\\n\\[\\[lane\\]\\]|$)`),
+  )?.[1];
+  assert(
+    definition?.includes("requires_network = true"),
+    `${lane} does not declare npm-audit network use`,
+  );
+}
 console.log("[ci] CI meta-tests passed, including negative aggregator fixtures");
 
 function assertThrows(callback, message) {

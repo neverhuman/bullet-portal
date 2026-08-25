@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import {
   mkdtempSync,
   mkdirSync,
@@ -13,12 +14,13 @@ import { dirname, join } from "node:path";
 import { validateRequiredRun } from "./aggregate.mjs";
 
 const lanes = ["fast", "lint", "contract", "security", "docs"];
-const commit = "1".repeat(40);
+const commit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+const tree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], { encoding: "utf8" }).trim();
 const successfulNeeds = Object.fromEntries(
   lanes.map((lane) => [lane, { result: "success", outputs: { observation: "true" } }]),
 );
 const artifactsByLane = {
-  fast: { ".ci-artifacts/reports/vitest.json": '{"numTotalTests":106}\n' },
+  fast: { ".ci-artifacts/reports/vitest.json": '{"numTotalTests":123}\n' },
   lint: {},
   contract: { ".ci-artifacts/reports/playwright.xml": '<testsuites tests="10"/>\n' },
   security: {},
@@ -46,6 +48,12 @@ scenario("wrong repository", "CI_OBSERVATION_INVALID", (root) => {
 });
 scenario("wrong commit", "CI_OBSERVATION_INVALID", (root) => {
   mutateObservation(root, "security", (value) => (value.commit_oid = "2".repeat(40)));
+});
+scenario("wrong tree", "CI_OBSERVATION_INVALID", (root) => {
+  mutateObservation(root, "security", (value) => {
+    const replacement = value.tree_oid.startsWith("0") ? "1" : "0";
+    value.tree_oid = `${replacement}${value.tree_oid.slice(1)}`;
+  });
 });
 scenario("dirty subject", "CI_OBSERVATION_INVALID", (root) => {
   mutateObservation(root, "docs", (value) => (value.clean = false));
@@ -90,7 +98,7 @@ scenario("unexpected observation", "CI_ARTIFACT_INVENTORY_INVALID", (root) => {
 scenario("symlinked artifact", "CI_ARTIFACT_SYMLINK_REJECTED", (root) => {
   const path = join(root, "reports/vitest.json");
   const target = join(root, "outside.txt");
-  writeFileSync(target, '{"numTotalTests":106}\n');
+  writeFileSync(target, '{"numTotalTests":123}\n');
   rmSync(path);
   symlinkSync(target, path);
   mutateObservation(root, "fast", (value) => {
@@ -98,7 +106,7 @@ scenario("symlinked artifact", "CI_ARTIFACT_SYMLINK_REJECTED", (root) => {
   });
 });
 
-console.log("[ci] required aggregation hostile matrix passed (17 refusals)");
+console.log("[ci] required aggregation hostile matrix passed (18 refusals)");
 
 function scenario(name, expectedCode, mutate) {
   const root = makeFixture();
@@ -132,7 +140,7 @@ function makeFixture() {
         schema_version: "bullet.ci-observation.v1",
         repository: "bullet-portal",
         commit_oid: commit,
-        tree_oid: "3".repeat(40),
+        tree_oid: tree,
         clean: true,
         commands: [`bash scripts/ci-local.sh ${lane}`],
         tool_versions: { node: "v22.23.2", npm: "10.9.8" },

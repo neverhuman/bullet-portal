@@ -10,11 +10,11 @@ reimplement a lane.
 
 | Lane | Contents | Required tools |
 | --- | --- | --- |
-| fast | Vitest JSON report with nonzero/all-pass guard; typed Vite production build | Node >=22, npm >=10, locked dependencies |
+| fast | Vitest JSON report with nonzero/all-pass guard; typed Vite production build | Node 22.23.2, npm 10.9.8, locked dependencies |
 | lint | actionlint, ShellCheck, whitespace | actionlint 1.7.8, ShellCheck 0.10.0 |
-| contract | bundle type/tests; mocked Playwright; nonzero/all-pass JUnit guard | locked dependencies, Chromium |
-| security | current-tree gitleaks, must-fail disposable canary, full npm audit, zizmor | gitleaks 8.21.2, zizmor 1.25.2, npm |
-| docs | relative-link checker, workflow/config meta-tests, negative aggregator fixtures | Node >=22 |
+| contract | bundle type/tests; mocked Playwright; nonzero/all-pass JUnit guard | Node 22.23.2, npm 10.9.8, locked dependencies, Chromium |
+| security | current-tree gitleaks, must-fail disposable canary, full npm audit, zizmor | Node 22.23.2, npm 10.9.8, gitleaks 8.21.2, zizmor 1.25.2 |
+| docs | relative-link checker, workflow/config meta-tests, negative aggregator fixtures | Node 22.23.2, npm 10.9.8 |
 | required | fast → lint → contract → security → docs exactly once | all of the above |
 
 `required` is genuinely standalone. It must never resolve `../bullet-kernel`,

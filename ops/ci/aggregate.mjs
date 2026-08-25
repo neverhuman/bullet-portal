@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -18,6 +19,7 @@ const observationKeys = [
   "tree_oid",
 ].sort();
 const sha256Pattern = /^[0-9a-f]{64}$/;
+const oidPattern = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 export function validateNeeds(needs) {
   if (!isObject(needs)) fail("INVALID_NEEDS", "needs must be an object");
@@ -40,9 +42,10 @@ export function validateNeeds(needs) {
 
 export function validateRequiredRun(artifactRoot, expectedCommit, needs) {
   validateNeeds(needs);
-  if (!/^[0-9a-f]{40}$/.test(expectedCommit ?? "")) {
+  if (!oidPattern.test(expectedCommit ?? "")) {
     fail("INVALID_EXPECTED_COMMIT", expectedCommit ?? "missing");
   }
+  const expectedTree = resolveExpectedTree(expectedCommit);
   const root = resolve(artifactRoot);
   const rootStat = safeLstat(root, "CI_ARTIFACT_ROOT_MISSING");
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
@@ -55,7 +58,7 @@ export function validateRequiredRun(artifactRoot, expectedCommit, needs) {
     const relativeObservation = `observations/${lane}.json`;
     const observationPath = requireRegularPath(root, relativeObservation, "CI_OBSERVATION_MISSING");
     const observation = readObservation(observationPath, lane);
-    validateObservation(observation, lane, expectedCommit);
+    validateObservation(observation, lane, expectedCommit, expectedTree);
 
     for (const artifact of observation.artifact_hashes) {
       validateArtifactEntry(artifact, lane);
@@ -95,14 +98,14 @@ function readObservation(path, lane) {
   }
 }
 
-function validateObservation(observation, lane, expectedCommit) {
+function validateObservation(observation, lane, expectedCommit, expectedTree) {
   const valid =
     isObject(observation) &&
     sameArray(Object.keys(observation).sort(), observationKeys) &&
     observation.schema_version === "bullet.ci-observation.v1" &&
     observation.repository === "bullet-portal" &&
     observation.commit_oid === expectedCommit &&
-    /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(observation.tree_oid ?? "") &&
+    observation.tree_oid === expectedTree &&
     observation.clean === true &&
     sameArray(observation.commands, [`bash scripts/ci-local.sh ${lane}`]) &&
     isObject(observation.tool_versions) &&
@@ -115,6 +118,20 @@ function validateObservation(observation, lane, expectedCommit) {
     observation.signed === false &&
     observation.evidence_class === "DIAGNOSTIC_ONLY";
   if (!valid) fail("CI_OBSERVATION_INVALID", lane);
+}
+
+function resolveExpectedTree(expectedCommit) {
+  let tree;
+  try {
+    tree = execFileSync("git", ["rev-parse", "--verify", `${expectedCommit}^{tree}`], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    fail("EXPECTED_TREE_UNAVAILABLE", expectedCommit);
+  }
+  if (!oidPattern.test(tree ?? "")) fail("EXPECTED_TREE_UNAVAILABLE", expectedCommit);
+  return tree;
 }
 
 function validateArtifactEntry(artifact, lane) {
@@ -197,7 +214,10 @@ function fail(code, detail) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   if (process.argv[2] === "--jeryu") {
-    console.log("[ci] Jeryu dependency convergence reached");
+    fail(
+      "JERYU_STATUS_BINDING_UNRATIFIED",
+      "predecessor outcomes and exact artifact layout are not ratified",
+    );
   } else {
     const raw = process.env.NEEDS_JSON;
     if (!raw) fail("MISSING_NEEDS_JSON", "environment variable is absent");

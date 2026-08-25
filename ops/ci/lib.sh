@@ -17,18 +17,17 @@ require_tool() {
   fi
 }
 
+# The historical function name is retained for callers, but the hosted/local
+# contract is an exact toolchain identity rather than a major-version floor.
 require_node_floor() {
   require_tool node || return 1
   require_tool npm || return 1
-  local node_major npm_major
-  node_major="$(node --version)"
-  node_major="${node_major#v}"
-  node_major="${node_major%%.*}"
-  npm_major="$(npm --version)"
-  npm_major="${npm_major%%.*}"
-  if (( node_major < 22 || npm_major < 10 )); then
-    printf '[ci] Node >=22 and npm >=10 required (found %s / %s)\n' \
-      "$(node --version)" "$(npm --version)" >&2
+  local node_version npm_version
+  node_version="$(node --version)"
+  npm_version="$(npm --version)"
+  if [[ "$node_version" != "v22.23.2" || "$npm_version" != "10.9.8" ]]; then
+    printf '[ci] PORTAL_TOOLCHAIN_VERSION_MISMATCH: expected Node v22.23.2 and npm 10.9.8; found %s / %s\n' \
+      "$node_version" "$npm_version" >&2
     return 1
   fi
 }

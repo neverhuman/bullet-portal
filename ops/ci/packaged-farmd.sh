@@ -13,6 +13,7 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 cd "$REPO_ROOT"
+require_node_floor
 
 family_root="$(cd "$REPO_ROOT/.." && pwd)"
 kernel_root="$family_root/bullet-kernel"
