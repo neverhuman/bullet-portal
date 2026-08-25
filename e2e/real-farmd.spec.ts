@@ -8,13 +8,58 @@ const bootstrap = environment?.BULLET_BOOTSTRAP_TOKEN;
 const worker = environment?.BULLET_WORKER_TOKEN;
 
 test.describe("real farmd command authority", () => {
+  test("legacy operator routes are typed retired and a valid command remains inert", async () => {
+    const before = await fetch(`${farmd}/api/v1/outbox`);
+    expect(before.status).toBe(200);
+    const beforeBody = await before.json();
+    const beforeSequence = before.headers.get("x-bullet-as-of-sequence");
+
+    for (const [method, path, body] of [
+      ["GET", "/v1/missions", undefined],
+      [
+        "POST",
+        "/v1/commands",
+        JSON.stringify({ idempotency_key: "legacy-must-be-inert", kind: "run_demo", payload: {} }),
+      ],
+    ] as const) {
+      const response = await fetch(`${farmd}${path}`, {
+        method,
+        headers: body === undefined ? undefined : { "content-type": "application/json" },
+        body,
+      });
+      expect(response.status, `${method} ${path}`).toBe(410);
+      expect(response.headers.get("content-type")).toContain("application/problem+json");
+      const problem = (await response.json()) as {
+        code: string;
+        status: number;
+        retryable: boolean;
+      };
+      expect(problem).toMatchObject({
+        code: "API_VERSION_RETIRED",
+        status: 410,
+        retryable: false,
+      });
+    }
+
+    const after = await fetch(`${farmd}/api/v1/outbox`);
+    expect(after.status).toBe(200);
+    expect(after.headers.get("x-bullet-as-of-sequence")).toBe(beforeSequence);
+    const afterBody = await after.json();
+    expect(afterBody.data).toEqual(beforeBody.data);
+    expect(afterBody.source).toBe(beforeBody.source);
+    expect(String(beforeBody.as_of_sequence)).toBe(beforeSequence);
+    expect(afterBody.as_of_sequence).toBe(beforeBody.as_of_sequence);
+    expect(typeof beforeBody.observed_at).toBe("string");
+    expect(typeof afterBody.observed_at).toBe("string");
+  });
+
   test("browser reconciles the exact command to durable UNKNOWN without green", async ({ page }) => {
     expect(bootstrap, "real lane must inject farmd's one-time token").toMatch(/^boot_[0-9a-f]{64}$/);
     expect(worker, "real lane must inject farmd's independent worker token").toMatch(
       /^wrk_[0-9a-f]{64}$/,
     );
 
-    const ready = await fetch(`${farmd}/v1/ready`);
+    const ready = await fetch(`${farmd}/api/v1/ready`);
     expect(ready.status).toBe(200);
     const readyBody = (await ready.json()) as {
       data: unknown;
@@ -78,18 +123,18 @@ test.describe("real farmd command authority", () => {
     await expect(page.getByTestId("command")).toContainText(commandId ?? "");
     await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 2");
 
-    const removed = await fetch(`${farmd}/v1/demo/run`, { method: "POST" });
+    const removed = await fetch(`${farmd}/api/v1/demo/run`, { method: "POST" });
     expect(removed.status).toBe(410);
   });
 
   test("projection routes answer from one atomic read and the browser renders zero rows as verified, not green", async ({ page }) => {
     const routes = [
-      "/v1/fleet",
-      "/v1/sessions",
-      "/v1/context-lineage",
-      "/v1/merge-rail",
-      "/v1/quality-lab",
-      "/v1/audit",
+      "/api/v1/fleet",
+      "/api/v1/sessions",
+      "/api/v1/context-lineage",
+      "/api/v1/merge-rail",
+      "/api/v1/quality-lab",
+      "/api/v1/audit",
     ];
     const watermarks: number[] = [];
     for (const route of routes) {

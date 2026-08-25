@@ -8,13 +8,13 @@ as unknown, never as healthy and never as an authoritative empty list. Agents st
 Control Tower snapshot/SSE recovery, authenticated command submission, and
 navigation are tested in unit and browser lanes. Nine of the fifteen spec §25
 surfaces read farmd through the atomic snapshot contract in
-[`docs/projections.md`](docs/projections.md): Control Tower (`/v1/missions`,
-`/v1/outbox`, `/health`, `/v1/events`), Mission Graph and Live Attempt
-(`/v1/missions`, `/v1/missions/{id}`, and for Live Attempt `/v1/ready`),
-Fleet (`/v1/fleet`), Session Supervisor (`/v1/sessions`), Context Lineage
-(`/v1/context-lineage`), Merge Rail (`/v1/merge-rail`), Quality Lab
-(`/v1/quality-lab`), and Incidents & Audit
-(`/v1/audit`, `/v1/outbox`). Composed reads refuse to render when their
+[`docs/projections.md`](docs/projections.md): Control Tower (`/api/v1/missions`,
+`/api/v1/outbox`, `/health`, `/api/v1/events`), Mission Graph and Live Attempt
+(`/api/v1/missions`, `/api/v1/missions/{id}`, and for Live Attempt `/api/v1/ready`),
+Fleet (`/api/v1/fleet`), Session Supervisor (`/api/v1/sessions`), Context Lineage
+(`/api/v1/context-lineage`), Merge Rail (`/api/v1/merge-rail`), Quality Lab
+(`/api/v1/quality-lab`), and Incidents & Audit
+(`/api/v1/audit`, `/api/v1/outbox`). Composed reads refuse to render when their
 watermarks disagree. Context Lineage publishes only immutable revision-one
 capsule subjects and digests; it does not expose raw objective/title or claim
 successor/compression lineage. The other six surfaces — Cognitive Router,
@@ -28,7 +28,7 @@ production-readiness claim.
 The operator pastes farmd's one-time CLI bootstrap into a password input. Farmd
 returns an HttpOnly/SameSite browser session and a session-bound CSRF value;
 only then can the browser submit a fresh idempotent `run_demo` envelope to
-`POST /v1/commands`. The Portal polls `GET /v1/commands/{id}` and renders only
+`POST /api/v1/commands`. The Portal polls `GET /api/v1/commands/{id}` and renders only
 durable `VERIFIED` green. `PENDING` and `APPLIED` remain amber, while transport
 ambiguity and durable `UNKNOWN` remain unknown. Farmd has no dispatch, APPLIED,
 or VERIFIED path: a newly admitted real command stays `PENDING` until farmd's
@@ -45,7 +45,7 @@ just fast          # tsc + vitest + production build
 npm run dev        # http://127.0.0.1:5173
 ```
 
-The dev server proxies `/v1`, `/health`, and `/openapi.yaml` to
+The dev server proxies `/api/v1`, `/health`, and `/openapi.yaml` to
 `http://127.0.0.1:7420` (bullet-farmd). Browser requests remain same-origin
 through that proxy. `VITE_BULLET_API` is unsupported: Vite configuration
 refuses any nonempty override before serving or building.
@@ -56,7 +56,7 @@ refuses any nonempty override before serving or building.
 to the bundle origin. A nonempty `VITE_BULLET_API` makes Vite fail with typed
 `VITE_BULLET_API_UNSUPPORTED`; it is never baked into the bundle. The
 loopback-only `npm run preview` proof server serves the built `dist` bytes and
-proxies only `/v1`, `/health`, and `/openapi.yaml` to loopback farmd. It is a
+proxies only `/api/v1`, `/health`, and `/openapi.yaml` to loopback farmd. It is a
 CI/developer preview boundary, not the release server; the packaged Rust
 distribution must embed the same built bytes.
 Pointing a browser bundle directly at `http://127.0.0.1:7420` is not supported.
@@ -108,7 +108,7 @@ which runs `ops/ci/<lane>.sh`; the rules for editing those scripts are in
 | family | `just family` | explicit Linux-only real-farmd browser proof against the sibling Kernel; missing provisioning fails closed |
 | audit | `bash ops/ci/audit.sh` | Jankurai audit against the committed ratchet floor (`AUDIT_FLOOR=59`, may only rise); artifacts under `.jankurai/` |
 | nightly | `bash ops/ci/nightly.sh` | compatibility alias for the explicit family lane |
-| packaged-farmd | `just packaged-farmd` | `ops/ci/packaged-farmd.sh`: builds `dist`, runs `npm run bundle:generate`/`bundle:check` (refuses on a dirty source tree), builds the sibling Kernel's `bullet-farmd` with `--features embedded-portal` and `BULLET_PORTAL_DIST=$PWD/dist`, starts it on `127.0.0.1:7421` with `--portal-origin http://127.0.0.1:7421`, requires `/health` to name that exact bundle root and `/` to serve the entry point, then runs `e2e/real-farmd.spec.ts` (2 tests, `playwright.packaged.config.ts`) against the daemon's own origin with no preview server. Exits neutral 78 only when the sibling Kernel checkout is absent; every other failure is fatal |
+| packaged-farmd | `just packaged-farmd` | `ops/ci/packaged-farmd.sh`: builds `dist`, runs `npm run bundle:generate`/`bundle:check` (refuses on a dirty source tree), builds the sibling Kernel's `bullet-farmd` with `--features embedded-portal` and `BULLET_PORTAL_DIST=$PWD/dist`, starts it on `127.0.0.1:7421` with `--portal-origin http://127.0.0.1:7421`, requires `/health` to name that exact bundle root and `/` to serve the entry point, then runs `e2e/real-farmd.spec.ts` (3 tests, `playwright.packaged.config.ts`) against the daemon's own origin with no preview server. Exits neutral 78 only when the sibling Kernel checkout is absent; every other failure is fatal |
 
 The prepared mirror workflow runs the five atomic jobs in parallel on
 `ubuntu-24.04` and converges them at the exact `CI / required` context with an

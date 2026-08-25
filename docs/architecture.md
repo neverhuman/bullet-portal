@@ -19,25 +19,25 @@ is the per-surface contract and quotes the six reasons verbatim.
 Every projected read goes through `readSnapshot` in `src/api.ts`: one atomic
 ledger snapshot `{data, as_of_sequence, observed_at, source}` whose
 `x-bullet-as-of-sequence` response header must equal the body watermark. A
-surface that composes several reads — Mission Graph (`GET /v1/missions` plus
-one `GET /v1/missions/{id}` per mission), Live Attempt (the same plus
-`GET /v1/ready`), Incidents & Audit (`GET /v1/audit` plus `GET /v1/outbox`) —
+surface that composes several reads — Mission Graph (`GET /api/v1/missions` plus
+one `GET /api/v1/missions/{id}` per mission), Live Attempt (the same plus
+`GET /api/v1/ready`), Incidents & Audit (`GET /api/v1/audit` plus `GET /api/v1/outbox`) —
 passes them through `atomicSnapshot` (`src/hooks/useProjection.ts`), which
 refuses differing watermarks with `SNAPSHOT_WATERMARK_MISMATCH` and differing
 sources with `SNAPSHOT_SOURCE_MISMATCH`; the surface then renders `unknown`.
-`GET /v1/ready` answers HTTP 200 with `data: null` while the ready queue is
+`GET /api/v1/ready` answers HTTP 200 with `data: null` while the ready queue is
 empty (kernel `apps/bullet-farmd/src/leases.rs`, `next_ready`); the client
 accepts only that shape as an empty queue and treats HTTP 404 as a failed read
 (`src/api.test.ts`, "never infers empty from 404"), so an idle farmd shows Live
 Attempt as `{"ready": null, "graphs": []}` under its watermark, not as a
 healthy list.
 
-Operators diagnose from durable projections and `/v1/events`. No view mutates
+Operators diagnose from durable projections and `/api/v1/events`. No view mutates
 authoritative state optimistically. The browser receives only a local,
 session-bound mutation capability: farmd exchanges one short-lived CLI
 bootstrap for an HttpOnly/SameSite cookie and CSRF value, then authorizes
-`POST /v1/commands`. The Portal never treats HTTP acceptance as completion; it
-polls the returned id through `GET /v1/commands/{id}`. The same-origin CSRF
+`POST /api/v1/commands`. The Portal never treats HTTP acceptance as completion; it
+polls the returned id through `GET /api/v1/commands/{id}`. The same-origin CSRF
 value is retained in memory with best-effort session-storage continuity and has
 no mutation authority without the HttpOnly cookie. A missing or stale pair
 fails at farmd.
@@ -57,7 +57,7 @@ CONTRADICTORY. Portal rendering:
   renders green, `unknown` — and any unrecognized phase — renders red.
 - Observations use the generated `ObservationKind` (`value`, `empty`,
   `unknown`, `contradictory`). UNKNOWN is never rendered as healthy and never
-  as an authoritative EMPTY: a failed `GET /v1/missions` renders
+  as an authoritative EMPTY: a failed `GET /api/v1/missions` renders
   `unknown: control plane unreachable (…)`, never "No missions yet.".
   "No missions yet." and "outbox: empty (verified)" render only from an
   HTTP 200 with a JSON body.
@@ -78,28 +78,28 @@ CONTRADICTORY. Portal rendering:
 ## Sources and confidence
 
 Observation cards with a value name their source and observed-at time
-(`GET /v1/missions`, `GET /v1/outbox`, `farmd /health`); projected surfaces
+(`GET /api/v1/missions`, `GET /api/v1/outbox`, `farmd /health`); projected surfaces
 name their spec section, `as_of_sequence`, `source`, `observed_at`, and
 freshness. The Control Tower header shows `as_of_sequence`, projection lag,
 source health from a real `/health` probe (10s timeout), and the stream
 connection state. Endpoints consumed (`src/api.ts` and
 `src/hooks/useEventStream.ts`):
-`GET /health`, `GET /v1/missions`, `GET /v1/missions/{id}`, `GET /v1/outbox`,
-`GET /v1/ready`, `GET /v1/fleet`, `GET /v1/sessions`,
-`GET /v1/context-lineage`, `GET /v1/merge-rail`, `GET /v1/quality-lab`,
-`GET /v1/audit`, `POST /v1/auth/bootstrap`,
-`POST /v1/commands`, `GET /v1/commands/{id}`, and
-`GET /v1/events?after=<seq>`. All fifteen are mounted by kernel
-`apps/bullet-farmd/src/api.rs`; the ten `GET /v1/…` reads other than
-`/v1/commands/{id}` and `/v1/events` are snapshot routes under the contract in
+`GET /health`, `GET /api/v1/missions`, `GET /api/v1/missions/{id}`, `GET /api/v1/outbox`,
+`GET /api/v1/ready`, `GET /api/v1/fleet`, `GET /api/v1/sessions`,
+`GET /api/v1/context-lineage`, `GET /api/v1/merge-rail`, `GET /api/v1/quality-lab`,
+`GET /api/v1/audit`, `POST /api/v1/auth/bootstrap`,
+`POST /api/v1/commands`, `GET /api/v1/commands/{id}`, and
+`GET /api/v1/events?after=<seq>`. All fifteen are mounted by kernel
+`apps/bullet-farmd/src/api.rs`; the ten `GET /api/v1/…` reads other than
+`/api/v1/commands/{id}` and `/api/v1/events` are snapshot routes under the contract in
 `projections.md`.
 
 Development and built-bundle proof are same-origin: Vite dev and preview
-proxy only `/v1`, `/health`, and `/openapi.yaml` to loopback farmd. Farmd does
-not expose wildcard CORS. Product requests use a literal empty API prefix, and
-Vite refuses nonempty `VITE_BULLET_API` configuration rather than directing a
-browser bundle to another origin. The real-farmd browser
-lane (`ops/ci/real-farmd.sh`, `e2e/real-farmd.spec.ts`, 2 tests) rebuilds and
+proxy only `/api/v1`, `/health`, and `/openapi.yaml` to loopback farmd. Farmd does
+not expose wildcard CORS. Product requests use an empty origin base plus the
+Kernel-generated `API_PREFIX`; Vite refuses nonempty `VITE_BULLET_API`
+configuration rather than directing a browser bundle to another origin. The
+real-farmd browser lane (`ops/ci/real-farmd.sh`, `e2e/real-farmd.spec.ts`, 3 tests) rebuilds and
 serves `dist`, builds the sibling `bullet-kernel` farmd, captures its one-time
 bootstrap without logging it, proves cookie/Origin/CSRF/202/status
 reconciliation through the worker-token reconcile route, and checks that the
@@ -112,7 +112,7 @@ is transaction completion.
 
 ## Event stream
 
-`src/hooks/useEventStream.ts` consumes `GET /v1/events?after=<seq>`. Kernel
+`src/hooks/useEventStream.ts` consumes `GET /api/v1/events?after=<seq>`. Kernel
 framing: SSE `id` = ledger seq and each default-message `data` is the generated
 `Event` JSON (`id`, `seq`, `at`, `kind`, `body`). The fetch-based SSE parser
 (`src/sse.ts`) validates the content type and skips keep-alive comments; the

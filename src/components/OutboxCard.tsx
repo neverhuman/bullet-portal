@@ -48,7 +48,7 @@ function OutboxBody({ outbox }: { outbox: Loadable<OutboxView> }) {
           ))}
         </ul>
       )}
-      <p className="source">source: {outbox.source} via GET /v1/outbox (observed {outbox.observedAt})</p>
+      <p className="source">source: {outbox.source} via GET /api/v1/outbox (observed {outbox.observedAt})</p>
     </>
   );
 }

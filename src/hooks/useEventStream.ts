@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { apiBase } from "../api";
+import { API_PREFIX } from "../generated/api";
 import type { SseFrame } from "../sse";
 import { readSseStream } from "../sse";
 
@@ -255,8 +256,8 @@ function createStream(cb: StreamCallbacks): () => void {
       try {
         const cursor = tracker.lastSeq();
         const url = reconnect
-          ? `${apiBase}/v1/events`
-          : `${apiBase}/v1/events?after=${cursor}`;
+          ? `${apiBase}${API_PREFIX}/events`
+          : `${apiBase}${API_PREFIX}/events?after=${cursor}`;
         await readSseStream(
           url,
           controller.signal,

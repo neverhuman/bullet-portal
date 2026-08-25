@@ -1,6 +1,6 @@
 # Portal projections
 
-Status: component contract consuming Kernel `7cdf850`; no release claim
+Status: component contract consuming Kernel `c3a7009`; no release claim
 Owner: Bullet Farm maintainers
 Last reviewed: 2026-08-25
 Applies to: bullet-portal
@@ -72,7 +72,7 @@ the surface renders that text in the `unknown` class. `ProjectionCard`
 `spec §N · as_of_sequence <n|unknown> · source <s|unknown> · observed_at
 <t|unknown> · freshness <k>s since observed_at (one-shot snapshot, not live) ·
 projection <loading|unknown|published> · confidence <published|unknown>`.
-Projected surfaces do not subscribe to `/v1/events`; only Control Tower does
+Projected surfaces do not subscribe to `/api/v1/events`; only Control Tower does
 (`src/hooks/useEventStream.ts`), so a STALE badge there never silently
 refreshes a one-shot projection and a projection never claims to be live.
 
@@ -104,15 +104,15 @@ refreshes a one-shot projection and a projection never claims to be live.
 
 | Surface (`id`, spec) | Routes | DTO (`src/generated/api.ts`) | Component | Shown | Deliberately absent |
 | --- | --- | --- | --- | --- | --- |
-| Control Tower (`control-tower`, §25.1) | `GET /v1/missions`, `GET /v1/outbox`, `GET /health`, `GET /v1/events?after=<seq>`; `POST /v1/auth/bootstrap`, `POST /v1/commands`, `GET /v1/commands/{id}` | `Mission[]`, `OutboxView`, `Health`, `EventEnvelope`, `BootstrapResponse`, `CommandEnvelope`, `CommandStatus` | `src/pages/ControlTower.tsx` | `as_of_sequence`, projection lag from durable `Event.at`, stream state, `/health` probe, missions, outbox phases, the exact admitted command and its polled status | green for `PENDING` or `APPLIED`; any status that does not repeat the admitted id, kind, and payload digest; survival, cost, quota risk, and struggle (no ledger subject) |
-| Mission Graph (`mission-graph`, §25.2) | `GET /v1/missions`, then `GET /v1/missions/{id}` per mission | `Mission[]`, `MissionView` (`mission`, `packages: WorkPackage[]`, `fence`) | `src/pages/ProjectedSurface.tsx` (`MissionGraph`) | raw JSON `{missions, graphs}` at the shared watermark | plan revisions, variants, attempts, candidates, evidence, and effects are not in `MissionView`; they appear only on Session Supervisor, Merge Rail, and Quality Lab |
-| Live Attempt (`live-attempt`, §25.6) | as Mission Graph plus `GET /v1/ready` | `ReadyView` or `null`, `MissionView` | `src/pages/ProjectedSurface.tsx` (`LiveAttempt`) | raw JSON `{ready, graphs}`; `ready: null` is the empty queue at the watermark | session events, authority token hash, last-progress time: none is a ledger subject; `ReadyView` carries only ids, `title`, `enqueued_at` |
-| Fleet (`fleet`, §25.5) | `GET /v1/fleet` | `FleetView` (`authority_time`, `leases: FleetLease[]`, `ready_queue: ReadyRow[]`) | `src/pages/FleetPage.tsx` | `authority_time` (store clock, liveness basis); per lease `liveness` live/expired/unknown judged by the kernel against that clock, fence, runner id and epoch, `heartbeat_at`, `expires_at`, `ttl_seconds`, linked attempt state, package, mission; ready queue | any browser-clock liveness judgement; runner host or process identity; a lease with no attempt row prints `contradictory: attempt row missing` rather than being hidden |
-| Session Supervisor (`session-supervisor`, §25.7) | `GET /v1/sessions` | `SessionSupervisorView` (`attempts: AttemptRow[]`, `state_counts: LabelCount[]`) | `src/pages/SessionSupervisorPage.tsx` | attempts by `AttemptState` (every catalog label, zeros explicit); per attempt state, `lease` held/none, fence, variant, package, mission, runner id and epoch, `workspace_id`, scope/context revision, `leased_at`, `last_lease_event` (`attempt_leased`, `lease_expired`, `lease_released` with `seq` and `at`) | timestamps other than durable lease events — `AttemptRow` has no created, started, or finished time and the summary line says so; workspace dirty state, nonce, or preservation receipts (no such field in `AttemptRow`) |
-| Context Lineage (`context-lineage`, §25.8) | `GET /v1/context-lineage` | `ContextLineageView` (`capsules: ContextCapsuleRow[]`) | `src/pages/ContextLineagePage.tsx` | immutable revision-one capsule id, mission/package/plan subjects, task class, exact schema, null initial parent, `compression: none`, zero dropped decisions, content/objective/title digests, `recorded_at` | raw objective/title; provider-created or successor capsules; non-null lineage edges; actual compression or dropped-decision history; the page explicitly says these are not claimed |
-| Merge Rail (`merge-rail`, §25.13) | `GET /v1/merge-rail` | `MergeRailView` (`candidates: CandidateRow[]`, `intents: EffectIntentRow[]`, `receipts: EffectReceiptRow[]`, `effects: EffectRow[]`, `intent_state_counts`) | `src/pages/MergeRailPage.tsx` | exact candidates (`base_sha`, `head_sha`, `tree_sha`, `patch_digest`); effect intents by `EffectState` (every catalog label) and per intent target, `expected_old_oid`, `desired_state_hash`, fence, `policy_version`, `unknown_retries`; append-only receipts with `MATCH`/`MISMATCH`/`ABSENT` verdict, method, `adopted_after_unknown`; first-slice effects | forge state (refs, checks, merges): the portal never reads a forge; no integration result; if the `OUTCOME_UNKNOWN` label were missing from the counts the summary prints `unknown`, not 0 |
-| Quality Lab (`quality-lab`, §25.14) | `GET /v1/quality-lab` | `QualityLabView` (`evidence: EvidenceRow[]`, `outcome_counts`) | `src/pages/QualityLabPage.tsx` | `GateOutcome` histogram (every catalog label, zeros explicit); per evidence row outcome, `satisfies_requirement`, tier, gate, stored result, candidate | evidence rows carry no verifier identity, no timestamp, and no artifact or log digest; only `satisfies_requirement === true` counts as PASS — `FLAKY`, `INFRA_ERROR`, `UNKNOWN`, and every other outcome never satisfy a requirement |
-| Incidents & Audit (`incidents-audit`, §25.15) | `GET /v1/audit`, `GET /v1/outbox` | `AuditView` (`latest_sequence`, `tail_window`, `events: AuditEvent[]`), `OutboxView` | `src/pages/IncidentsAuditPage.tsx` | `latest_sequence`, `tail_window`, the newest contiguous events (`seq`, `at`, `kind`, stream, correlation, body), outbox rows with phase, delivered, acked | events older than the tail window (no paging); incident or contradiction rows (no ledger subject); a tail that is non-contiguous or does not end at `latest_sequence` fails validation and renders unknown |
+| Control Tower (`control-tower`, §25.1) | `GET /api/v1/missions`, `GET /api/v1/outbox`, `GET /health`, `GET /api/v1/events?after=<seq>`; `POST /api/v1/auth/bootstrap`, `POST /api/v1/commands`, `GET /api/v1/commands/{id}` | `Mission[]`, `OutboxView`, `Health`, `EventEnvelope`, `BootstrapResponse`, `CommandEnvelope`, `CommandStatus` | `src/pages/ControlTower.tsx` | `as_of_sequence`, projection lag from durable `Event.at`, stream state, `/health` probe, missions, outbox phases, the exact admitted command and its polled status | green for `PENDING` or `APPLIED`; any status that does not repeat the admitted id, kind, and payload digest; survival, cost, quota risk, and struggle (no ledger subject) |
+| Mission Graph (`mission-graph`, §25.2) | `GET /api/v1/missions`, then `GET /api/v1/missions/{id}` per mission | `Mission[]`, `MissionView` (`mission`, `packages: WorkPackage[]`, `fence`) | `src/pages/ProjectedSurface.tsx` (`MissionGraph`) | raw JSON `{missions, graphs}` at the shared watermark | plan revisions, variants, attempts, candidates, evidence, and effects are not in `MissionView`; they appear only on Session Supervisor, Merge Rail, and Quality Lab |
+| Live Attempt (`live-attempt`, §25.6) | as Mission Graph plus `GET /api/v1/ready` | `ReadyView` or `null`, `MissionView` | `src/pages/ProjectedSurface.tsx` (`LiveAttempt`) | raw JSON `{ready, graphs}`; `ready: null` is the empty queue at the watermark | session events, authority token hash, last-progress time: none is a ledger subject; `ReadyView` carries only ids, `title`, `enqueued_at` |
+| Fleet (`fleet`, §25.5) | `GET /api/v1/fleet` | `FleetView` (`authority_time`, `leases: FleetLease[]`, `ready_queue: ReadyRow[]`) | `src/pages/FleetPage.tsx` | `authority_time` (store clock, liveness basis); per lease `liveness` live/expired/unknown judged by the kernel against that clock, fence, runner id and epoch, `heartbeat_at`, `expires_at`, `ttl_seconds`, linked attempt state, package, mission; ready queue | any browser-clock liveness judgement; runner host or process identity; a lease with no attempt row prints `contradictory: attempt row missing` rather than being hidden |
+| Session Supervisor (`session-supervisor`, §25.7) | `GET /api/v1/sessions` | `SessionSupervisorView` (`attempts: AttemptRow[]`, `state_counts: LabelCount[]`) | `src/pages/SessionSupervisorPage.tsx` | attempts by `AttemptState` (every catalog label, zeros explicit); per attempt state, `lease` held/none, fence, variant, package, mission, runner id and epoch, `workspace_id`, scope/context revision, `leased_at`, `last_lease_event` (`attempt_leased`, `lease_expired`, `lease_released` with `seq` and `at`) | timestamps other than durable lease events — `AttemptRow` has no created, started, or finished time and the summary line says so; workspace dirty state, nonce, or preservation receipts (no such field in `AttemptRow`) |
+| Context Lineage (`context-lineage`, §25.8) | `GET /api/v1/context-lineage` | `ContextLineageView` (`capsules: ContextCapsuleRow[]`) | `src/pages/ContextLineagePage.tsx` | immutable revision-one capsule id, mission/package/plan subjects, task class, exact schema, null initial parent, `compression: none`, zero dropped decisions, content/objective/title digests, `recorded_at` | raw objective/title; provider-created or successor capsules; non-null lineage edges; actual compression or dropped-decision history; the page explicitly says these are not claimed |
+| Merge Rail (`merge-rail`, §25.13) | `GET /api/v1/merge-rail` | `MergeRailView` (`candidates: CandidateRow[]`, `intents: EffectIntentRow[]`, `receipts: EffectReceiptRow[]`, `effects: EffectRow[]`, `intent_state_counts`) | `src/pages/MergeRailPage.tsx` | exact candidates (`base_sha`, `head_sha`, `tree_sha`, `patch_digest`); effect intents by `EffectState` (every catalog label) and per intent target, `expected_old_oid`, `desired_state_hash`, fence, `policy_version`, `unknown_retries`; append-only receipts with `MATCH`/`MISMATCH`/`ABSENT` verdict, method, `adopted_after_unknown`; first-slice effects | forge state (refs, checks, merges): the portal never reads a forge; no integration result; if the `OUTCOME_UNKNOWN` label were missing from the counts the summary prints `unknown`, not 0 |
+| Quality Lab (`quality-lab`, §25.14) | `GET /api/v1/quality-lab` | `QualityLabView` (`evidence: EvidenceRow[]`, `outcome_counts`) | `src/pages/QualityLabPage.tsx` | `GateOutcome` histogram (every catalog label, zeros explicit); per evidence row outcome, `satisfies_requirement`, tier, gate, stored result, candidate | evidence rows carry no verifier identity, no timestamp, and no artifact or log digest; only `satisfies_requirement === true` counts as PASS — `FLAKY`, `INFRA_ERROR`, `UNKNOWN`, and every other outcome never satisfy a requirement |
+| Incidents & Audit (`incidents-audit`, §25.15) | `GET /api/v1/audit`, `GET /api/v1/outbox` | `AuditView` (`latest_sequence`, `tail_window`, `events: AuditEvent[]`), `OutboxView` | `src/pages/IncidentsAuditPage.tsx` | `latest_sequence`, `tail_window`, the newest contiguous events (`seq`, `at`, `kind`, stream, correlation, body), outbox rows with phase, delivered, acked | events older than the tail window (no paging); incident or contradiction rows (no ledger subject); a tail that is non-contiguous or does not end at `latest_sequence` fails validation and renders unknown |
 
 ## Surfaces without a farmd projection (6 of 15)
 
@@ -160,10 +160,12 @@ correction belongs to `src/surfaces.ts`, not to this document.
   contradiction renders unknown) and `e2e/control-tower.spec.ts` (6 tests,
   including "an unprojected surface names its missing ledger subject, not an
   empty success list").
-- Real farmd (`bash ops/ci/real-farmd.sh`): `e2e/real-farmd.spec.ts` (2
-  tests) checks against the built sibling `bullet-farmd` that `/v1/fleet`,
-  `/v1/sessions`, `/v1/context-lineage`, `/v1/merge-rail`, `/v1/quality-lab`,
-  and `/v1/audit` answer
+- Real farmd (`bash ops/ci/real-farmd.sh`): `e2e/real-farmd.spec.ts` (3
+  tests) checks against the built sibling `bullet-farmd` that legacy GET and a
+  valid command POST under `/v1` return typed `API_VERSION_RETIRED` while the
+  outbox body and watermark remain unchanged; that `/api/v1/fleet`,
+  `/api/v1/sessions`, `/api/v1/context-lineage`, `/api/v1/merge-rail`, `/api/v1/quality-lab`,
+  and `/api/v1/audit` answer
   with the `bullet-kernel/sqlite-ledger` source, matching header and body
   watermarks, and one shared watermark across all six; that empty Fleet and
   Context Lineage render verified zero-row observations with no
@@ -182,7 +184,7 @@ correction belongs to `src/surfaces.ts`, not to this document.
 ## Packaged same-origin serving
 
 In the proxied lanes the browser origin (`127.0.0.1:5173`) differs from farmd's
-(`127.0.0.1:7420`) and Vite forwards `/v1`, `/health`, and `/openapi.yaml`. In
+(`127.0.0.1:7420`) and Vite forwards `/api/v1`, `/health`, and `/openapi.yaml`. In
 the packaged lane there is one origin: farmd serves `index.html` and
 `/assets/*` itself and `--portal-origin` equals that origin. The projection
 contract is unchanged — one atomic snapshot per route, `x-bullet-as-of-sequence`
@@ -197,22 +199,26 @@ bundle subject.
 ## Parity checks
 
 Run from the repository root. Expected values are stated for this Portal
-change consuming Kernel `7cdf850`.
+change consuming Kernel `c3a7009`.
 
 ```bash
 # Six unknown surfaces, exactly.
 grep -c 'unknownReason:' src/surfaces.ts          # 6
 grep -c '^  "' src/pages/ProjectedSurface.tsx      # 8 members of PROJECTED_SURFACES
 
-# Every route string in src/api.ts and the events route must be named above.
-grep -oE '"/(v1/[a-z/-]+|health)"|`/v1/[a-z/-]+/\$\{[^}]+\}`' src/api.ts | sort -u
-grep -oE '/v1/events' src/hooks/useEventStream.ts | sort -u
+# The generated prefix is the sole operator-namespace constant consumed by both clients.
+grep -F 'export const API_PREFIX = "/api/v1";' src/generated/api.ts
+grep -F 'import { API_PREFIX } from "./generated/api";' src/api.ts
+grep -F 'import { API_PREFIX } from "../generated/api";' src/hooks/useEventStream.ts
+grep -oE '\$\{API_PREFIX\}/[a-z/-]+' src/api.ts | sort -u
+grep -oE '\$\{API_PREFIX\}/events' src/hooks/useEventStream.ts | sort -u
 ```
 
 The first grep must print 6; the second lists the eight projected ids. The
-route greps must print exactly `/health`, `/v1/audit`, `/v1/auth/bootstrap`,
-`/v1/commands`, `/v1/commands/${encodeURIComponent(id)}`, `/v1/fleet`,
-`/v1/context-lineage`, `/v1/merge-rail`, `/v1/missions`, `/v1/missions/${id}`, `/v1/outbox`,
-`/v1/quality-lab`, `/v1/ready`, `/v1/sessions`, and `/v1/events`; each of
-those routes (with the template parameter written `{id}`) appears in the
-tables above and in `docs/architecture.md`.
+route greps must print the `${API_PREFIX}` suffixes for `audit`,
+`auth/bootstrap`, `commands`, `commands/`, `context-lineage`, `fleet`,
+`merge-rail`, `missions`, `missions/`, `outbox`, `quality-lab`, `ready`,
+`sessions`, and `events`. With the generated prefix expanded and the two
+parameterized suffixes completed, each corresponding `/api/v1` route appears
+in the tables above and in `docs/architecture.md`; `/health` remains the one
+intentional non-versioned read.

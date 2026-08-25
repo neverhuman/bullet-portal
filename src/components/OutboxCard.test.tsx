@@ -50,7 +50,7 @@ describe("OutboxCard", () => {
     );
     rerender(
       <OutboxCard
-        outbox={toUnknown<OutboxView>("outbox unreachable (GET /v1/outbox failed: HTTP 500)")}
+        outbox={toUnknown<OutboxView>("outbox unreachable (GET /api/v1/outbox failed: HTTP 500)")}
       />,
     );
     expect(screen.queryByTestId("outbox-empty")).not.toBeInTheDocument();

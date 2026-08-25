@@ -43,7 +43,7 @@ describe("QualityLabPage", () => {
     render(<QualityLabPage surface={surface("quality-lab")} />);
     await waitFor(() => {
       expect(screen.getByTestId("quality-lab-unknown")).toHaveTextContent(
-        "unknown: Quality Lab: control plane unreachable (GET /v1/quality-lab failed: ECONNREFUSED)",
+        "unknown: Quality Lab: control plane unreachable (GET /api/v1/quality-lab failed: ECONNREFUSED)",
       );
     });
   });

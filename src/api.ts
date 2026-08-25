@@ -15,6 +15,7 @@ import type {
   ReadyView,
   SessionSupervisorView,
 } from "./generated/api";
+import { API_PREFIX } from "./generated/api";
 import {
   isAuditView,
   isBootstrapResponse,
@@ -238,7 +239,7 @@ function readSnapshotSequence(headers: Headers, read: JsonRead): number {
 }
 
 export function listMissions(): Promise<SnapshotRead<Mission[]>> {
-  return readSnapshot("/v1/missions", isMissionList);
+  return readSnapshot(`${API_PREFIX}/missions`, isMissionList);
 }
 
 function browserStorage(): Storage | null {
@@ -284,7 +285,7 @@ function persistCsrfToken(csrf: string): void {
 
 export async function exchangeBootstrap(bootstrapToken: string): Promise<BootstrapResponse> {
   const response = await readJson(
-    "/v1/auth/bootstrap",
+    `${API_PREFIX}/auth/bootstrap`,
     isBootstrapResponse,
     {
       method: "POST",
@@ -314,14 +315,14 @@ export async function submitCommand(envelope: CommandEnvelope): Promise<CommandS
   if (csrf === null) {
     throw new ApiError(
       "POST",
-      `${apiBase}/v1/commands`,
+      `${apiBase}${API_PREFIX}/commands`,
       null,
       "no authenticated browser session; exchange the one-time bootstrap first",
       false,
     );
   }
   const status = await readJson(
-    "/v1/commands",
+    `${API_PREFIX}/commands`,
     isCommandStatus,
     {
       method: "POST",
@@ -336,7 +337,7 @@ export async function submitCommand(envelope: CommandEnvelope): Promise<CommandS
   if (status.status !== "PENDING" || status.kind !== envelope.kind || status.result !== null) {
     throw new ApiError(
       "POST",
-      `${apiBase}/v1/commands`,
+      `${apiBase}${API_PREFIX}/commands`,
       202,
       "admission response was not the exact PENDING command subject",
       true,
@@ -346,11 +347,11 @@ export async function submitCommand(envelope: CommandEnvelope): Promise<CommandS
 }
 
 export async function getCommand(id: string): Promise<CommandStatus> {
-  const status = await readJson(`/v1/commands/${encodeURIComponent(id)}`, isCommandStatus);
+  const status = await readJson(`${API_PREFIX}/commands/${encodeURIComponent(id)}`, isCommandStatus);
   if (status.id !== id) {
     throw new ApiError(
       "GET",
-      `${apiBase}/v1/commands/${encodeURIComponent(id)}`,
+      `${apiBase}${API_PREFIX}/commands/${encodeURIComponent(id)}`,
       200,
       "command response id does not match the requested subject",
     );
@@ -359,7 +360,7 @@ export async function getCommand(id: string): Promise<CommandStatus> {
 }
 
 export function fetchOutbox(): Promise<SnapshotRead<OutboxView>> {
-  return readSnapshot("/v1/outbox", isOutboxView);
+  return readSnapshot(`${API_PREFIX}/outbox`, isOutboxView);
 }
 
 export async function fetchHealth(): Promise<Health> {
@@ -367,33 +368,33 @@ export async function fetchHealth(): Promise<Health> {
 }
 
 export function getMission(id: string): Promise<SnapshotRead<MissionView>> {
-  return readSnapshot(`/v1/missions/${id}`, isMissionView);
+  return readSnapshot(`${API_PREFIX}/missions/${id}`, isMissionView);
 }
 
 export function fetchReady(): Promise<SnapshotRead<ReadyView | null>> {
-  return readSnapshot("/v1/ready", isNullableReadyView);
+  return readSnapshot(`${API_PREFIX}/ready`, isNullableReadyView);
 }
 
 export function fetchFleet(): Promise<SnapshotRead<FleetView>> {
-  return readSnapshot("/v1/fleet", isFleetView);
+  return readSnapshot(`${API_PREFIX}/fleet`, isFleetView);
 }
 
 export function fetchSessions(): Promise<SnapshotRead<SessionSupervisorView>> {
-  return readSnapshot("/v1/sessions", isSessionSupervisorView);
+  return readSnapshot(`${API_PREFIX}/sessions`, isSessionSupervisorView);
 }
 
 export function fetchContextLineage(): Promise<SnapshotRead<ContextLineageView>> {
-  return readSnapshot("/v1/context-lineage", isContextLineageView);
+  return readSnapshot(`${API_PREFIX}/context-lineage`, isContextLineageView);
 }
 
 export function fetchMergeRail(): Promise<SnapshotRead<MergeRailView>> {
-  return readSnapshot("/v1/merge-rail", isMergeRailView);
+  return readSnapshot(`${API_PREFIX}/merge-rail`, isMergeRailView);
 }
 
 export function fetchQualityLab(): Promise<SnapshotRead<QualityLabView>> {
-  return readSnapshot("/v1/quality-lab", isQualityLabView);
+  return readSnapshot(`${API_PREFIX}/quality-lab`, isQualityLabView);
 }
 
 export function fetchAudit(): Promise<SnapshotRead<AuditView>> {
-  return readSnapshot("/v1/audit", isAuditView);
+  return readSnapshot(`${API_PREFIX}/audit`, isAuditView);
 }

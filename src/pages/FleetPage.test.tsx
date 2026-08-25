@@ -52,7 +52,7 @@ describe("FleetPage", () => {
     render(<FleetPage surface={surface("fleet")} />);
     await waitFor(() => {
       expect(screen.getByTestId("fleet-unknown")).toHaveTextContent(
-        "unknown: Fleet: control plane unreachable (GET /v1/fleet failed: ECONNREFUSED)",
+        "unknown: Fleet: control plane unreachable (GET /api/v1/fleet failed: ECONNREFUSED)",
       );
     });
     expect(screen.queryByTestId("fleet-leases-empty")).toBeNull();

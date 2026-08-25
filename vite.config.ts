@@ -3,7 +3,7 @@ import { loadEnv } from "vite";
 import { defineConfig } from "vitest/config";
 
 const kernelProxy = {
-  "/v1": "http://127.0.0.1:7420",
+  "/api/v1": "http://127.0.0.1:7420",
   "/health": "http://127.0.0.1:7420",
   "/openapi.yaml": "http://127.0.0.1:7420",
 };

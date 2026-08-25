@@ -20,14 +20,14 @@ function id(prefix: string, digit: string): string {
 }
 
 async function mockStream(page: Page): Promise<void> {
-  await page.route("**/v1/events**", (route) =>
+  await page.route("**/api/v1/events**", (route) =>
     route.fulfill({ status: 404, contentType: "text/plain", body: "no stream" }),
   );
 }
 
 test("an empty fleet renders zero rows verified at the watermark, never green", async ({ page }) => {
   await mockStream(page);
-  await page.route("**/v1/fleet", (route) =>
+  await page.route("**/api/v1/fleet", (route) =>
     route.fulfill(snapshot({ authority_time: "2026-08-25T00:00:01.000Z", leases: [], ready_queue: [] }, 5)),
   );
   await page.goto("/#/fleet");
@@ -48,12 +48,12 @@ test("an empty fleet renders zero rows verified at the watermark, never green", 
 
 test("a failed fleet read renders unknown, not an empty list", async ({ page }) => {
   await mockStream(page);
-  await page.route("**/v1/fleet", (route) =>
+  await page.route("**/api/v1/fleet", (route) =>
     route.fulfill({ status: 500, contentType: "text/plain", body: "down" }),
   );
   await page.goto("/#/fleet");
   await expect(page.getByTestId("fleet-unknown")).toContainText(
-    "unknown: Fleet: control plane unreachable (GET /v1/fleet failed: HTTP 500)",
+    "unknown: Fleet: control plane unreachable (GET /api/v1/fleet failed: HTTP 500)",
   );
   await expect(page.getByTestId("fleet-tagline")).toContainText("projection unknown");
   await expect(page.getByTestId("fleet-leases-empty")).toHaveCount(0);
@@ -61,7 +61,7 @@ test("a failed fleet read renders unknown, not an empty list", async ({ page }) 
 
 test("a lease row shows liveness judged by the store clock and its linkage", async ({ page }) => {
   await mockStream(page);
-  await page.route("**/v1/fleet", (route) =>
+  await page.route("**/api/v1/fleet", (route) =>
     route.fulfill(
       snapshot(
         {
@@ -98,7 +98,7 @@ test("a lease row shows liveness judged by the store clock and its linkage", asy
 
 test("a watermark header/body contradiction is unknown, not a rendered table", async ({ page }) => {
   await mockStream(page);
-  await page.route("**/v1/fleet", (route) =>
+  await page.route("**/api/v1/fleet", (route) =>
     route.fulfill(snapshot({ authority_time: "2026-08-25T00:00:01.000Z", leases: [], ready_queue: [] }, 5, "6")),
   );
   await page.goto("/#/fleet");

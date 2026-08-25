@@ -46,13 +46,13 @@ function event(seq: number, kind = "fixture") {
 function routes(auditSequence: string, outboxSequence = auditSequence, events = [event(1), event(2), event(3)]) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.endsWith("/v1/audit")) {
+    if (url.endsWith("/api/v1/audit")) {
       return json(
         { latest_sequence: Number(auditSequence), tail_window: 64, events: events.slice(0, Number(auditSequence)) },
         auditSequence,
       );
     }
-    if (url.endsWith("/v1/outbox")) {
+    if (url.endsWith("/api/v1/outbox")) {
       return json(
         {
           items: Number(outboxSequence) === 0

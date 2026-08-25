@@ -13,7 +13,7 @@ Vite + React operations portal. Fifteen hash-routed spec §25 surfaces
 `{data, as_of_sequence, observed_at, source}` per route, cross-checked against
 the `x-bullet-as-of-sequence` header, one shared watermark per composed view —
 and six render explicit UNKNOWN naming their missing ledger subject. Pending
-versus verified mutations through the session-bound `POST /v1/commands` path;
+versus verified mutations through the session-bound `POST /api/v1/commands` path;
 only durable `VERIFIED` is green. The exact built-`dist` bundle-manifest
 subject (`ops/build/`, `.bullet-portal-bundle-v1.json`, framed BLAKE3 root)
 is the artifact a package may embed. UNKNOWN stays unknown; the browser holds

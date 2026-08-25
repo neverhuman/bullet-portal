@@ -42,10 +42,10 @@ describe("ProjectedSurface", () => {
       "fetch",
       vi.fn(async (input: RequestInfo) => {
         const url = String(input);
-        if (url.endsWith("/v1/missions")) {
+        if (url.endsWith("/api/v1/missions")) {
           return json([mission]);
         }
-        if (url.endsWith(`/v1/missions/${missionId}`)) {
+        if (url.endsWith(`/api/v1/missions/${missionId}`)) {
           return json({ mission, packages: [], fence: 2 });
         }
         return new Response("missing", { status: 404 });
@@ -100,7 +100,7 @@ describe("ProjectedSurface", () => {
       "fetch",
       vi.fn(async (input: RequestInfo) => {
         const url = String(input);
-        return url.endsWith("/v1/missions")
+        return url.endsWith("/api/v1/missions")
           ? json([mission], "3")
           : json({ mission, packages: [], fence: 2 }, "4");
       }),

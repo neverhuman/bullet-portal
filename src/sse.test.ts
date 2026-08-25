@@ -37,14 +37,14 @@ describe("SSE resume transport", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     await readSseStream(
-      "/v1/events",
+      "/api/v1/events",
       new AbortController().signal,
       { onOpen: () => {}, onFrame: () => {} },
       2,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("/v1/events");
+    expect(url).toBe("/api/v1/events");
     expect(init.headers).toEqual({ accept: "text/event-stream", "Last-Event-ID": "2" });
   });
 
@@ -53,7 +53,7 @@ describe("SSE resume transport", () => {
     vi.stubGlobal("fetch", fetchMock);
     await expect(
       readSseStream(
-        "/v1/events",
+        "/api/v1/events",
         new AbortController().signal,
         { onOpen: () => {}, onFrame: () => {} },
         Number.MAX_SAFE_INTEGER + 1,
@@ -77,12 +77,12 @@ describe("SSE resume transport", () => {
     );
     await expect(
       readSseStream(
-        "/v1/events?after=2",
+        "/api/v1/events?after=2",
         new AbortController().signal,
         { onOpen, onFrame: () => {} },
       ),
     ).rejects.toThrow(
-      "GET /v1/events?after=2 failed: unexpected content-type application/text/event-stream-shadow",
+      "GET /api/v1/events?after=2 failed: unexpected content-type application/text/event-stream-shadow",
     );
     expect(onOpen).not.toHaveBeenCalled();
   });
@@ -101,7 +101,7 @@ describe("SSE resume transport", () => {
       ),
     );
     await readSseStream(
-      "/v1/events?after=2",
+      "/api/v1/events?after=2",
       new AbortController().signal,
       { onOpen: () => {}, onFrame: (frame) => frames.push(frame) },
     );

@@ -63,4 +63,4 @@ BULLET_FARMD_URL=http://127.0.0.1:7420 \
   PLAYWRIGHT_JUNIT_OUTPUT_NAME="$reports/real-farmd.xml" \
   PLAYWRIGHT_JUNIT_STRIP_ANSI=1 \
   ./node_modules/.bin/playwright test --config playwright.real.config.ts --reporter=line,junit
-node ops/ci/assert-report.mjs junit "$reports/real-farmd.xml" 2
+node ops/ci/assert-report.mjs junit "$reports/real-farmd.xml" 3

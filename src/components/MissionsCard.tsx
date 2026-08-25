@@ -35,7 +35,7 @@ function MissionsBody({ missions }: { missions: Loadable<Mission[]> }) {
           </li>
         ))}
       </ul>
-      <p className="source">source: {missions.source} via GET /v1/missions (observed {missions.observedAt})</p>
+      <p className="source">source: {missions.source} via GET /api/v1/missions (observed {missions.observedAt})</p>
     </>
   );
 }

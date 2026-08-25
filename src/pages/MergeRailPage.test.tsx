@@ -90,7 +90,7 @@ describe("MergeRailPage", () => {
     render(<MergeRailPage surface={surface("merge-rail")} />);
     await waitFor(() => {
       expect(screen.getByTestId("merge-rail-unknown")).toHaveTextContent(
-        "unknown: Merge Rail: control plane unreachable (GET /v1/merge-rail failed: ECONNREFUSED)",
+        "unknown: Merge Rail: control plane unreachable (GET /api/v1/merge-rail failed: ECONNREFUSED)",
       );
     });
     expect(screen.queryByText("No merges yet.")).toBeNull();

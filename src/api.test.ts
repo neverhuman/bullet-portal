@@ -106,7 +106,7 @@ describe("api transport honesty", () => {
     const err = await outcome;
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).message).toBe(
-      `GET /v1/commands/${commandId} failed: timeout after 10000ms`,
+      `GET /api/v1/commands/${commandId} failed: timeout after 10000ms`,
     );
     expect((err as ApiError).status).toBeNull();
   });
@@ -124,7 +124,7 @@ describe("api transport honesty", () => {
       ),
     );
     await expect(listMissions()).rejects.toThrowError(
-      "GET /v1/missions failed: unexpected content-type text/html",
+      "GET /api/v1/missions failed: unexpected content-type text/html",
     );
   });
 
@@ -141,7 +141,7 @@ describe("api transport honesty", () => {
       ),
     );
     await expect(listMissions()).rejects.toThrowError(
-      "GET /v1/missions failed: unexpected content-type text/application/json-shadow",
+      "GET /api/v1/missions failed: unexpected content-type text/application/json-shadow",
     );
   });
 
@@ -179,9 +179,9 @@ describe("api transport honesty", () => {
     );
     expect(err).toBeInstanceOf(ApiError);
     expect(err?.method).toBe("GET");
-    expect(err?.url).toBe("/v1/missions");
+    expect(err?.url).toBe("/api/v1/missions");
     expect(err?.status).toBe(503);
-    expect(err?.message).toBe("GET /v1/missions failed: HTTP 503");
+    expect(err?.message).toBe("GET /api/v1/missions failed: HTTP 503");
   });
 
   it("preserves typed Problem Details and repair guidance", async () => {
@@ -248,7 +248,7 @@ describe("api transport honesty", () => {
       ),
     );
     await expect(listMissions()).rejects.toThrowError(
-      "GET /v1/missions failed: snapshot watermark header is missing",
+      "GET /api/v1/missions failed: snapshot watermark header is missing",
     );
   });
 
@@ -262,7 +262,7 @@ describe("api transport honesty", () => {
       ),
     );
     await expect(listMissions()).rejects.toThrowError(
-      "GET /v1/missions failed: snapshot body failed schema validation",
+      "GET /api/v1/missions failed: snapshot body failed schema validation",
     );
   });
 
@@ -282,7 +282,7 @@ describe("api transport honesty", () => {
       ),
     );
     await expect(listMissions()).rejects.toThrowError(
-      "GET /v1/missions failed: invalid JSON body",
+      "GET /api/v1/missions failed: invalid JSON body",
     );
   });
 
@@ -329,7 +329,7 @@ describe("api transport honesty", () => {
     ).resolves.toEqual(command("PENDING"));
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      "/v1/commands",
+      "/api/v1/commands",
       expect.objectContaining({
         credentials: "same-origin",
         headers: expect.objectContaining({ "x-bullet-csrf": csrfToken }),
@@ -373,7 +373,7 @@ describe("api transport honesty", () => {
     await expect(outcome).resolves.toMatchObject({
       outcomeUnknown: true,
       status: null,
-      message: "POST /v1/commands failed: timeout after 10000ms",
+      message: "POST /api/v1/commands failed: timeout after 10000ms",
     });
   });
 
@@ -430,7 +430,7 @@ describe("api transport honesty", () => {
     for (const body of cases) {
       vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(body))));
       await expect(listMissions()).rejects.toThrowError(
-        "GET /v1/missions failed: snapshot body failed schema validation",
+        "GET /api/v1/missions failed: snapshot body failed schema validation",
       );
     }
   });
@@ -439,12 +439,12 @@ describe("api transport honesty", () => {
     for (const header of ["", "-1", "+42", "042", "1.5", "9007199254740992"]) {
       vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(snapshot([]), header))));
       await expect(listMissions()).rejects.toThrowError(
-        "GET /v1/missions failed: snapshot watermark header is invalid",
+        "GET /api/v1/missions failed: snapshot watermark header is invalid",
       );
     }
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(snapshot([]), "41"))));
     await expect(listMissions()).rejects.toThrowError(
-      "GET /v1/missions failed: snapshot watermark header/body mismatch",
+      "GET /api/v1/missions failed: snapshot watermark header/body mismatch",
     );
   });
 
@@ -461,7 +461,7 @@ describe("api transport honesty", () => {
       "fetch",
       vi.fn(() => Promise.resolve(new Response("missing", { status: 404 }))),
     );
-    await expect(fetchReady()).rejects.toThrowError("GET /v1/ready failed: HTTP 404");
+    await expect(fetchReady()).rejects.toThrowError("GET /api/v1/ready failed: HTTP 404");
   });
 
   it("fetches only the exact Context Lineage snapshot contract", async () => {
@@ -492,7 +492,7 @@ describe("api transport honesty", () => {
       source: "bullet-kernel/sqlite-ledger",
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      "/v1/context-lineage",
+      "/api/v1/context-lineage",
       expect.objectContaining({ credentials: "same-origin" }),
     );
 
@@ -505,7 +505,7 @@ describe("api transport honesty", () => {
       ),
     );
     await expect(fetchContextLineage()).rejects.toThrowError(
-      "GET /v1/context-lineage failed: snapshot body failed schema validation",
+      "GET /api/v1/context-lineage failed: snapshot body failed schema validation",
     );
   });
 

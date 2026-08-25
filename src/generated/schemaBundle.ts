@@ -3,9 +3,9 @@
 // Command: just contract-generate
 // DO NOT EDIT BY HAND.
 export const SCHEMA_VERSION = "v1alpha1" as const;
-export const SCHEMA_BUNDLE_HASH = "10b1d059d7a621a7bc65492ae87715c14a8e41eaa9d52b773d7ae96a67806103" as const;
+export const SCHEMA_BUNDLE_HASH = "b9949c496a6cf7026d2dcafd2163860620c0fa85f93466e1ffb3b3e339f3507b" as const;
 export const INVARIANT_REGISTRY_HASH = "978a8b4ebb14ff0c978afb431c154647adef2f9839de322356a765c59a0c3858" as const;
-export const POLICY_SNAPSHOT_HASH = "5b007a784003f42a2e4f7781718178f533b899df334afad5127cd466d192ed31" as const;
+export const POLICY_SNAPSHOT_HASH = "a7438c2368c6838fd78a5368327523df9584a9d66f9a47e1990f7a3ecbc932bd" as const;
 export const CANONICAL_GOLDEN_JSON = "{\"a\":\"é\",\"array\":[true,null,17],\"z\":\"last\"}" as const;
 export const CANONICAL_GOLDEN_HASH = "1d800cb94962906f78d42cb8cc84c2c078311a50e35ca515240b800abc3d2263" as const;
 export const AUTHORITY_GOLDEN_HASH = "4ff1ce8a4ba7a37ae705a8d2459e5a9d900abe55610f6d6984fe514cd37860df" as const;
@@ -19,6 +19,11 @@ export type MutationOutcomeV1 = "committed" | "aborted" | "unknown";
 export type SettlementStatusV1 = "accepted" | "exact-replay" | "conflict" | "refused";
 export type PatchPreimageKindV1 = "absent" | "digest";
 export type PatchMutationKindV1 = "write" | "delete";
+export type ReleaseReceiptKindV1 = "artifact" | "containment" | "forge" | "operations" | "profile-closure" | "provider" | "rust-toolchain" | "scanner" | "transaction";
+export type ReleaseEvidenceKindV1 = "artifact" | "audit-anchor" | "candidate" | "check" | "configuration" | "effect" | "environment" | "evidence" | "integration" | "jeryu" | "observation" | "platform" | "policy" | "profile-graph" | "proof-bundle" | "provider" | "provenance" | "sandbox" | "sbom" | "scanner" | "schema" | "toolchain" | "transaction";
+export type ReleaseRegistryObjectKindV1 = "gate-receipt" | "gate-receipt-signature" | "gate-spec" | "profile-graph" | "signer-policy" | "trusted-time-observation" | "trusted-time-signature" | "verification-request";
+export type ReleaseSignerRoleV1 = "artifact-release" | "gate-attestor" | "registry-curator" | "source-tag" | "trusted-time";
+export type ReleaseRepositoryNameV1 = "bullet-farm" | "bullet-git" | "bullet-kernel" | "bullet-portal";
 export type KeyPurposeV1 = "authority-signing" | "release-signing";
 export type KeyAlgorithmV1 = "paseto-v4.public" | "ssh-ed25519";
 
@@ -463,16 +468,21 @@ export interface FinalAuthorityDecisionV1 {
 export interface GateReceiptV1 {
   schema_version: string;
   gate_receipt_id: string;
-  gate: string;
-  gate_version: string;
-  repository_commits: Record<string, unknown>[];
-  policy_hash: string;
-  schema_hash: string;
-  toolchain_hash: string;
-  executed_tests: string[];
-  artifacts: Record<string, unknown>[];
-  result: string;
-  signature: string;
+  gate_id: string;
+  gate_version: number;
+  receipt_kind: ReleaseReceiptKindV1;
+  profile_ids: string[];
+  evidence_nonce: string;
+  request_digest: string;
+  gate_spec_digest: string;
+  profile_graph_digest: string;
+  gate_policy_digest: string;
+  family_subject: ReleaseFamilySubjectV1;
+  evidence_subjects: ReleaseEvidenceSubjectV1[];
+  attestor_key_id: string;
+  started_at_unix_ms: number;
+  completed_at_unix_ms: number;
+  expires_at_unix_ms: number;
 }
 
 export interface GraphDeltaV1 {
@@ -830,6 +840,157 @@ export interface ReconcileEffectRequestV1 {
   observed_state_digest: string;
 }
 
+export interface ReleaseEvidenceSubjectV1 {
+  schema_version: string;
+  subject_kind: ReleaseEvidenceKindV1;
+  subject_id: string;
+  native_subject_id: string;
+  subject_digest: string;
+}
+
+export interface ReleaseFamilySubjectV1 {
+  schema_version: string;
+  family: string;
+  family_lock_digest: string;
+  schema_bundle_digest: string;
+  repositories: ReleaseRepositorySubjectV1[];
+}
+
+export interface ReleaseGateSpecV1 {
+  schema_version: string;
+  gate_spec_id: string;
+  gate_id: string;
+  gate_version: number;
+  receipt_kind: ReleaseReceiptKindV1;
+  profile_ids: string[];
+  required_evidence_kinds: ReleaseEvidenceKindV1[];
+  gate_policy_digest: string;
+}
+
+export interface ReleaseGateVerificationRequestV1 {
+  schema_version: string;
+  verification_request_id: string;
+  gate_id: string;
+  gate_version: number;
+  receipt_kind: ReleaseReceiptKindV1;
+  profile_ids: string[];
+  evidence_nonce: string;
+  gate_spec_digest: string;
+  profile_graph_digest: string;
+  gate_policy_digest: string;
+  family_subject: ReleaseFamilySubjectV1;
+  evidence_subjects: ReleaseEvidenceSubjectV1[];
+  requested_at_unix_ms: number;
+  expires_at_unix_ms: number;
+}
+
+export interface ReleaseProfileGraphV1 {
+  schema_version: string;
+  profile_graph_id: string;
+  family: string;
+  generation: number;
+  profiles: ReleaseProfileNodeV1[];
+}
+
+export interface ReleaseProfileNodeV1 {
+  schema_version: string;
+  profile_id: string;
+  dependency_profile_ids: string[];
+  gate_ids: string[];
+}
+
+export interface ReleaseRegistryEntryV1 {
+  schema_version: string;
+  gate_id: string;
+  profile_ids: string[];
+  gate_receipt_id: string;
+  receipt_digest: string;
+  receipt_path: string;
+  receipt_signature_digest: string;
+  receipt_signature_path: string;
+  trusted_time_digest: string;
+  trusted_time_path: string;
+  trusted_time_signature_digest: string;
+  trusted_time_signature_path: string;
+}
+
+export interface ReleaseRegistryManifestV1 {
+  schema_version: string;
+  registry_id: string;
+  generation: number;
+  previous_registry_digest: string;
+  signer_policy_digest: string;
+  profile_graph_digest: string;
+  family_lock_digest: string;
+  created_at_unix_ms: number;
+  expires_at_unix_ms: number;
+  registry_signer_key_id: string;
+  objects: ReleaseRegistryObjectV1[];
+  entries: ReleaseRegistryEntryV1[];
+}
+
+export interface ReleaseRegistryObjectV1 {
+  schema_version: string;
+  object_id: string;
+  object_kind: ReleaseRegistryObjectKindV1;
+  object_digest: string;
+  object_path: string;
+}
+
+export interface ReleaseReplayBindingV1 {
+  schema_version: string;
+  evidence_nonce: string;
+  gate_receipt_id: string;
+  gate_id: string;
+  request_digest: string;
+  receipt_digest: string;
+}
+
+export interface ReleaseReplayStateV1 {
+  schema_version: string;
+  registry_id: string;
+  generation: number;
+  registry_manifest_digest: string;
+  previous_state_digest: string;
+  restore_epoch: number;
+  trusted_time_floor_unix_ms: number;
+  bindings: ReleaseReplayBindingV1[];
+  registry_signer_key_id: string;
+}
+
+export interface ReleaseRepositorySubjectV1 {
+  schema_version: string;
+  repository: ReleaseRepositoryNameV1;
+  tag: string;
+  commit_oid: string;
+  tree_oid: string;
+  release_signing_identity: string;
+  source_subject_digest: string;
+}
+
+export interface ReleaseSignerKeyV1 {
+  schema_version: string;
+  key_id: string;
+  role: ReleaseSignerRoleV1;
+  signing_identity: string;
+  public_key: string;
+  activates_at_unix_ms: number;
+  expires_at_unix_ms: number;
+  revoked_at_unix_ms: number | null;
+  retain_until_unix_ms: number;
+}
+
+export interface ReleaseSignerPolicyV1 {
+  schema_version: string;
+  family: string;
+  policy_generation: number;
+  activates_at_unix_ms: number;
+  expires_at_unix_ms: number;
+  registry_signer_key_id: string;
+  trusted_time_key_id: string;
+  signer_keys: ReleaseSignerKeyV1[];
+}
+
 export interface ReviewReceipt {
   schema_version: string;
   review_receipt_id: string;
@@ -1000,6 +1161,19 @@ export interface TeamRecipeV1 {
   edges: Record<string, unknown>[];
   budgets: Record<string, unknown>;
   policy_hash: string;
+}
+
+export interface TrustedTimeObservationV1 {
+  schema_version: string;
+  family: string;
+  gate_receipt_id: string;
+  receipt_digest: string;
+  evidence_nonce: string;
+  signer_policy_digest: string;
+  observed_at_unix_ms: number;
+  valid_until_unix_ms: number;
+  restore_epoch: number;
+  trusted_time_key_id: string;
 }
 
 export interface VerificationIntentV1 {

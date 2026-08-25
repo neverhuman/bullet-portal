@@ -59,7 +59,7 @@ describe("SessionSupervisorPage", () => {
     render(<SessionSupervisorPage surface={surface("session-supervisor")} />);
     await waitFor(() => {
       expect(screen.getByTestId("session-supervisor-unknown")).toHaveTextContent(
-        "unknown: Session Supervisor: control plane unreachable (GET /v1/sessions failed: ECONNREFUSED)",
+        "unknown: Session Supervisor: control plane unreachable (GET /api/v1/sessions failed: ECONNREFUSED)",
       );
     });
   });

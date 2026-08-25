@@ -50,7 +50,7 @@ function snapshot<T>(data: T, asOfSequence = 0): api.SnapshotRead<T> {
 }
 
 function missionsError(): api.ApiError {
-  return new api.ApiError("GET", "/v1/missions", 500, "HTTP 500");
+  return new api.ApiError("GET", "/api/v1/missions", 500, "HTTP 500");
 }
 
 beforeEach(() => {
@@ -79,7 +79,7 @@ describe("ControlTower command honesty", () => {
     render(<ControlTower />);
     const unknown = await screen.findByTestId("missions-unknown");
     expect(unknown).toHaveTextContent(
-      "unknown: control plane unreachable (GET /v1/missions failed: HTTP 500)",
+      "unknown: control plane unreachable (GET /api/v1/missions failed: HTTP 500)",
     );
     expect(screen.queryByText("No missions yet.")).not.toBeInTheDocument();
   });
@@ -122,7 +122,7 @@ describe("ControlTower command honesty", () => {
 
   it("clears stale local session material after a definitive authorization refusal", async () => {
     mocked.submitCommand.mockRejectedValue(
-      new api.ApiError("POST", "/v1/commands", 401, "SESSION_INVALID"),
+      new api.ApiError("POST", "/api/v1/commands", 401, "SESSION_INVALID"),
     );
     render(<ControlTower />);
     await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
@@ -145,7 +145,7 @@ describe("ControlTower command honesty", () => {
 
   it("turns a reconciliation timeout into local UNKNOWN, never FAILED", async () => {
     mocked.getCommand.mockRejectedValue(
-      new api.ApiError("GET", `/v1/commands/${commandId}`, null, "timeout after 10000ms"),
+      new api.ApiError("GET", `/api/v1/commands/${commandId}`, null, "timeout after 10000ms"),
     );
     render(<ControlTower />);
     await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
@@ -160,7 +160,7 @@ describe("ControlTower command honesty", () => {
   it("clears an older verified command before a later admission fails", async () => {
     mocked.submitCommand
       .mockResolvedValueOnce(command("PENDING"))
-      .mockRejectedValueOnce(new api.ApiError("POST", "/v1/commands", 500, "HTTP 500"));
+      .mockRejectedValueOnce(new api.ApiError("POST", "/api/v1/commands", 500, "HTTP 500"));
     render(<ControlTower />);
     const button = screen.getByRole("button", { name: "Submit durable demo command" });
     await userEvent.click(button);
@@ -175,7 +175,7 @@ describe("ControlTower command honesty", () => {
     mocked.submitCommand
       .mockResolvedValueOnce(command("PENDING"))
       .mockRejectedValueOnce(
-        new api.ApiError("POST", "/v1/commands", null, "timeout after 10000ms"),
+        new api.ApiError("POST", "/api/v1/commands", null, "timeout after 10000ms"),
       );
     render(<ControlTower />);
     const button = screen.getByRole("button", { name: "Submit durable demo command" });

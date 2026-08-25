@@ -10,7 +10,7 @@ import { MergeRailPage } from "./MergeRailPage";
 import { QualityLabPage } from "./QualityLabPage";
 import { SessionSupervisorPage } from "./SessionSupervisorPage";
 
-/** Surfaces that read farmd JSON. The live stream remains `/v1/events`. */
+/** Surfaces that read farmd JSON. The live stream remains `/api/v1/events`. */
 export const PROJECTED_SURFACES = new Set([
   "mission-graph",
   "live-attempt",

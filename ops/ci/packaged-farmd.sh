@@ -102,5 +102,5 @@ BULLET_FARMD_URL="$origin" \
   PLAYWRIGHT_JUNIT_OUTPUT_NAME="$(artifact_dir reports)/packaged-farmd.xml" \
   PLAYWRIGHT_JUNIT_STRIP_ANSI=1 \
   ./node_modules/.bin/playwright test --config playwright.packaged.config.ts --reporter=line,junit
-node ops/ci/assert-report.mjs junit "$(artifact_dir reports)/packaged-farmd.xml" 2
+node ops/ci/assert-report.mjs junit "$(artifact_dir reports)/packaged-farmd.xml" 3
 log "packaged-farmd lane passed"

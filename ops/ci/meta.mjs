@@ -109,7 +109,7 @@ assert(
     .reduce((total, count) => total + count, 0) === 10,
   "standalone Playwright inventory drifted",
 );
-assert((read("e2e/real-farmd.spec.ts").match(/^\s*test\(/gm) ?? []).length === 2, "family test inventory drifted");
+assert((read("e2e/real-farmd.spec.ts").match(/^\s*test\(/gm) ?? []).length === 3, "family test inventory drifted");
 assert(read("ops/ci/security.sh").includes("secret-canary.sh"), "secret canary absent");
 const ignoredFingerprints = read(".gitleaksignore").trim().split("\n").filter(Boolean);
 assert(ignoredFingerprints.length === 1, "historical secret ignore is not exact-singleton");
