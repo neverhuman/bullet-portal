@@ -39,11 +39,11 @@ hub's `just portal` launcher enforces this rule.
 ## Build and preview
 
 `VITE_BULLET_API` is read at build time and baked into the bundle
-(`src/api.ts`). `npm run preview` has no API proxy, and farmd does not grant
-cross-origin browser authority. A functional preview must therefore serve the
-built assets behind a same-origin reverse proxy that forwards `/v1`, `/health`,
-and `/openapi.yaml` to farmd. Pointing a browser bundle directly at
-`http://127.0.0.1:7420` is not a supported workaround.
+(`src/api.ts`). The loopback-only `npm run preview` proof server serves the
+production `dist` bytes and proxies only `/v1`, `/health`, and `/openapi.yaml`
+to loopback farmd. It is a CI/developer preview boundary, not the release
+server; the packaged Rust distribution must embed the same built bytes.
+Pointing a browser bundle directly at `http://127.0.0.1:7420` is not supported.
 
 ## Lanes
 
@@ -53,11 +53,11 @@ browser lanes need.
 | Lane | Command | Contents |
 | --- | --- | --- |
 | fast | `just fast` | tsc, vitest (unit + component, jsdom), production build |
-| required | `just check` | fast plus focused mocked projection/SSE Playwright and a locally built sibling farmd authenticated-command E2E; missing sibling Kernel fails closed |
+| required | `just check` | fast plus focused mocked projection/SSE Playwright and the production `dist` bundle against a locally built sibling farmd; missing sibling Kernel fails closed |
 | contract | `just contract` | Playwright against mocked projection/SSE routes (`playwright.config.ts`); command mutation mocks stay in component tests |
 | security | `just security` | gitleaks (no-git) plus `npm audit --omit=dev`; a missing tool fails |
 | audit | `bash ops/ci/audit.sh` | Jankurai audit against a committed ratchet floor; artifacts under `.jankurai/` |
-| nightly | `bash ops/ci/nightly.sh` | repeats the real-process farmd/browser proof outside required; fails closed without the sibling Kernel |
+| nightly | `bash ops/ci/nightly.sh` | rebuilds `dist` and repeats the real-process farmd/browser proof outside required; fails closed without the sibling Kernel |
 
 `.github/workflows` runs these scripts. Runners must provide `gitleaks` and
 `jankurai`; required and nightly additionally need the exact sibling family

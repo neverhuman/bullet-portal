@@ -20,6 +20,9 @@ finish() {
 }
 trap finish EXIT
 
+log "build production Portal bundle"
+npm run build
+
 log "build local farmd"
 (cd "$kernel_root" && cargo build --locked -p bullet-farmd)
 farmd_bin="$kernel_root/target/debug/bullet-farmd"

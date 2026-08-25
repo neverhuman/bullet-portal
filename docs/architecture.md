@@ -65,13 +65,15 @@ name their spec section and `as_of_sequence`. The Control Tower header shows
 `GET /v1/commands/{id}`, `GET /health`, and
 `GET /v1/events?after=<seq>`.
 
-Development is same-origin: Vite proxies `/v1`, `/health`, and
-`/openapi.yaml` to loopback farmd. Farmd does not expose wildcard CORS, so the
-hub launcher clears `VITE_BULLET_API` instead of directing browser requests to
-a different origin. The real-farmd browser lane builds farmd, captures its
-one-time bootstrap without logging it, and proves cookie/Origin/CSRF/202/status
-reconciliation through the Portal. Because no command worker is implemented,
-the exact real result is durable PENDING, not transaction completion.
+Development and production-bundle proof are same-origin: Vite dev and preview
+proxy only `/v1`, `/health`, and `/openapi.yaml` to loopback farmd. Farmd does
+not expose wildcard CORS, so the hub launcher clears `VITE_BULLET_API` instead
+of directing browser requests to a different origin. The real-farmd browser
+lane rebuilds and serves `dist`, builds farmd, captures its one-time bootstrap
+without logging it, and proves cookie/Origin/CSRF/202/status reconciliation.
+The preview server is test scaffolding, not the missing Rust asset embedding.
+Because no APPLIED/VERIFIED worker path exists, the exact real result is durable
+PENDING, not transaction completion.
 
 ## Event stream
 
