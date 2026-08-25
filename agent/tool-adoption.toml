@@ -1,0 +1,80 @@
+# Jankurai tool adoption for bullet-portal.
+#
+# `auto` keeps the auditor's own applicability detection; `disabled` records a
+# tool this component genuinely has no surface for. Hosted CI evidence is
+# deliberately absent for every entry: the installed jankurai 1.6.11 is a
+# machine-local path build, so the audit lane is a fail-closed local gate
+# (`ops/ci/audit.sh`) and no workflow may claim it ran.
+schema_version = "1.0.0"
+
+[[tools]]
+id = "audit-ci"
+mode = "auto"
+notes = "local only: bash ops/ci/audit.sh with the upward-only AUDIT_FLOOR ratchet"
+
+[[tools]]
+id = "proof-routing"
+mode = "auto"
+notes = "agent/test-map.json plus agent/proof-lanes.toml route every owned path"
+
+[[tools]]
+id = "proofbind"
+mode = "auto"
+notes = "run locally against a base ref; no hosted evidence is claimed"
+
+[[tools]]
+id = "copy-code"
+mode = "auto"
+notes = "duplication triage is advisory: the page components share a projection shape by design"
+
+[[tools]]
+id = "security"
+mode = "auto"
+notes = "the executable lane is ops/ci/security.sh via tools/security-lane.sh: gitleaks 8.21.2 plus a detector canary, npm audit over the whole graph, zizmor 1.25.2"
+
+[[tools]]
+id = "ci-bad-behavior"
+mode = "auto"
+
+[[tools]]
+id = "git-bad-behavior"
+mode = "auto"
+
+[[tools]]
+id = "release-bad-behavior"
+mode = "auto"
+
+[[tools]]
+id = "ux-qa"
+mode = "auto"
+notes = "Playwright is the rendered surface proof; the layered rendered UX QA lane is not built yet and is recorded as a gap in docs/testing.md rather than claimed here"
+
+[[tools]]
+id = "contract-drift"
+mode = "auto"
+notes = "src/generated is emitted from the kernel contract and proved by bash ops/ci/contract.sh"
+
+[[tools]]
+id = "authz-matrix"
+mode = "auto"
+notes = "the Portal enforces no authorization of its own: it renders what the kernel returns and shows a refusal as a refusal"
+
+[[tools]]
+id = "input-boundary"
+mode = "auto"
+notes = "every kernel response is validated against the generated schema bundle before it reaches a component (src/apiValidation.ts)"
+
+[[tools]]
+id = "agent-tool-supply"
+mode = "auto"
+notes = "agent/security-policy.toml pins the lane tools; no ZYAL runbook exists here (see agent/JANKURAI_STANDARD.md)"
+
+[[tools]]
+id = "release-readiness"
+mode = "auto"
+notes = "docs/release.md and CHANGELOG.md record that no release exists yet"
+
+[[tools]]
+id = "cost-budget"
+mode = "disabled"
+notes = "no paid or metered operation: the Portal is a read-only projection and agent/audit-policy.toml enumerates cost_surface = []"

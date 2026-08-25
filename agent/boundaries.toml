@@ -1,0 +1,48 @@
+[stack]
+id = "rust-ts-vite-react-sqlite"
+version = "0.4.0"
+
+# bullet-portal is a browser projection of the kernel API. It is never an
+# authority source: it holds no durable truth, mints no identity and performs no
+# mutation of its own.
+[typescript]
+web_paths = ["src", "e2e"]
+# The Portal reaches the control plane through the generated client only. A
+# direct database, ORM or server-side driver import in the browser bundle is a
+# boundary violation, not a shortcut.
+forbidden_web_imports = [
+  "pg",
+  "mysql",
+  "mysql2",
+  "sqlite3",
+  "better-sqlite3",
+  "knex",
+  "sequelize",
+  "typeorm",
+  "prisma",
+  "mongodb",
+  "@supabase/supabase-js",
+  "rusqlite"
+]
+generated_contract_paths = ["src/generated"]
+
+# No Rust, Python, queue or database surface is authored here. The control plane
+# is bullet-kernel; the durable store is its embedded SQLite database.
+[rust]
+domain_paths = []
+forbidden_domain_imports = []
+
+[python]
+allowed_truth_paths = []
+
+[queues]
+adapter_paths = []
+event_contract_paths = []
+generated_type_paths = ["src/generated"]
+client_markers = []
+
+[db]
+root_paths = []
+migration_paths = []
+constraint_paths = []
+schema_version = "not-applicable"

@@ -1,0 +1,25 @@
+# Tools the security lane (`ops/ci/security.sh`, `tools/security-lane.sh`) runs.
+# Every required tool is fail-closed: `require_tool` exits non-zero when it is
+# absent and the lane also refuses a wrong tool version, so a missing or
+# unpinned scanner can never produce a green lane.
+schema_version = "1.0.0"
+enabled_tools = ["gitleaks", "npm-audit", "zizmor"]
+required_tools = ["gitleaks", "npm-audit", "zizmor"]
+advisory_tools = []
+
+[severity_thresholds]
+fail_lane_on = "high"
+
+[pins]
+gitleaks = "8.21.2"
+zizmor = "1.25.2"
+
+# The lane does three things beyond running the scanners, and all three are
+# fail-closed:
+#   * `ops/ci/secret-canary.sh` feeds gitleaks a disposable detector-shaped
+#     credential and fails the lane if gitleaks accepts it, so a silently broken
+#     detector cannot be mistaken for a clean tree.
+#   * `src/api.ts` must still declare `CSRF_STORAGE_SLOT` and must not regress to
+#     the key-shaped `CSRF_STORAGE_KEY` identifier.
+#   * `npm audit` covers the whole dependency graph, development dependencies
+#     included; the scheduled hygiene lane repeats it against full history.

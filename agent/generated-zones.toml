@@ -1,9 +1,19 @@
+# Generated artifacts that must be repaired from their source, never hand-edited.
+# Every zone declares a non-empty `path`, `source` and `command` so a repair is
+# reproducible without reading CI.
+
 [[zone]]
 path = "src/generated/api.ts"
-source = "bullet-kernel/contracts/openapi.yaml"
+source = "bullet-kernel:contracts/openapi.yaml"
+command = "bash ops/ci/contract.sh"
 owner = "contracts"
+read_only = true
+write_policy = "generator_only"
 
 [[zone]]
 path = "src/generated/schemaBundle.ts"
-source = "bullet-farm:contracts/generated/typescript/schemaBundle.ts via scripts/sync-family-contracts.sh"
+source = "bullet-farm:contracts/generated/typescript/schemaBundle.ts"
+command = "bash ../bullet-farm/scripts/sync-family-contracts.sh"
 owner = "contracts"
+read_only = true
+write_policy = "generator_only"
