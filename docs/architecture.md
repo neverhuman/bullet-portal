@@ -1,18 +1,34 @@
 # Portal architecture
 
 The Control Tower is a projection of the kernel ledger. Hash routes
-`#/<surface-id>` cover every spec §25 surface. Control Tower, Mission Graph,
-Live Attempt, and Incidents & Audit read farmd projections; the other eleven
-surfaces have no farmd projection and render `unknown`, never an empty
-success list.
+`#/<surface-id>` cover all fifteen spec §25 surfaces declared in
+`src/surfaces.ts`. Eight surfaces read farmd projections: Control Tower
+(`src/pages/ControlTower.tsx`) and the seven members of `PROJECTED_SURFACES`
+in `src/pages/ProjectedSurface.tsx` — Mission Graph, Live Attempt, Fleet,
+Session Supervisor, Merge Rail, Quality Lab, and Incidents & Audit. The other
+seven — Cognitive Router, Fusion Lab, Context Lineage, Quota and Capacity,
+Struggle and Escalation, Behavior Center, and Workspace and Git Hygiene — carry
+an `unknownReason` in `src/surfaces.ts` and render through
+`src/pages/SurfacePage.tsx` as `unknown: <title>: no ledger subject exists for
+this surface yet: …`, naming the missing durable subject and the V1 slice that
+produces it; never an empty success list. [`projections.md`](projections.md)
+is the per-surface contract and quotes the seven reasons verbatim.
 
-The three projected surfaces (`src/pages/ProjectedSurface.tsx`) combine
-`GET /v1/missions/{id}` and `GET /v1/ready` and require both responses to
-carry the same `X-Bullet-As-Of-Sequence` watermark; a mismatch renders
-`unknown` with `SNAPSHOT_WATERMARK_MISMATCH`. `/v1/ready` answers 404 while
-the ready queue is empty, which the client maps to a null watermark, so an
-idle farmd shows Live Attempt as `unknown` rather than as a healthy empty
-list.
+Every projected read goes through `readSnapshot` in `src/api.ts`: one atomic
+ledger snapshot `{data, as_of_sequence, observed_at, source}` whose
+`x-bullet-as-of-sequence` response header must equal the body watermark. A
+surface that composes several reads — Mission Graph (`GET /v1/missions` plus
+one `GET /v1/missions/{id}` per mission), Live Attempt (the same plus
+`GET /v1/ready`), Incidents & Audit (`GET /v1/audit` plus `GET /v1/outbox`) —
+passes them through `atomicSnapshot` (`src/hooks/useProjection.ts`), which
+refuses differing watermarks with `SNAPSHOT_WATERMARK_MISMATCH` and differing
+sources with `SNAPSHOT_SOURCE_MISMATCH`; the surface then renders `unknown`.
+`GET /v1/ready` answers HTTP 200 with `data: null` while the ready queue is
+empty (kernel `apps/bullet-farmd/src/leases.rs`, `next_ready`); the client
+accepts only that shape as an empty queue and treats HTTP 404 as a failed read
+(`src/api.test.ts`, "never infers empty from 404"), so an idle farmd shows Live
+Attempt as `{"ready": null, "graphs": []}` under its watermark, not as a
+healthy list.
 
 Operators diagnose from durable projections and `/v1/events`. No view mutates
 authoritative state optimistically. The browser receives only a local,
@@ -43,6 +59,10 @@ CONTRADICTORY. Portal rendering:
   `unknown: control plane unreachable (…)`, never "No missions yet.".
   "No missions yet." and "outbox: empty (verified)" render only from an
   HTTP 200 with a JSON body.
+- Projected tables (`RowsTable` in `src/components/ProjectionCard.tsx`) render
+  an empty set as `<label>: 0 rows (verified at sequence N)` in the neutral
+  idle style, never in the green `verified` class; a null field prints its
+  meaning (`contradictory: attempt row missing`, `not recorded`, `absent`).
 - Every status read must repeat the admitted command id, kind, and payload
   digest. A conflicting subject or a response/transport timeout becomes local
   UNKNOWN, as does an APPLIED-to-PENDING regression. Starting a later command
@@ -57,23 +77,34 @@ CONTRADICTORY. Portal rendering:
 
 Observation cards with a value name their source and observed-at time
 (`GET /v1/missions`, `GET /v1/outbox`, `farmd /health`); projected surfaces
-name their spec section and `as_of_sequence`. The Control Tower header shows
-`as_of_sequence`, projection lag, source health from a real `/health` probe
-(10s timeout), and the stream connection state. Endpoints consumed:
-`GET /v1/missions`, `GET /v1/missions/{id}`, `GET /v1/outbox`,
-`GET /v1/ready`, `POST /v1/auth/bootstrap`, `POST /v1/commands`,
-`GET /v1/commands/{id}`, `GET /health`, and
-`GET /v1/events?after=<seq>`.
+name their spec section, `as_of_sequence`, `source`, `observed_at`, and
+freshness. The Control Tower header shows `as_of_sequence`, projection lag,
+source health from a real `/health` probe (10s timeout), and the stream
+connection state. Endpoints consumed (`src/api.ts` and
+`src/hooks/useEventStream.ts`):
+`GET /health`, `GET /v1/missions`, `GET /v1/missions/{id}`, `GET /v1/outbox`,
+`GET /v1/ready`, `GET /v1/fleet`, `GET /v1/sessions`, `GET /v1/merge-rail`,
+`GET /v1/quality-lab`, `GET /v1/audit`, `POST /v1/auth/bootstrap`,
+`POST /v1/commands`, `GET /v1/commands/{id}`, and
+`GET /v1/events?after=<seq>`. All fourteen are mounted by kernel
+`apps/bullet-farmd/src/api.rs`; the nine `GET /v1/…` reads other than
+`/v1/commands/{id}` and `/v1/events` are snapshot routes under the contract in
+`projections.md`.
 
-Development and production-bundle proof are same-origin: Vite dev and preview
+Development and built-bundle proof are same-origin: Vite dev and preview
 proxy only `/v1`, `/health`, and `/openapi.yaml` to loopback farmd. Farmd does
 not expose wildcard CORS, so the hub launcher clears `VITE_BULLET_API` instead
 of directing browser requests to a different origin. The real-farmd browser
-lane rebuilds and serves `dist`, builds farmd, captures its one-time bootstrap
-without logging it, and proves cookie/Origin/CSRF/202/status reconciliation.
-The preview server is test scaffolding, not the missing Rust asset embedding.
-Because no APPLIED/VERIFIED worker path exists, the exact real result is durable
-PENDING, not transaction completion.
+lane (`ops/ci/real-farmd.sh`, `e2e/real-farmd.spec.ts`, 2 tests) rebuilds and
+serves `dist`, builds the sibling `bullet-kernel` farmd, captures its one-time
+bootstrap without logging it, proves cookie/Origin/CSRF/202/status
+reconciliation through the worker-token reconcile route, and checks that the
+five list projections answer from one shared watermark while an empty Fleet
+renders zero rows without green. The preview server is test scaffolding, not
+the missing Rust asset embedding. Because no dispatch, APPLIED, or VERIFIED
+path exists, the exact real results are durable `PENDING` and, after the
+worker reconcile, durable `UNKNOWN` (`EXECUTION_ADAPTER_UNAVAILABLE`); neither
+is transaction completion.
 
 ## Event stream
 
@@ -112,6 +143,8 @@ hook owns the exclusive sequence cursor and carries it across reconnects.
 - All wire DTOs come from `src/generated/api.ts`, a generated zone copied
   verbatim from `bullet-kernel/contracts/generated/api.ts` (regenerate with
   `cargo run -p bullet -- contracts generate` in the kernel, then `just setup`
-  from the hub copies it). The portal declares no duplicate of a generated
-  DTO; its only local shapes are view-side (`ParsedEvent`, projection
-  bodies) and never cross the wire.
+  from the hub copies it); `src/generated/schemaBundle.ts` is synced from the
+  hub by `scripts/sync-family-contracts.sh` (`agent/generated-zones.toml`).
+  The portal declares no duplicate of a generated DTO; its only local shapes
+  are view-side (`ParsedEvent`, composed projection bodies) and never cross
+  the wire.
