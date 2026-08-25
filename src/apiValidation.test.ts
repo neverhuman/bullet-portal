@@ -102,4 +102,8 @@ describe("public projection subject validation", () => {
     ).toBe(false);
     expect(isReadyView({ ...ready, optimistic: true })).toBe(false);
   });
+
+  it("rejects a negative durable MissionView fence", () => {
+    expect(isMissionView({ mission, packages: [workPackage], fence: -1 })).toBe(false);
+  });
 });

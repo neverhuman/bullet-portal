@@ -1,3 +1,5 @@
+import Ajv2020 from "ajv/dist/2020.js";
+import { PUBLIC_API_RUNTIME_REFS, PUBLIC_API_RUNTIME_SCHEMA } from "./generated/api";
 import type {
   BootstrapResponse,
   CommandStatus,
@@ -9,10 +11,31 @@ import type {
   OutboxView,
   Problem,
   ReadyView,
-  WorkPackage,
 } from "./generated/api";
 
 export type ResponseValidator<T> = (value: unknown) => value is T;
+
+const schemaCompiler = new Ajv2020({ allErrors: false, strict: true });
+schemaCompiler.addSchema(PUBLIC_API_RUNTIME_SCHEMA);
+
+function compileGeneratedValidator<T>(reference: string): ResponseValidator<T> {
+  const validate = schemaCompiler.getSchema<T>(reference);
+  if (validate === undefined) {
+    throw new Error(`generated API schema is missing ${reference}`);
+  }
+  return (value): value is T => validate(value) === true;
+}
+
+const validatesCommandStatus = compileGeneratedValidator<CommandStatus>(
+  PUBLIC_API_RUNTIME_REFS.CommandStatus,
+);
+const validatesMission = compileGeneratedValidator<Mission>(PUBLIC_API_RUNTIME_REFS.Mission);
+const validatesMissionView = compileGeneratedValidator<MissionView>(
+  PUBLIC_API_RUNTIME_REFS.MissionView,
+);
+const validatesReadyView = compileGeneratedValidator<ReadyView>(
+  PUBLIC_API_RUNTIME_REFS.ReadyView,
+);
 
 export const SNAPSHOT_SOURCE = "bullet-kernel/sqlite-ledger" as const;
 
@@ -41,17 +64,6 @@ function hasExactKeys(value: Record<string, unknown>, expected: readonly string[
 }
 
 const RFC3339 = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
-const MISSION_ID = /^mis_[0-9a-f]{64}$/;
-const ORGANIZATION_ID = /^org_[0-9a-f]{64}$/;
-const REPOSITORY_ID = /^rep_[0-9a-f]{64}$/;
-const ACCEPTANCE_CONTRACT_ID = /^acc_[0-9a-f]{64}$/;
-const WORK_PACKAGE_ID = /^wpk_[0-9a-f]{64}$/;
-const PLAN_REVISION_ID = /^pln_[0-9a-f]{64}$/;
-const VARIANT_ID = /^var_[0-9a-f]{64}$/;
-
-function matches(value: unknown, pattern: RegExp): value is string {
-  return typeof value === "string" && pattern.test(value);
-}
 
 export function isRfc3339(value: unknown): value is string {
   if (typeof value !== "string") {
@@ -89,40 +101,13 @@ function isNullableString(value: unknown): value is string | null {
 export const isHealth: ResponseValidator<Health> = (value): value is Health =>
   isRecord(value) && typeof value.status === "string";
 
-export const isMission: ResponseValidator<Mission> = (value): value is Mission =>
-  isRecord(value) &&
-  hasExactKeys(value, [
-    "acceptance_contract_id",
-    "id",
-    "objective",
-    "organization_id",
-    "repository_id",
-    "state",
-    "title",
-  ]) &&
-  matches(value.id, MISSION_ID) &&
-  matches(value.organization_id, ORGANIZATION_ID) &&
-  matches(value.repository_id, REPOSITORY_ID) &&
-  matches(value.acceptance_contract_id, ACCEPTANCE_CONTRACT_ID) &&
-  hasStrings(value, ["title", "objective", "state"]);
+export const isMission: ResponseValidator<Mission> = validatesMission;
 
 export const isMissionList: ResponseValidator<Mission[]> = (value): value is Mission[] =>
   Array.isArray(value) && value.every(isMission);
 
-const isWorkPackage: ResponseValidator<WorkPackage> = (value): value is WorkPackage =>
-  isRecord(value) &&
-  hasExactKeys(value, ["id", "mission_id", "plan_revision_id", "state", "task_class", "title"]) &&
-  matches(value.id, WORK_PACKAGE_ID) &&
-  matches(value.mission_id, MISSION_ID) &&
-  matches(value.plan_revision_id, PLAN_REVISION_ID) &&
-  hasStrings(value, ["task_class", "title", "state"]);
-
 export const isMissionView: ResponseValidator<MissionView> = (value): value is MissionView =>
-  isRecord(value) &&
-  hasExactKeys(value, ["fence", "mission", "packages"]) &&
-  isMission(value.mission) &&
-  Array.isArray(value.packages) &&
-  value.packages.every(isWorkPackage) &&
+  validatesMissionView(value) &&
   (value.fence === null || isInteger(value.fence));
 
 export const isDemoReceipt: ResponseValidator<DemoReceipt> = (
@@ -155,22 +140,13 @@ const isOutboxItem: ResponseValidator<OutboxItem> = (value): value is OutboxItem
 export const isOutboxView: ResponseValidator<OutboxView> = (value): value is OutboxView =>
   isRecord(value) && Array.isArray(value.items) && value.items.every(isOutboxItem);
 
-export const isReadyView: ResponseValidator<ReadyView> = (value): value is ReadyView =>
-  isRecord(value) &&
-  hasExactKeys(value, ["enqueued_at", "mission_id", "title", "variant_id", "work_package_id"]) &&
-  matches(value.work_package_id, WORK_PACKAGE_ID) &&
-  matches(value.mission_id, MISSION_ID) &&
-  matches(value.variant_id, VARIANT_ID) &&
-  hasStrings(value, ["title", "enqueued_at"]);
+export const isReadyView: ResponseValidator<ReadyView> = validatesReadyView;
 
 export const isNullableReadyView: ResponseValidator<ReadyView | null> = (
   value,
 ): value is ReadyView | null => value === null || isReadyView(value);
 
-const COMMAND_ID = /^cmd_[0-9a-f]{64}$/;
-const DIGEST = /^[0-9a-f]{64}$/;
 const CSRF_TOKEN = /^csrf_[0-9a-f]{64}$/;
-const COMMAND_STATUSES = new Set(["PENDING", "APPLIED", "VERIFIED", "FAILED", "UNKNOWN"]);
 
 export const isBootstrapResponse: ResponseValidator<BootstrapResponse> = (
   value,
@@ -186,16 +162,8 @@ export const isBootstrapResponse: ResponseValidator<BootstrapResponse> = (
 export const isCommandStatus: ResponseValidator<CommandStatus> = (
   value,
 ): value is CommandStatus =>
-  isRecord(value) &&
-  hasExactKeys(value, ["id", "kind", "payload_digest", "result", "status"]) &&
-  typeof value.id === "string" &&
-  COMMAND_ID.test(value.id) &&
-  typeof value.status === "string" &&
-  COMMAND_STATUSES.has(value.status) &&
-  typeof value.kind === "string" &&
+  validatesCommandStatus(value) &&
   value.kind.length > 0 &&
-  typeof value.payload_digest === "string" &&
-  DIGEST.test(value.payload_digest) &&
   value.result !== undefined &&
   (value.status === "PENDING" ? value.result === null : true) &&
   (["APPLIED", "VERIFIED", "FAILED"].includes(value.status) ? value.result !== null : true);
