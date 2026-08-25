@@ -66,6 +66,28 @@ framed BLAKE3 root); `npm run bundle:check` refuses any drift from it. Both are
 `ops/build/portal-bundle.ts`, typechecked by `npm run bundle:typecheck` and
 tested by `npm run bundle:test`.
 
+## Packaged serving
+
+A packaged Bullet Farm ships no Vite server. `bullet-farmd` built with its
+`embedded-portal` cargo feature and `BULLET_PORTAL_DIST=<absolute dist>`
+compiles these exact built bytes in: its build script re-derives this
+manifest's canonical body, framed BLAKE3 root, and every file digest, and
+refuses the build on any drift, extra entry, symlink, or dirty-source subject.
+That daemon then serves `/`, `/index.html`, and `/assets/*` from its own
+origin — content-hashed assets `immutable`, `index.html` no-store — so
+`--portal-origin` equals the daemon origin and the browser is same-origin
+without a proxy. Nothing about authority changes: the one-time bootstrap,
+the HttpOnly `SameSite=Strict` session cookie, the session-bound CSRF header,
+and the exact-Origin check all still apply, and `GET /health` gains a `portal`
+field naming the embedded bundle root (absent when no Portal is embedded).
+
+`bash ops/ci/packaged-farmd.sh` (`just packaged-farmd`) proves it end to end:
+it builds `dist`, binds the manifest, builds that farmd from the sibling
+Kernel, checks `/health` names this exact bundle root, and runs
+`e2e/real-farmd.spec.ts` against the daemon's own origin through
+`playwright.packaged.config.ts`. The lane is additive to `required`, which
+still proves the proxied `ops/ci/real-farmd.sh` path unchanged.
+
 ## Lanes
 
 `just setup` installs dependencies and the Playwright Chromium build the
@@ -82,6 +104,7 @@ which runs `ops/ci/<lane>.sh`; the rules for editing those scripts are in
 | security | `just security` | gitleaks (no-git) plus `npm audit --omit=dev`; a missing tool fails |
 | audit | `bash ops/ci/audit.sh` | Jankurai audit against the committed ratchet floor (`AUDIT_FLOOR=59`, may only rise); artifacts under `.jankurai/` |
 | nightly | `bash ops/ci/nightly.sh` | runs `ops/ci/real-farmd.sh` again outside required; fails closed without the sibling Kernel; no hosted schedule is registered |
+| packaged-farmd | `just packaged-farmd` | `ops/ci/packaged-farmd.sh`: builds `dist`, runs `npm run bundle:generate`/`bundle:check` (refuses on a dirty source tree), builds the sibling Kernel's `bullet-farmd` with `--features embedded-portal` and `BULLET_PORTAL_DIST=$PWD/dist`, starts it on `127.0.0.1:7421` with `--portal-origin http://127.0.0.1:7421`, requires `/health` to name that exact bundle root and `/` to serve the entry point, then runs `e2e/real-farmd.spec.ts` (2 tests, `playwright.packaged.config.ts`) against the daemon's own origin with no preview server. Exits neutral 78 only when the sibling Kernel checkout is absent; every other failure is fatal |
 
 `.github/workflows/ci.yml` runs the fast, required, contract, and security
 scripts unchanged on Node 22 with Playwright Chromium (`--with-deps`) and a

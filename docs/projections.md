@@ -169,6 +169,29 @@ correction belongs to `src/surfaces.ts`, not to this document.
   Context Lineage render verified zero-row observations with no
   `.verified` element; that Incidents & Audit shows `latest_sequence` equal to
   that watermark; and that Quota and Capacity names its missing subject.
+- Packaged farmd (`bash ops/ci/packaged-farmd.sh`): the same two
+  `e2e/real-farmd.spec.ts` tests, run against a `bullet-farmd` built with
+  `--features embedded-portal` that serves this Portal's manifest-verified
+  `dist` bytes at its own origin (`playwright.packaged.config.ts`, no preview
+  server). The lane additionally requires `GET /health` to carry
+  `portal: "<framed BLAKE3 bundle root>"` equal to this build's
+  `.bullet-portal-bundle-v1.json` root, and `GET /` to serve the entry point.
+  This is the projection contract proved under packaged serving; it is not a
+  transaction, live-provider, or release proof.
+
+## Packaged same-origin serving
+
+In the proxied lanes the browser origin (`127.0.0.1:5173`) differs from farmd's
+(`127.0.0.1:7420`) and Vite forwards `/v1`, `/health`, and `/openapi.yaml`. In
+the packaged lane there is one origin: farmd serves `index.html` and
+`/assets/*` itself and `--portal-origin` equals that origin. The projection
+contract is unchanged — one atomic snapshot per route, `x-bullet-as-of-sequence`
+cross-checked against the body, one shared watermark per composed view — and so
+is authority: same-origin does not relax the one-time bootstrap exchange, the
+HttpOnly `SameSite=Strict` session cookie, the session-bound `X-Bullet-CSRF`
+header, or farmd's exact-`Origin` refusal (`ORIGIN_REQUIRED`/`ORIGIN_DENIED`).
+`VITE_BULLET_API` stays unset there too: the built bundle uses relative paths,
+which are same-origin by construction.
 
 ## Parity checks
 

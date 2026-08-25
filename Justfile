@@ -22,3 +22,8 @@ audit:
 
 nightly:
     bash scripts/ci-local.sh nightly
+
+# Browser proof against a packaged farmd that serves this Portal itself.
+# Neutral 78 without the sibling bullet-kernel checkout.
+packaged-farmd:
+    bash scripts/ci-local.sh packaged-farmd

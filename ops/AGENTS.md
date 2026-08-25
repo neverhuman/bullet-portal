@@ -17,9 +17,17 @@ does not run.
 | security | `ops/ci/security.sh` | `gitleaks detect --no-git --redact`, `npm audit --omit=dev` | `gitleaks` (hosted: 8.21.2, sha256-pinned download), `package-lock.json` present |
 | audit | `ops/ci/audit.sh` | `jankurai audit --fail-under $AUDIT_FLOOR --fail-on critical`, artifacts in `.jankurai/` | `jankurai`; local/release only, not in `ci.yml` |
 | nightly | `ops/ci/nightly.sh` | `ops/ci/real-farmd.sh` again | same as real-farmd; no hosted schedule |
+| packaged-farmd | `ops/ci/packaged-farmd.sh` | `npm run build`; `npm run bundle:generate` + `bundle:check` (both refuse `DIRTY_SOURCE`); `cargo build --locked -p bullet-farmd --features embedded-portal` with `BULLET_PORTAL_DIST=$REPO_ROOT/dist` in the sibling `../bullet-kernel`; starts that farmd on `127.0.0.1:7421` (`BULLET_PACKAGED_PORT` overrides) with `--portal-origin http://127.0.0.1:7421` and a `umask 077` worker-token file; requires `/health` to carry the exact manifest root and `/` to serve the entry point; runs `e2e/real-farmd.spec.ts` through `playwright.packaged.config.ts` with **no** web server of its own | sibling `bullet-kernel` checkout, Rust toolchain, `curl`, `node`, Chromium; port 7421 free; a **clean** Portal source tree, because the bundle manifest binds an exact commit |
 
 ## Rules
 
+- The packaged-farmd lane has exactly one neutral outcome: an absent sibling
+  `bullet-kernel` checkout exits 78 without running anything. It is additive —
+  `required` still fails closed through `ops/ci/real-farmd.sh` — so a neutral
+  packaged lane never turns a missing real-process proof green. Every other
+  packaged failure (dirty source, manifest drift, a `/health` that does not
+  name this exact bundle root, a missing entry point, a bad bootstrap token) is
+  fatal.
 - Never skip-green. A missing tool (`require_tool` in `ops/ci/lib.sh`), a
   missing sibling Kernel, a farmd that never answers `/health`, a bootstrap
   token that does not match `^boot_[0-9a-f]{64}$`, or a missing audit artifact
