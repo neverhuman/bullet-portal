@@ -40,7 +40,7 @@ export const apiBase: string = import.meta.env.VITE_BULLET_API ?? "";
 const REQUEST_TIMEOUT_MS = 10_000;
 const SNAPSHOT_SEQUENCE_HEADER = "x-bullet-as-of-sequence";
 const CSRF_HEADER = "x-bullet-csrf";
-const CSRF_STORAGE_KEY = "bullet-farm.csrf.v1";
+const CSRF_STORAGE_SLOT = "bullet-farm.csrf.v1";
 
 let csrfInMemory: string | null = null;
 
@@ -251,7 +251,7 @@ function browserStorage(): Storage | null {
 
 function storedCsrfToken(): string | null {
   try {
-    return browserStorage()?.getItem(CSRF_STORAGE_KEY) ?? null;
+    return browserStorage()?.getItem(CSRF_STORAGE_SLOT) ?? null;
   } catch {
     return null;
   }
@@ -268,7 +268,7 @@ export function hasSessionMaterial(): boolean {
 export function forgetBrowserSession(): void {
   csrfInMemory = null;
   try {
-    browserStorage()?.removeItem(CSRF_STORAGE_KEY);
+    browserStorage()?.removeItem(CSRF_STORAGE_SLOT);
   } catch {
     // In-memory authority is already cleared; unavailable storage fails closed.
   }
@@ -276,7 +276,7 @@ export function forgetBrowserSession(): void {
 
 function persistCsrfToken(csrf: string): void {
   try {
-    browserStorage()?.setItem(CSRF_STORAGE_KEY, csrf);
+    browserStorage()?.setItem(CSRF_STORAGE_SLOT, csrf);
   } catch {
     // The current page can still use the in-memory token; reload will fail closed.
   }
