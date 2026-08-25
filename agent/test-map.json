@@ -17,6 +17,14 @@
       "command": "bash scripts/ci-local.sh required",
       "purpose": "prove hosted lanes match local scripts"
     },
+    "ci.toml": {
+      "command": "bash scripts/ci-local.sh docs",
+      "purpose": "prove prepared Jeryu jobs preserve the local lane boundary and remain activation-blocked"
+    },
+    "docs/": {
+      "command": "bash scripts/ci-local.sh docs",
+      "purpose": "validate local links and CI truth claims"
+    },
     "README.md": {
       "command": "bash scripts/ci-local.sh fast",
       "purpose": "documentation; the fast lane proves the commands it names"
@@ -36,6 +44,10 @@
     ".gitignore": {
       "command": "bash scripts/ci-local.sh fast",
       "purpose": "ignore rules; the fast lane proves the tree still builds"
+    },
+    ".gitleaksignore": {
+      "command": "bash scripts/ci-local.sh scheduled-hygiene",
+      "purpose": "prove the exact historical false-positive fingerprint while the current-tree scan and secret canary remain load-bearing"
     },
     "LICENSE": {
       "command": "test -s LICENSE",

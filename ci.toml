@@ -1,0 +1,52 @@
+# Prepared forge-neutral jobs. `native-node-clean` is intentionally not an
+# activated Bullet runner profile yet, and the first command is a fail-closed
+# gate. Ratification must provision exact Node/npm, immutable repository OIDs,
+# and required-context API read-back before removing that gate.
+
+[[job]]
+id = "fast"
+name = "prepared fast"
+runner_class = "native-node-clean"
+run = ["bash ops/ci/jeryu-activation-gate.sh", "bash scripts/ci-local.sh fast"]
+artifact_paths = [".ci-artifacts"]
+timeout_seconds = 900
+
+[[job]]
+id = "lint"
+name = "prepared lint"
+runner_class = "native-node-clean"
+run = ["bash ops/ci/jeryu-activation-gate.sh", "bash scripts/ci-local.sh lint"]
+artifact_paths = [".ci-artifacts"]
+timeout_seconds = 600
+
+[[job]]
+id = "contract"
+name = "prepared contract"
+runner_class = "native-node-clean"
+run = ["bash ops/ci/jeryu-activation-gate.sh", "bash scripts/ci-local.sh contract"]
+artifact_paths = [".ci-artifacts"]
+timeout_seconds = 1200
+
+[[job]]
+id = "security"
+name = "prepared security"
+runner_class = "native-node-clean"
+run = ["bash ops/ci/jeryu-activation-gate.sh", "bash scripts/ci-local.sh security"]
+artifact_paths = [".ci-artifacts"]
+timeout_seconds = 900
+
+[[job]]
+id = "docs"
+name = "prepared docs"
+runner_class = "native-node-clean"
+run = ["bash ops/ci/jeryu-activation-gate.sh", "bash scripts/ci-local.sh docs"]
+artifact_paths = [".ci-artifacts"]
+timeout_seconds = 600
+
+[[job]]
+id = "required"
+name = "prepared CI / required"
+runner_class = "native-node-clean"
+needs = ["fast", "lint", "contract", "security", "docs"]
+run = ["bash ops/ci/jeryu-activation-gate.sh", "node ops/ci/aggregate.mjs --jeryu"]
+timeout_seconds = 300

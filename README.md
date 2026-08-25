@@ -85,8 +85,8 @@ field naming the embedded bundle root (absent when no Portal is embedded).
 it builds `dist`, binds the manifest, builds that farmd from the sibling
 Kernel, checks `/health` names this exact bundle root, and runs
 `e2e/real-farmd.spec.ts` against the daemon's own origin through
-`playwright.packaged.config.ts`. The lane is additive to `required`, which
-still proves the proxied `ops/ci/real-farmd.sh` path unchanged.
+`playwright.packaged.config.ts`. It is a family/release proof and is not part of
+standalone `required`.
 
 ## Lanes
 
@@ -97,20 +97,22 @@ which runs `ops/ci/<lane>.sh`; the rules for editing those scripts are in
 
 | Lane | Command | Contents |
 | --- | --- | --- |
-| fast | `just fast` | `ops/ci/fast.sh`: `tsc --noEmit`, `npm test` (vitest unit + component, jsdom), `npm run build` |
-| contract | `just contract` | `ops/ci/contract.sh`: Playwright (`playwright.config.ts`, Vite dev server) against mocked projection/SSE routes — `e2e/control-tower.spec.ts` (6 tests) and `e2e/fleet.spec.ts` (4 tests); `real-farmd.spec.ts` is excluded; command mutation mocks stay in component tests |
-| real-farmd | `bash ops/ci/real-farmd.sh` | builds `dist`; requires the sibling `../bullet-kernel` checkout and runs `cargo build --locked -p bullet-farmd` there; starts that farmd on `127.0.0.1:7420` with a worker-token file, reads its one-time bootstrap from the log without printing it, serves `dist` through `npm run preview`, and runs `e2e/real-farmd.spec.ts` (2 tests, `playwright.real.config.ts`): command `PENDING` → worker reconcile → `UNKNOWN` never green, and six list projections answering from one shared watermark with empty Fleet and Context Lineage rendered as zero rows, not green |
-| required | `just check` | `ops/ci/required.sh`: fast, then `npm run bundle:typecheck` and `npm run bundle:test`, then contract, then real-farmd, then `npm run bundle:generate` and `npm run bundle:check`; a missing sibling Kernel fails closed |
-| security | `just security` | gitleaks (no-git) plus `npm audit --omit=dev`; a missing tool fails |
+| fast | `just fast` | Vitest unit/component tests with a nonzero/all-pass report, then the typed production build |
+| lint | `just lint` | actionlint 1.7.8, ShellCheck 0.10.0, and whitespace checks |
+| contract | `just contract` | bundle generator type/tests plus 10 mocked Playwright projection/SSE tests; `real-farmd.spec.ts` is excluded and a nonzero/all-pass JUnit report is required |
+| security | `just security` | gitleaks 8.21.2 current-tree scan and must-fail canary, the full npm audit, and zizmor 1.25.2 |
+| docs | `just docs` | relative links, workflow structure, test-partition inventory, and negative aggregator meta-tests |
+| required | `just check` | fast → lint → contract → security → docs, sequentially and exactly once; no sibling repository |
+| family | `just family` | explicit Linux-only real-farmd browser proof against the sibling Kernel; missing provisioning fails closed |
 | audit | `bash ops/ci/audit.sh` | Jankurai audit against the committed ratchet floor (`AUDIT_FLOOR=59`, may only rise); artifacts under `.jankurai/` |
-| nightly | `bash ops/ci/nightly.sh` | runs `ops/ci/real-farmd.sh` again outside required; fails closed without the sibling Kernel; no hosted schedule is registered |
+| nightly | `bash ops/ci/nightly.sh` | compatibility alias for the explicit family lane |
 | packaged-farmd | `just packaged-farmd` | `ops/ci/packaged-farmd.sh`: builds `dist`, runs `npm run bundle:generate`/`bundle:check` (refuses on a dirty source tree), builds the sibling Kernel's `bullet-farmd` with `--features embedded-portal` and `BULLET_PORTAL_DIST=$PWD/dist`, starts it on `127.0.0.1:7421` with `--portal-origin http://127.0.0.1:7421`, requires `/health` to name that exact bundle root and `/` to serve the entry point, then runs `e2e/real-farmd.spec.ts` (2 tests, `playwright.packaged.config.ts`) against the daemon's own origin with no preview server. Exits neutral 78 only when the sibling Kernel checkout is absent; every other failure is fatal |
 
-`.github/workflows/ci.yml` runs the fast, required, contract, and security
-scripts unchanged on Node 22 with Playwright Chromium (`--with-deps`) and a
-checksum-pinned gitleaks 8.21.2; audit and nightly are local-only lanes. Local
-runners must provide `gitleaks` and `jankurai` themselves. Required and
-nightly additionally need the exact sibling family checkout, a Rust
-toolchain, and Chromium. Standalone hosted provisioning of that pinned Kernel
-subject is not registered, so hosted required is not release evidence and
-fails closed rather than substituting mocks.
+The prepared mirror workflow runs the five atomic jobs in parallel on
+`ubuntu-24.04` and converges them at the exact `CI / required` context with an
+`if: always()` fail-closed aggregator. It uses Node 22.23.2, npm 10.9.8,
+secretless checkouts, full-SHA action pins, no caches, and
+`npm ci --ignore-scripts`; Playwright's browser install is separate. Scheduled
+definitions add history/link/audit/coverage and macOS/Windows typed-refusal
+proofs. No hosted run or protection read-back exists yet, so these definitions
+are diagnostics, not release evidence. See [`docs/ci.md`](docs/ci.md).

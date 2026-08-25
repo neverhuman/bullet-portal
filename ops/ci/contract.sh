@@ -3,6 +3,15 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 cd "$REPO_ROOT"
-log "contract lane: playwright against mocked API"
-./node_modules/.bin/playwright test
+require_node_floor
+reports="$(artifact_dir reports)"
+playwright_output="$(artifact_dir playwright)"
+log "contract lane: bundle contracts + mocked Playwright"
+npm run bundle:typecheck
+npm run bundle:test
+PLAYWRIGHT_JUNIT_OUTPUT_NAME="$reports/playwright.xml" \
+PLAYWRIGHT_JUNIT_STRIP_ANSI=1 \
+  ./node_modules/.bin/playwright test --reporter=line,junit \
+    --output "$playwright_output" --trace retain-on-failure
+node ops/ci/assert-report.mjs junit "$reports/playwright.xml" 10
 log "contract lane passed"

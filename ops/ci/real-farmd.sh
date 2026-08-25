@@ -56,7 +56,11 @@ if [[ ! "$bootstrap_token" =~ ^boot_[0-9a-f]{64}$ ]]; then
 fi
 
 cd "$REPO_ROOT"
+reports="$(artifact_dir reports)"
 BULLET_FARMD_URL=http://127.0.0.1:7420 \
   BULLET_BOOTSTRAP_TOKEN="$bootstrap_token" \
   BULLET_WORKER_TOKEN="$worker_token" \
-  ./node_modules/.bin/playwright test --config playwright.real.config.ts
+  PLAYWRIGHT_JUNIT_OUTPUT_NAME="$reports/real-farmd.xml" \
+  PLAYWRIGHT_JUNIT_STRIP_ANSI=1 \
+  ./node_modules/.bin/playwright test --config playwright.real.config.ts --reporter=line,junit
+node ops/ci/assert-report.mjs junit "$reports/real-farmd.xml" 2

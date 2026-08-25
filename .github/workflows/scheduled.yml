@@ -1,0 +1,164 @@
+name: Scheduled diagnostics
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  hygiene:
+    name: Scheduled / history-links-audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.23.2"
+      - name: Scan source and lockfiles before installation
+        run: node ops/ci/preinstall-scan.mjs
+      - name: Install gitleaks 8.21.2 from checksum-pinned archive
+        run: bash ops/ci/install-gitleaks.sh
+      - name: Pin npm
+        run: |
+          npm install --global npm@10.9.8 --ignore-scripts --no-audit --no-fund
+          test "$(npm --version)" = "10.9.8"
+      - name: Full-history, link, and dependency hygiene
+        id: lane
+        run: |
+          set +e
+          bash scripts/ci-local.sh scheduled-hygiene
+          status=$?
+          printf 'exit_code=%s\n' "$status" >>"$GITHUB_OUTPUT"
+          exit "$status"
+      - name: Emit unsigned observation
+        if: ${{ always() }}
+        env:
+          LANE_OUTCOME: ${{ steps.lane.outcome }}
+          LANE_EXIT_CODE: ${{ steps.lane.outputs.exit_code }}
+        run: bash scripts/ci-observation.sh scheduled-hygiene "$LANE_OUTCOME" "${LANE_EXIT_CODE:-1}"
+      - name: Sanitize diagnostics
+        id: sanitize
+        if: ${{ always() }}
+        run: node ops/ci/sanitize-artifacts.mjs
+      - name: Upload sanitized diagnostics
+        if: ${{ always() && steps.sanitize.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: portal-${{ github.run_id }}-scheduled-hygiene
+          path: .ci-artifacts
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  coverage:
+    name: Scheduled / coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.23.2"
+      - name: Scan source and lockfiles before installation
+        run: node ops/ci/preinstall-scan.mjs
+      - name: Pin npm
+        run: |
+          npm install --global npm@10.9.8 --ignore-scripts --no-audit --no-fund
+          test "$(npm --version)" = "10.9.8"
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Coverage lane
+        id: lane
+        run: |
+          set +e
+          bash scripts/ci-local.sh coverage
+          status=$?
+          printf 'exit_code=%s\n' "$status" >>"$GITHUB_OUTPUT"
+          exit "$status"
+      - name: Emit unsigned observation
+        if: ${{ always() }}
+        env:
+          LANE_OUTCOME: ${{ steps.lane.outcome }}
+          LANE_EXIT_CODE: ${{ steps.lane.outputs.exit_code }}
+        run: bash scripts/ci-observation.sh coverage "$LANE_OUTCOME" "${LANE_EXIT_CODE:-1}"
+      - name: Sanitize diagnostics
+        id: sanitize
+        if: ${{ always() }}
+        run: node ops/ci/sanitize-artifacts.mjs
+      - name: Upload sanitized diagnostics
+        if: ${{ always() && steps.sanitize.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: portal-${{ github.run_id }}-coverage
+          path: .ci-artifacts
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  portable:
+    name: Scheduled / portable-${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.23.2"
+      - name: Scan source and lockfiles before installation
+        run: node ops/ci/preinstall-scan.mjs
+      - name: Pin npm
+        run: |
+          npm install --global npm@10.9.8 --ignore-scripts --no-audit --no-fund
+          test "$(npm --version)" = "10.9.8"
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Compile, test, and prove typed mutation refusal
+        id: lane
+        run: |
+          set +e
+          bash scripts/ci-local.sh portable
+          status=$?
+          printf 'exit_code=%s\n' "$status" >>"$GITHUB_OUTPUT"
+          exit "$status"
+      - name: Emit unsigned observation
+        if: ${{ always() }}
+        env:
+          LANE_OUTCOME: ${{ steps.lane.outcome }}
+          LANE_EXIT_CODE: ${{ steps.lane.outputs.exit_code }}
+        run: bash scripts/ci-observation.sh portable "$LANE_OUTCOME" "${LANE_EXIT_CODE:-1}"
+      - name: Sanitize diagnostics
+        id: sanitize
+        if: ${{ always() }}
+        run: node ops/ci/sanitize-artifacts.mjs
+      - name: Upload sanitized diagnostics
+        if: ${{ always() && steps.sanitize.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: portal-${{ github.run_id }}-${{ matrix.os }}
+          path: .ci-artifacts
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14

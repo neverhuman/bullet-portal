@@ -1,56 +1,63 @@
 # bullet-portal operations
 
-CI entrypoints live in `ops/ci/<lane>.sh`. They are exposed only through
-`bash scripts/ci-local.sh <lane>` and the matching `just` recipe, and
-`.github/workflows/ci.yml` calls the same scripts. Change a lane by changing
-its script; never add logic to the workflow or the Justfile that the script
-does not run.
+CI entrypoints live in `ops/ci/<lane>.sh`. They are exposed through
+`bash scripts/ci-local.sh <lane>` and matching `just` recipes. Hosted
+definitions call those same entrypoints; workflows may provision pinned tools,
+emit observations, sanitize artifacts, and converge outcomes, but may not
+reimplement a lane.
 
-## Lanes
+## Standalone lanes
 
-| Lane | Script | Runs | Prerequisites |
-| --- | --- | --- | --- |
-| fast | `ops/ci/fast.sh` | `tsc --noEmit`, `npm test` (vitest, jsdom), `npm run build` | Node 22 (hosted pin), `npm ci` |
-| contract | `ops/ci/contract.sh` | `playwright test` with `playwright.config.ts`: `e2e/` minus `real-farmd.spec.ts`, mocked routes, Vite dev server on `127.0.0.1:5173` (`reuseExistingServer: true`) | Playwright Chromium (`just setup`; hosted `playwright install --with-deps chromium`) |
-| real-farmd | `ops/ci/real-farmd.sh` | `npm run build`; `cargo build --locked -p bullet-farmd` in the sibling `../bullet-kernel`; starts `target/debug/bullet-farmd` on `127.0.0.1:7420` with `--portal-origin http://127.0.0.1:5173` and a `umask 077` worker-token file in a temp dir; waits for `/health`; extracts the one-time `boot_…` token from farmd's log; `npm run preview` on `127.0.0.1:5173 --strictPort` (`playwright.real.config.ts`, `reuseExistingServer: false`); `e2e/real-farmd.spec.ts` | sibling `bullet-kernel` checkout containing `Cargo.toml`, Rust toolchain, `curl`, Chromium; ports 7420 and 5173 free |
-| required | `ops/ci/required.sh` | fast → `npm run bundle:typecheck` → `npm run bundle:test` → contract → real-farmd → `npm run bundle:generate` → `npm run bundle:check` | everything above |
-| security | `ops/ci/security.sh` | `gitleaks detect --no-git --redact`, `npm audit --omit=dev` | `gitleaks` (hosted: 8.21.2, sha256-pinned download), `package-lock.json` present |
-| audit | `ops/ci/audit.sh` | `jankurai audit --fail-under $AUDIT_FLOOR --fail-on critical`, artifacts in `.jankurai/` | `jankurai`; local/release only, not in `ci.yml` |
-| nightly | `ops/ci/nightly.sh` | `ops/ci/real-farmd.sh` again | same as real-farmd; no hosted schedule |
-| packaged-farmd | `ops/ci/packaged-farmd.sh` | `npm run build`; `npm run bundle:generate` + `bundle:check` (both refuse `DIRTY_SOURCE`); `cargo build --locked -p bullet-farmd --features embedded-portal` with `BULLET_PORTAL_DIST=$REPO_ROOT/dist` in the sibling `../bullet-kernel`; starts that farmd on `127.0.0.1:7421` (`BULLET_PACKAGED_PORT` overrides) with `--portal-origin http://127.0.0.1:7421` and a `umask 077` worker-token file; requires `/health` to carry the exact manifest root and `/` to serve the entry point; runs `e2e/real-farmd.spec.ts` through `playwright.packaged.config.ts` with **no** web server of its own | sibling `bullet-kernel` checkout, Rust toolchain, `curl`, `node`, Chromium; port 7421 free; a **clean** Portal source tree, because the bundle manifest binds an exact commit |
+| Lane | Contents | Required tools |
+| --- | --- | --- |
+| fast | Vitest JSON report with nonzero/all-pass guard; typed Vite production build | Node >=22, npm >=10, locked dependencies |
+| lint | actionlint, ShellCheck, whitespace | actionlint 1.7.8, ShellCheck 0.10.0 |
+| contract | bundle type/tests; mocked Playwright; nonzero/all-pass JUnit guard | locked dependencies, Chromium |
+| security | current-tree gitleaks, must-fail disposable canary, full npm audit, zizmor | gitleaks 8.21.2, zizmor 1.25.2, npm |
+| docs | relative-link checker, workflow/config meta-tests, negative aggregator fixtures | Node >=22 |
+| required | fast → lint → contract → security → docs exactly once | all of the above |
 
-## Rules
+`required` is genuinely standalone. It must never resolve `../bullet-kernel`,
+run `real-farmd.sh`, or generate a clean-source release bundle manifest.
 
-- The packaged-farmd lane has exactly one neutral outcome: an absent sibling
-  `bullet-kernel` checkout exits 78 without running anything. It is additive —
-  `required` still fails closed through `ops/ci/real-farmd.sh` — so a neutral
-  packaged lane never turns a missing real-process proof green. Every other
-  packaged failure (dirty source, manifest drift, a `/health` that does not
-  name this exact bundle root, a missing entry point, a bad bootstrap token) is
-  fatal.
-- Never skip-green. A missing tool (`require_tool` in `ops/ci/lib.sh`), a
-  missing sibling Kernel, a farmd that never answers `/health`, a bootstrap
-  token that does not match `^boot_[0-9a-f]{64}$`, or a missing audit artifact
-  exits non-zero. Do not add `|| true`, `continue-on-error`, mock fallbacks, or
-  environment switches that let a real-process lane report success without
-  running the real process.
-- Generated files are never hand-edited: `src/generated/` (kernel and hub
-  contract copies, `agent/generated-zones.toml`), `dist/` (build output), and
-  the bundle manifest `.bullet-portal-bundle-v1.json` (`npm run
-  bundle:generate`; `npm run bundle:check` refuses drift). `.jankurai/` files
-  are lane outputs.
-- `AUDIT_FLOOR` in `ops/ci/audit.sh` is a ratchet: it may only rise.
-- Secrets in the real-farmd lane: the bootstrap token is read from farmd's log
-  into an environment variable and never printed; the worker token is a fixed
-  test value written to a mode-0600 file in a `mktemp -d` directory; farmd is
-  killed and the directory removed by the `EXIT` trap. Never log either token,
-  never reuse an already running farmd, never point the browser at `:7420`
-  directly (same-origin proxy only).
-- Hosted `ci.yml`: every third-party action is pinned to a full commit SHA,
-  `persist-credentials: false`, `permissions: contents: read`. Keep it thin;
-  it must run exactly the scripts here.
-- No worktrees, no commits, no forge mutation, and no Jeryu access from any
-  lane. Lanes read the canonical checkout and the sibling Kernel checkout only.
-- Tool pins to keep in step: Node 22 (`ci.yml`), `@playwright/test` and
-  Chromium from `package-lock.json`, gitleaks 8.21.2 (`ci.yml` sha256),
-  `jankurai` for the audit lane.
+## Family and scheduled lanes
+
+`family` is the explicit Linux-only real-farmd browser proof. It fails closed
+when the sibling Kernel is absent. `packaged-farmd` remains the clean-source
+embedded-bundle proof; its sole neutral 78 is an absent sibling checkout.
+`nightly` is a compatibility alias for `family`.
+
+`coverage`, `scheduled-hygiene`, and `portable` are scheduled diagnostics.
+Portable macOS/Windows runs compile and test the Portal and must validate the
+typed `PORTAL_PROJECTION_ONLY` mutation refusal. Linux is the only platform on
+which a family mutation-capable proof may run.
+
+## Hosted controls
+
+- Mirror CI is secretless: `contents: read`, checkout
+  `persist-credentials: false`, no `pull_request_target`, and no cache.
+- Required triggers have no path filters and include `pull_request`, `push`,
+  and `merge_group`. Only pull requests are cancelled when superseded.
+- Use `ubuntu-24.04`, Node 22.23.2, npm 10.9.8, and full action SHAs.
+- Run `ops/ci/preinstall-scan.mjs` before dependency or tool installation.
+  Use `npm ci --ignore-scripts`; install Playwright browsers in a separate,
+  named lifecycle step.
+- The exact `CI / required` aggregator uses `if: always()` and rejects every
+  failed, skipped, cancelled, missing, zero-test, or observation-less partition.
+- Observations conform to `bullet.ci-observation.v1`, remain unsigned
+  `DIAGNOSTIC_ONLY`, and contain no timestamps or logs. Sanitize before upload;
+  never upload bootstrap/worker tokens or raw credential-bearing traces.
+- `ci.toml` is prepared but not active. Its gate must remain a typed
+  `JERYU_CI_ACTIVATION_BLOCKED` refusal until runner, immutable-subject, and
+  required-context read-back are ratified.
+
+## Boundary rules
+
+- Generated files are never hand-edited: `src/generated/`, `dist/`, and
+  `.bullet-portal-bundle-v1.json`.
+- No workflow or standalone lane gains authority. The browser remains a
+  projection and UNKNOWN remains unknown.
+- Only `real-farmd.sh` and `packaged-farmd.sh` may resolve the sibling Kernel.
+  They must clean child processes and temporary credential files on every exit.
+- No worktrees, commits, remotes, releases, rulesets, runner activation, or
+  external publication from these scripts.

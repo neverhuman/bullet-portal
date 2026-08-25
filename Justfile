@@ -2,7 +2,7 @@ default:
     @just --list
 
 setup:
-    npm ci --no-fund --no-audit
+    npm ci --ignore-scripts --no-fund --no-audit
     ./node_modules/.bin/playwright install chromium
 
 fast:
@@ -14,6 +14,12 @@ check:
 contract:
     bash scripts/ci-local.sh contract
 
+lint:
+    bash scripts/ci-local.sh lint
+
+docs:
+    bash scripts/ci-local.sh docs
+
 security:
     bash scripts/ci-local.sh security
 
@@ -22,6 +28,10 @@ audit:
 
 nightly:
     bash scripts/ci-local.sh nightly
+
+# Real sibling-farmd proof. Never part of standalone required.
+family:
+    bash scripts/ci-local.sh family
 
 # Browser proof against a packaged farmd that serves this Portal itself.
 # Neutral 78 without the sibling bullet-kernel checkout.

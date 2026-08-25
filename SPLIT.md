@@ -38,9 +38,10 @@ no authority.
   `api.ts` is copied verbatim from `bullet-kernel/contracts/generated/api.ts`
   and `schemaBundle.ts` from the hub through `scripts/sync-family-contracts.sh`.
   Never hand-edit; regenerate from the source contract.
-- Committed files must not depend on sibling checkout paths. Only
-  `ops/ci/real-farmd.sh` resolves the sibling `../bullet-kernel` at run time,
-  and it fails closed when that checkout is absent.
+- Committed files must not depend on sibling checkout paths. Only the explicit
+  family proofs `ops/ci/real-farmd.sh` and `ops/ci/packaged-farmd.sh` resolve
+  sibling `../bullet-kernel` at run time; both fail closed on proof failures.
+  Standalone `required` never resolves a sibling.
 - Browser requests stay same-origin through the Vite proxy; `VITE_BULLET_API`
   stays unset in development and proof lanes.
 - Release builds depend on immutable tags, not branches. The bundle manifest is
@@ -52,3 +53,6 @@ no authority.
 ```bash
 bash scripts/ci-local.sh required
 ```
+
+This is the standalone five-lane check. The connected browser proof is
+`bash scripts/ci-local.sh family` and requires explicit family provisioning.
