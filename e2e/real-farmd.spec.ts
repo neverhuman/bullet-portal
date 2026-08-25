@@ -83,7 +83,14 @@ test.describe("real farmd command authority", () => {
   });
 
   test("projection routes answer from one atomic read and the browser renders zero rows as verified, not green", async ({ page }) => {
-    const routes = ["/v1/fleet", "/v1/sessions", "/v1/merge-rail", "/v1/quality-lab", "/v1/audit"];
+    const routes = [
+      "/v1/fleet",
+      "/v1/sessions",
+      "/v1/context-lineage",
+      "/v1/merge-rail",
+      "/v1/quality-lab",
+      "/v1/audit",
+    ];
     const watermarks: number[] = [];
     for (const route of routes) {
       const response = await fetch(`${farmd}${route}`);
@@ -109,6 +116,19 @@ test.describe("real farmd command authority", () => {
     await expect(page.getByTestId("fleet-tagline")).toContainText("source bullet-kernel/sqlite-ledger");
     await expect(page.getByTestId("fleet-tagline")).toContainText("projection published");
     await expect(page.getByTestId("surface-fleet").locator(".verified")).toHaveCount(0);
+
+    await page.goto("/#/context-lineage");
+    await expect(page.getByRole("heading", { name: "Context Lineage" })).toBeVisible();
+    await expect(page.getByTestId("context-lineage-capsules-empty")).toContainText(
+      /context capsules: 0 rows \(verified at sequence \d+\)/,
+    );
+    await expect(page.getByTestId("context-lineage-summary")).toContainText(
+      "raw objective and package title unavailable (digests only)",
+    );
+    await expect(page.getByTestId("context-lineage-summary")).toContainText(
+      "no successor lineage claimed",
+    );
+    await expect(page.getByTestId("surface-context-lineage").locator(".verified")).toHaveCount(0);
 
     await page.goto("/#/incidents-audit");
     await expect(page.getByTestId("incidents-audit-summary")).toContainText(

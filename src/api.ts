@@ -3,6 +3,7 @@ import type {
   BootstrapResponse,
   CommandEnvelope,
   CommandStatus,
+  ContextLineageView,
   FleetView,
   Health,
   MergeRailView,
@@ -18,6 +19,7 @@ import {
   isAuditView,
   isBootstrapResponse,
   isCommandStatus,
+  isContextLineageView,
   isFleetView,
   isHealth,
   isMergeRailView,
@@ -378,6 +380,10 @@ export function fetchFleet(): Promise<SnapshotRead<FleetView>> {
 
 export function fetchSessions(): Promise<SnapshotRead<SessionSupervisorView>> {
   return readSnapshot("/v1/sessions", isSessionSupervisorView);
+}
+
+export function fetchContextLineage(): Promise<SnapshotRead<ContextLineageView>> {
+  return readSnapshot("/v1/context-lineage", isContextLineageView);
 }
 
 export function fetchMergeRail(): Promise<SnapshotRead<MergeRailView>> {

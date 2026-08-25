@@ -8,11 +8,11 @@ Applies to: bullet-portal
 ## Role
 
 Vite + React operations portal. Fifteen hash-routed spec §25 surfaces
-(`src/surfaces.ts`): eight read farmd through the projection contract in
+(`src/surfaces.ts`): nine read farmd through the projection contract in
 `docs/projections.md` — one atomic ledger snapshot
 `{data, as_of_sequence, observed_at, source}` per route, cross-checked against
 the `x-bullet-as-of-sequence` header, one shared watermark per composed view —
-and seven render explicit UNKNOWN naming their missing ledger subject. Pending
+and six render explicit UNKNOWN naming their missing ledger subject. Pending
 versus verified mutations through the session-bound `POST /v1/commands` path;
 only durable `VERIFIED` is green. The exact built-`dist` bundle-manifest
 subject (`ops/build/`, `.bullet-portal-bundle-v1.json`, framed BLAKE3 root)

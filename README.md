@@ -6,17 +6,20 @@ as unknown, never as healthy and never as an authoritative empty list. Agents st
 [`AGENTS.md`](AGENTS.md).
 
 Control Tower snapshot/SSE recovery, authenticated command submission, and
-navigation are tested in unit and browser lanes. Eight of the fifteen spec §25
+navigation are tested in unit and browser lanes. Nine of the fifteen spec §25
 surfaces read farmd through the atomic snapshot contract in
 [`docs/projections.md`](docs/projections.md): Control Tower (`/v1/missions`,
 `/v1/outbox`, `/health`, `/v1/events`), Mission Graph and Live Attempt
 (`/v1/missions`, `/v1/missions/{id}`, and for Live Attempt `/v1/ready`),
-Fleet (`/v1/fleet`), Session Supervisor (`/v1/sessions`), Merge Rail
-(`/v1/merge-rail`), Quality Lab (`/v1/quality-lab`), and Incidents & Audit
+Fleet (`/v1/fleet`), Session Supervisor (`/v1/sessions`), Context Lineage
+(`/v1/context-lineage`), Merge Rail (`/v1/merge-rail`), Quality Lab
+(`/v1/quality-lab`), and Incidents & Audit
 (`/v1/audit`, `/v1/outbox`). Composed reads refuse to render when their
-watermarks disagree. The other seven surfaces — Cognitive Router, Fusion Lab,
-Context Lineage, Quota and Capacity, Struggle and Escalation, Behavior Center,
-and Workspace and Git Hygiene — have no farmd projection and render explicitly
+watermarks disagree. Context Lineage publishes only immutable revision-one
+capsule subjects and digests; it does not expose raw objective/title or claim
+successor/compression lineage. The other six surfaces — Cognitive Router,
+Fusion Lab, Quota and Capacity, Struggle and Escalation, Behavior Center, and
+Workspace and Git Hygiene — have no farmd projection and render explicitly
 UNKNOWN with the missing ledger subject named (`src/surfaces.ts`). The portal
 has no signed runner authority, forge, holdout, integration, or command-worker
 path, and it does not establish a five-plane transaction or
@@ -74,7 +77,7 @@ which runs `ops/ci/<lane>.sh`; the rules for editing those scripts are in
 | --- | --- | --- |
 | fast | `just fast` | `ops/ci/fast.sh`: `tsc --noEmit`, `npm test` (vitest unit + component, jsdom), `npm run build` |
 | contract | `just contract` | `ops/ci/contract.sh`: Playwright (`playwright.config.ts`, Vite dev server) against mocked projection/SSE routes — `e2e/control-tower.spec.ts` (6 tests) and `e2e/fleet.spec.ts` (4 tests); `real-farmd.spec.ts` is excluded; command mutation mocks stay in component tests |
-| real-farmd | `bash ops/ci/real-farmd.sh` | builds `dist`; requires the sibling `../bullet-kernel` checkout and runs `cargo build --locked -p bullet-farmd` there; starts that farmd on `127.0.0.1:7420` with a worker-token file, reads its one-time bootstrap from the log without printing it, serves `dist` through `npm run preview`, and runs `e2e/real-farmd.spec.ts` (2 tests, `playwright.real.config.ts`): command `PENDING` → worker reconcile → `UNKNOWN` never green, and the five list projections answering from one shared watermark with an empty Fleet rendered as zero rows, not green |
+| real-farmd | `bash ops/ci/real-farmd.sh` | builds `dist`; requires the sibling `../bullet-kernel` checkout and runs `cargo build --locked -p bullet-farmd` there; starts that farmd on `127.0.0.1:7420` with a worker-token file, reads its one-time bootstrap from the log without printing it, serves `dist` through `npm run preview`, and runs `e2e/real-farmd.spec.ts` (2 tests, `playwright.real.config.ts`): command `PENDING` → worker reconcile → `UNKNOWN` never green, and six list projections answering from one shared watermark with empty Fleet and Context Lineage rendered as zero rows, not green |
 | required | `just check` | `ops/ci/required.sh`: fast, then `npm run bundle:typecheck` and `npm run bundle:test`, then contract, then real-farmd, then `npm run bundle:generate` and `npm run bundle:check`; a missing sibling Kernel fails closed |
 | security | `just security` | gitleaks (no-git) plus `npm audit --omit=dev`; a missing tool fails |
 | audit | `bash ops/ci/audit.sh` | Jankurai audit against the committed ratchet floor (`AUDIT_FLOOR=59`, may only rise); artifacts under `.jankurai/` |

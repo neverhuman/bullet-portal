@@ -85,11 +85,7 @@ export const SURFACES: Surface[] = [
     id: "context-lineage",
     spec: "25.8",
     title: "Context Lineage",
-    answers: "capsule as-of, compression, dropped decisions",
-    unknownReason:
-      `${NO_LEDGER_SUBJECT}: context capsules and lineage nodes/edges are not persisted rows ` +
-      "(attempt rows carry only a context_revision counter); produced by V1-S6 item 1 (persist " +
-      "context capsules)",
+    answers: "immutable revision-one capsule subjects, plan/package binding, content digests",
   },
   {
     id: "quota-capacity",

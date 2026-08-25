@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   auditTailIsCoherent,
   isAuditView,
+  isContextLineageView,
   isFleetView,
   isMergeRailView,
   isQualityLabView,
@@ -13,6 +14,25 @@ function id(prefix: string, digit: string): string {
 }
 
 const AT = "2026-08-25T00:00:00.000Z";
+
+const contextCapsule = {
+  schema_version: "bullet.context-capsule.initial.v1",
+  id: id("ctx", "0"),
+  mission_id: id("mis", "1"),
+  work_package_id: id("wpk", "2"),
+  plan_revision_id: id("pln", "3"),
+  revision: 1,
+  parent_id: null,
+  task_class: "security_analysis",
+  objective_digest: "4".repeat(64),
+  package_title_digest: "5".repeat(64),
+  content_digest: "6".repeat(64),
+  compression: "none",
+  dropped_decision_digests: [],
+  recorded_at: AT,
+};
+
+const contextLineage = { capsules: [contextCapsule] };
 
 const lease = {
   variant_id: id("var", "1"),
@@ -134,7 +154,8 @@ function event(seq: number) {
 const audit = { latest_sequence: 3, tail_window: 64, events: [event(1), event(2), event(3)] };
 
 describe("generated projection validators", () => {
-  it("accepts exact populated views for all five surfaces", () => {
+  it("accepts exact populated views for all six direct projection routes", () => {
+    expect(isContextLineageView(contextLineage)).toBe(true);
     expect(isFleetView(fleet)).toBe(true);
     expect(isSessionSupervisorView(sessions)).toBe(true);
     expect(isMergeRailView(rail)).toBe(true);
@@ -143,6 +164,7 @@ describe("generated projection validators", () => {
   });
 
   it("accepts empty views: zero rows is a value, not a failure", () => {
+    expect(isContextLineageView({ capsules: [] })).toBe(true);
     expect(isFleetView({ authority_time: AT, leases: [], ready_queue: [] })).toBe(true);
     expect(isSessionSupervisorView({ attempts: [], state_counts: [] })).toBe(true);
     expect(
@@ -153,6 +175,12 @@ describe("generated projection validators", () => {
   });
 
   it("rejects unknown keys at every root and nested boundary", () => {
+    expect(isContextLineageView({ ...contextLineage, healthy: true })).toBe(false);
+    expect(
+      isContextLineageView({
+        capsules: [{ ...contextCapsule, raw_objective: "not admitted" }],
+      }),
+    ).toBe(false);
     expect(isFleetView({ ...fleet, healthy: true })).toBe(false);
     expect(isFleetView({ ...fleet, leases: [{ ...lease, healthy: true }] })).toBe(false);
     expect(isSessionSupervisorView({ ...sessions, attempts: [{ ...attempt, ok: 1 }] })).toBe(false);
@@ -162,6 +190,8 @@ describe("generated projection validators", () => {
   });
 
   it("rejects missing fields rather than defaulting them", () => {
+    const { content_digest: _contentDigest, ...capsuleWithoutDigest } = contextCapsule;
+    expect(isContextLineageView({ capsules: [capsuleWithoutDigest] })).toBe(false);
     const { liveness: _liveness, ...leaseWithoutLiveness } = lease;
     expect(isFleetView({ ...fleet, leases: [leaseWithoutLiveness] })).toBe(false);
     const { satisfies_requirement: _satisfies, ...evidenceWithoutVerdict } = evidence;
@@ -169,6 +199,16 @@ describe("generated projection validators", () => {
   });
 
   it("rejects legacy-width or wrong-prefix subjects everywhere", () => {
+    expect(
+      isContextLineageView({
+        capsules: [{ ...contextCapsule, id: id("ctx", "A") }],
+      }),
+    ).toBe(false);
+    expect(
+      isContextLineageView({
+        capsules: [{ ...contextCapsule, work_package_id: id("mis", "2") }],
+      }),
+    ).toBe(false);
     expect(isFleetView({ ...fleet, leases: [{ ...lease, attempt_id: `atm_${"2".repeat(32)}` }] })).toBe(false);
     expect(isFleetView({ ...fleet, leases: [{ ...lease, runner_id: id("wsp", "3") }] })).toBe(false);
     expect(
@@ -185,6 +225,25 @@ describe("generated projection validators", () => {
   });
 
   it("rejects labels outside the frozen catalogs so nothing reads as green by accident", () => {
+    expect(
+      isContextLineageView({ capsules: [{ ...contextCapsule, task_class: "unknown" }] }),
+    ).toBe(false);
+    expect(
+      isContextLineageView({ capsules: [{ ...contextCapsule, task_class: "" }] }),
+    ).toBe(false);
+    expect(
+      isContextLineageView({ capsules: [{ ...contextCapsule, compression: "zstd" }] }),
+    ).toBe(false);
+    expect(
+      isContextLineageView({
+        capsules: [{ ...contextCapsule, parent_id: id("ctx", "9") }],
+      }),
+    ).toBe(false);
+    expect(
+      isContextLineageView({
+        capsules: [{ ...contextCapsule, dropped_decision_digests: ["a".repeat(64)] }],
+      }),
+    ).toBe(false);
     expect(isFleetView({ ...fleet, leases: [{ ...lease, liveness: "green" }] })).toBe(false);
     expect(isSessionSupervisorView({ ...sessions, attempts: [{ ...attempt, state: "done" }] })).toBe(false);
     expect(isSessionSupervisorView({ ...sessions, attempts: [{ ...attempt, lease: "maybe" }] })).toBe(false);
@@ -200,6 +259,9 @@ describe("generated projection validators", () => {
   });
 
   it("rejects numeric values outside the authority envelope", () => {
+    expect(
+      isContextLineageView({ capsules: [{ ...contextCapsule, revision: 2 }] }),
+    ).toBe(false);
     expect(isFleetView({ ...fleet, leases: [{ ...lease, ttl_seconds: 16 }] })).toBe(false);
     expect(isFleetView({ ...fleet, leases: [{ ...lease, fence: -1 }] })).toBe(false);
     expect(isSessionSupervisorView({ ...sessions, state_counts: [{ label: "starting", count: -1 }] })).toBe(

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
   exchangeBootstrap,
+  fetchContextLineage,
   fetchHealth,
   fetchReady,
   forgetBrowserSession,
@@ -459,6 +460,51 @@ describe("api transport honesty", () => {
       vi.fn(() => Promise.resolve(new Response("missing", { status: 404 }))),
     );
     await expect(fetchReady()).rejects.toThrowError("GET /v1/ready failed: HTTP 404");
+  });
+
+  it("fetches only the exact Context Lineage snapshot contract", async () => {
+    const capsule = {
+      schema_version: "bullet.context-capsule.initial.v1",
+      id: `ctx_${"1".repeat(64)}`,
+      mission_id: `mis_${"2".repeat(64)}`,
+      work_package_id: `wpk_${"3".repeat(64)}`,
+      plan_revision_id: `pln_${"4".repeat(64)}`,
+      revision: 1,
+      parent_id: null,
+      task_class: "security_analysis",
+      objective_digest: "5".repeat(64),
+      package_title_digest: "6".repeat(64),
+      content_digest: "7".repeat(64),
+      compression: "none",
+      dropped_decision_digests: [],
+      recorded_at: OBSERVED_AT,
+    };
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(jsonResponse(snapshot({ capsules: [capsule] }))),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchContextLineage()).resolves.toEqual({
+      data: { capsules: [capsule] },
+      asOfSequence: 42,
+      observedAt: OBSERVED_AT,
+      source: "bullet-kernel/sqlite-ledger",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/v1/context-lineage",
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          jsonResponse(snapshot({ capsules: [{ ...capsule, objective: "raw data" }] })),
+        ),
+      ),
+    );
+    await expect(fetchContextLineage()).rejects.toThrowError(
+      "GET /v1/context-lineage failed: snapshot body failed schema validation",
+    );
   });
 
   it("keeps health on its non-snapshot JSON contract", async () => {

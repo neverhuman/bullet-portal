@@ -29,7 +29,6 @@ describe("SurfacePage", () => {
     expect(unprojected.map((surface) => surface.id)).toEqual([
       "cognitive-router",
       "fusion-lab",
-      "context-lineage",
       "quota-capacity",
       "struggle-cockpit",
       "behavior-center",

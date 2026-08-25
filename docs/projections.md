@@ -1,6 +1,6 @@
 # Portal projections
 
-Status: component contract as implemented at Portal `95108e3`; no release claim
+Status: component contract consuming Kernel `7cdf850`; no release claim
 Owner: Bullet Farm maintainers
 Last reviewed: 2026-08-25
 Applies to: bullet-portal
@@ -34,7 +34,13 @@ following hold (`src/apiValidation.ts`: `isSnapshotEnvelope`; `src/api.ts`:
   is null or an integer; `ReadyView` may be `null`; `AuditView` must satisfy
   `auditTailIsCoherent` — at most `tail_window` events, contiguous `seq`, and
   the last `seq` equal to `latest_sequence` (an empty tail only when
-  `latest_sequence === 0`).
+  `latest_sequence === 0`). `ContextLineageView` and its DTO are generated,
+  but the Kernel generator has not exported that view as an AJV root; the
+  adjacent strict `isContextLineageView` validates every generated field,
+  exact keys, typed IDs/digests, the exact closed 16-value snake_case
+  `TaskClass` catalog, revision one, null parent, `compression: "none"`, empty
+  dropped decisions, and RFC 3339 `recorded_at` without declaring a second
+  wire DTO.
 - The `x-bullet-as-of-sequence` response header is present, canonical
   decimal (`/^(?:0|[1-9]\d*)$/`), a safe integer, and equal to
   `body.as_of_sequence`. Otherwise the read throws `snapshot watermark header
@@ -84,7 +90,7 @@ refreshes a one-shot projection and a projection never claims to be live.
   in the neutral `idle` class and `<label>: N rows (verified at sequence N)`
   above a table otherwise. Neither uses the green `verified` class;
   `e2e/fleet.spec.ts` and `e2e/real-farmd.spec.ts` assert `.verified` count 0
-  on an empty Fleet.
+  on empty Fleet and Context Lineage projections.
 - Nulls print their meaning, never blank: `contradictory: attempt row missing`
   (Fleet `attempt_state`), `unknown (no graph names it)` (Session Supervisor
   `mission_id`), `not recorded`, `none recorded`, `absent`, `not delivered`,
@@ -94,7 +100,7 @@ refreshes a one-shot projection and a projection never claims to be live.
   (`src/components/MissionsCard.tsx`, `OutboxCard.tsx`); a failed read is
   `unknown: control plane unreachable (…)` or `unknown: outbox unreachable (…)`.
 
-## Surfaces that read farmd (8 of 15)
+## Surfaces that read farmd (9 of 15)
 
 | Surface (`id`, spec) | Routes | DTO (`src/generated/api.ts`) | Component | Shown | Deliberately absent |
 | --- | --- | --- | --- | --- | --- |
@@ -103,11 +109,12 @@ refreshes a one-shot projection and a projection never claims to be live.
 | Live Attempt (`live-attempt`, §25.6) | as Mission Graph plus `GET /v1/ready` | `ReadyView` or `null`, `MissionView` | `src/pages/ProjectedSurface.tsx` (`LiveAttempt`) | raw JSON `{ready, graphs}`; `ready: null` is the empty queue at the watermark | session events, authority token hash, last-progress time: none is a ledger subject; `ReadyView` carries only ids, `title`, `enqueued_at` |
 | Fleet (`fleet`, §25.5) | `GET /v1/fleet` | `FleetView` (`authority_time`, `leases: FleetLease[]`, `ready_queue: ReadyRow[]`) | `src/pages/FleetPage.tsx` | `authority_time` (store clock, liveness basis); per lease `liveness` live/expired/unknown judged by the kernel against that clock, fence, runner id and epoch, `heartbeat_at`, `expires_at`, `ttl_seconds`, linked attempt state, package, mission; ready queue | any browser-clock liveness judgement; runner host or process identity; a lease with no attempt row prints `contradictory: attempt row missing` rather than being hidden |
 | Session Supervisor (`session-supervisor`, §25.7) | `GET /v1/sessions` | `SessionSupervisorView` (`attempts: AttemptRow[]`, `state_counts: LabelCount[]`) | `src/pages/SessionSupervisorPage.tsx` | attempts by `AttemptState` (every catalog label, zeros explicit); per attempt state, `lease` held/none, fence, variant, package, mission, runner id and epoch, `workspace_id`, scope/context revision, `leased_at`, `last_lease_event` (`attempt_leased`, `lease_expired`, `lease_released` with `seq` and `at`) | timestamps other than durable lease events — `AttemptRow` has no created, started, or finished time and the summary line says so; workspace dirty state, nonce, or preservation receipts (no such field in `AttemptRow`) |
+| Context Lineage (`context-lineage`, §25.8) | `GET /v1/context-lineage` | `ContextLineageView` (`capsules: ContextCapsuleRow[]`) | `src/pages/ContextLineagePage.tsx` | immutable revision-one capsule id, mission/package/plan subjects, task class, exact schema, null initial parent, `compression: none`, zero dropped decisions, content/objective/title digests, `recorded_at` | raw objective/title; provider-created or successor capsules; non-null lineage edges; actual compression or dropped-decision history; the page explicitly says these are not claimed |
 | Merge Rail (`merge-rail`, §25.13) | `GET /v1/merge-rail` | `MergeRailView` (`candidates: CandidateRow[]`, `intents: EffectIntentRow[]`, `receipts: EffectReceiptRow[]`, `effects: EffectRow[]`, `intent_state_counts`) | `src/pages/MergeRailPage.tsx` | exact candidates (`base_sha`, `head_sha`, `tree_sha`, `patch_digest`); effect intents by `EffectState` (every catalog label) and per intent target, `expected_old_oid`, `desired_state_hash`, fence, `policy_version`, `unknown_retries`; append-only receipts with `MATCH`/`MISMATCH`/`ABSENT` verdict, method, `adopted_after_unknown`; first-slice effects | forge state (refs, checks, merges): the portal never reads a forge; no integration result; if the `OUTCOME_UNKNOWN` label were missing from the counts the summary prints `unknown`, not 0 |
 | Quality Lab (`quality-lab`, §25.14) | `GET /v1/quality-lab` | `QualityLabView` (`evidence: EvidenceRow[]`, `outcome_counts`) | `src/pages/QualityLabPage.tsx` | `GateOutcome` histogram (every catalog label, zeros explicit); per evidence row outcome, `satisfies_requirement`, tier, gate, stored result, candidate | evidence rows carry no verifier identity, no timestamp, and no artifact or log digest; only `satisfies_requirement === true` counts as PASS — `FLAKY`, `INFRA_ERROR`, `UNKNOWN`, and every other outcome never satisfy a requirement |
 | Incidents & Audit (`incidents-audit`, §25.15) | `GET /v1/audit`, `GET /v1/outbox` | `AuditView` (`latest_sequence`, `tail_window`, `events: AuditEvent[]`), `OutboxView` | `src/pages/IncidentsAuditPage.tsx` | `latest_sequence`, `tail_window`, the newest contiguous events (`seq`, `at`, `kind`, stream, correlation, body), outbox rows with phase, delivered, acked | events older than the tail window (no paging); incident or contradiction rows (no ledger subject); a tail that is non-contiguous or does not end at `latest_sequence` fails validation and renders unknown |
 
-## Surfaces without a farmd projection (7 of 15)
+## Surfaces without a farmd projection (6 of 15)
 
 These surfaces have no `readSnapshot` route. `src/pages/SurfacePage.tsx`
 renders `unknown: <Title>: <unknownReason>` in the `unknown` class under a
@@ -115,21 +122,22 @@ header of `as_of_sequence unknown · source none · observed_at unknown ·
 freshness unknown · projection unknown · confidence unknown`. The reason text
 below is the exact `unknownReason` from `src/surfaces.ts` (with
 `NO_LEDGER_SUBJECT` expanded). The producing slices are in
-`bullet-farm/docs/assurance/v1-closure-plan.md`: V1-S5 item 4 names all seven
-as remaining work; V1-S6 item 1 is "Persist typed Cognitive Tasks,
+`bullet-farm/docs/assurance/v1-closure-plan.md`: V1-S5 item 4 originally named
+all seven as remaining work; this slice closes only initial Context Capsules,
+leaving the six rows below. V1-S6 item 1 is "Persist typed Cognitive Tasks,
 role/capability/profile snapshots, context capsules, behavior rules,
 budget/quota reservations, routing provenance, struggle/escalation, fusion,
 dissent, selection, and negative knowledge"; V1-S6 item 3 is hard-constraint
 routing where "UNKNOWN paid capacity blocks ordinary dispatch"; V1-S4 item 2
 is the heartbeat-failure path that "preserves the workspace, and permits a
 successor fence to resume only from the exact checkpoint"; V1-S3 item 5
-retains "the sealed preservation receipt".
+retains "the sealed preservation receipt". Initial Context Capsules are no
+longer in this table; only the exact revision-one slice above is projected.
 
 | Surface (`id`, spec) | Exact `unknownReason` | Producing slice |
 | --- | --- | --- |
 | Cognitive Router (`cognitive-router`, §25.3) | no ledger subject exists for this surface yet: routing decisions and their provenance (task taxonomy, hard exclusions, eligible lanes, quota shadow price, chosen tier, fallback ladder, calibration) are not persisted rows; produced by V1-S6 item 1 (persist typed Cognitive Tasks and routing provenance) and item 3 (hard-constraint routing) | V1-S6 items 1 and 3 |
 | Fusion Lab (`fusion-lab`, §25.4) | no ledger subject exists for this surface yet: fusion protocol runs, contributor lanes, independent artifacts, ranker scores, and fuser provenance are not persisted rows; produced by V1-S6 item 1 (persist fusion, dissent, and selection) | V1-S6 item 1 |
-| Context Lineage (`context-lineage`, §25.8) | no ledger subject exists for this surface yet: context capsules and lineage nodes/edges are not persisted rows (attempt rows carry only a context_revision counter); produced by V1-S6 item 1 (persist context capsules) | V1-S6 item 1 |
 | Quota and Capacity (`quota-capacity`, §25.9) | no ledger subject exists for this surface yet: budget/quota reservations and provider capacity observations are not persisted rows; produced by V1-S6 item 1 (persist budget/quota reservations) and item 3 (UNKNOWN paid capacity blocks ordinary dispatch) | V1-S6 items 1 and 3 |
 | Struggle and Escalation (`struggle-cockpit`, §25.10) | no ledger subject exists for this surface yet: struggle scores, progress signatures, and escalation ladders are not persisted rows; produced by V1-S6 item 1 (persist struggle/escalation) | V1-S6 item 1 |
 | Behavior Center (`behavior-center`, §25.11) | no ledger subject exists for this surface yet: behavior rule events, enforcement, and remediation receipts are not persisted rows (crates/behavior is a non-authoritative detector scaffold); produced by V1-S6 item 1 (persist behavior rules) | V1-S6 item 1 |
@@ -145,7 +153,7 @@ correction belongs to `src/surfaces.ts`, not to this document.
 - Unit and component (`npm test`): `src/api.test.ts` (envelope, header, 404
   and null-ready rules), `src/apiValidation.test.ts`,
   `src/projectionValidation.test.ts`, `src/components/ProjectionCard.test.tsx`,
-  and `src/pages/{ProjectedSurface,FleetPage,SessionSupervisorPage,MergeRailPage,QualityLabPage,IncidentsAuditPage,SurfacePage}.test.tsx`.
+  and `src/pages/{ProjectedSurface,FleetPage,SessionSupervisorPage,ContextLineagePage,MergeRailPage,QualityLabPage,IncidentsAuditPage,SurfacePage}.test.tsx`.
 - Mocked browser (`bash scripts/ci-local.sh contract`): `e2e/fleet.spec.ts`
   (4 tests: empty fleet renders zero rows never green; failed read renders
   unknown; liveness comes from the store clock; a header/body watermark
@@ -154,32 +162,33 @@ correction belongs to `src/surfaces.ts`, not to this document.
   empty success list").
 - Real farmd (`bash ops/ci/real-farmd.sh`): `e2e/real-farmd.spec.ts` (2
   tests) checks against the built sibling `bullet-farmd` that `/v1/fleet`,
-  `/v1/sessions`, `/v1/merge-rail`, `/v1/quality-lab`, and `/v1/audit` answer
+  `/v1/sessions`, `/v1/context-lineage`, `/v1/merge-rail`, `/v1/quality-lab`,
+  and `/v1/audit` answer
   with the `bullet-kernel/sqlite-ledger` source, matching header and body
-  watermarks, and one shared watermark across all five; that an empty Fleet
-  renders `active leases: 0 rows (verified at sequence N)` with no
+  watermarks, and one shared watermark across all six; that empty Fleet and
+  Context Lineage render verified zero-row observations with no
   `.verified` element; that Incidents & Audit shows `latest_sequence` equal to
   that watermark; and that Quota and Capacity names its missing subject.
 
 ## Parity checks
 
-Run from the repository root. Expected values are stated for Portal
-`95108e3`.
+Run from the repository root. Expected values are stated for this Portal
+change consuming Kernel `7cdf850`.
 
 ```bash
-# Seven unknown surfaces, exactly.
-grep -c 'unknownReason:' src/surfaces.ts          # 7
-grep -c '^  "' src/pages/ProjectedSurface.tsx      # 7 members of PROJECTED_SURFACES
+# Six unknown surfaces, exactly.
+grep -c 'unknownReason:' src/surfaces.ts          # 6
+grep -c '^  "' src/pages/ProjectedSurface.tsx      # 8 members of PROJECTED_SURFACES
 
 # Every route string in src/api.ts and the events route must be named above.
 grep -oE '"/(v1/[a-z/-]+|health)"|`/v1/[a-z/-]+/\$\{[^}]+\}`' src/api.ts | sort -u
 grep -oE '/v1/events' src/hooks/useEventStream.ts | sort -u
 ```
 
-The first grep must print 7; the second lists the seven projected ids. The
+The first grep must print 6; the second lists the eight projected ids. The
 route greps must print exactly `/health`, `/v1/audit`, `/v1/auth/bootstrap`,
 `/v1/commands`, `/v1/commands/${encodeURIComponent(id)}`, `/v1/fleet`,
-`/v1/merge-rail`, `/v1/missions`, `/v1/missions/${id}`, `/v1/outbox`,
+`/v1/context-lineage`, `/v1/merge-rail`, `/v1/missions`, `/v1/missions/${id}`, `/v1/outbox`,
 `/v1/quality-lab`, `/v1/ready`, `/v1/sessions`, and `/v1/events`; each of
 those routes (with the template parameter written `{id}`) appears in the
 tables above and in `docs/architecture.md`.

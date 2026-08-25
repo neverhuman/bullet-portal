@@ -3,6 +3,7 @@ import { ProjectionCard } from "../components/ProjectionCard";
 import type { Mission, MissionView, ReadyView } from "../generated/api";
 import { useProjection, type ProjectionRead } from "../hooks/useProjection";
 import type { Surface } from "../surfaces";
+import { ContextLineagePage } from "./ContextLineagePage";
 import { FleetPage } from "./FleetPage";
 import { IncidentsAuditPage } from "./IncidentsAuditPage";
 import { MergeRailPage } from "./MergeRailPage";
@@ -16,6 +17,7 @@ export const PROJECTED_SURFACES = new Set([
   "incidents-audit",
   "fleet",
   "session-supervisor",
+  "context-lineage",
   "merge-rail",
   "quality-lab",
 ]);
@@ -72,6 +74,8 @@ export function ProjectedSurface({ surface }: { surface: Surface }) {
       return <FleetPage surface={surface} />;
     case "session-supervisor":
       return <SessionSupervisorPage surface={surface} />;
+    case "context-lineage":
+      return <ContextLineagePage surface={surface} />;
     case "merge-rail":
       return <MergeRailPage surface={surface} />;
     case "quality-lab":

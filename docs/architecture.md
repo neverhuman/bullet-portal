@@ -2,17 +2,19 @@
 
 The Control Tower is a projection of the kernel ledger. Hash routes
 `#/<surface-id>` cover all fifteen spec §25 surfaces declared in
-`src/surfaces.ts`. Eight surfaces read farmd projections: Control Tower
-(`src/pages/ControlTower.tsx`) and the seven members of `PROJECTED_SURFACES`
+`src/surfaces.ts`. Nine surfaces read farmd projections: Control Tower
+(`src/pages/ControlTower.tsx`) and the eight members of `PROJECTED_SURFACES`
 in `src/pages/ProjectedSurface.tsx` — Mission Graph, Live Attempt, Fleet,
-Session Supervisor, Merge Rail, Quality Lab, and Incidents & Audit. The other
-seven — Cognitive Router, Fusion Lab, Context Lineage, Quota and Capacity,
-Struggle and Escalation, Behavior Center, and Workspace and Git Hygiene — carry
+Session Supervisor, Context Lineage, Merge Rail, Quality Lab, and Incidents &
+Audit. Context Lineage publishes only initial revision-one capsule subjects
+and digests; it does not claim successor/compression lineage or expose raw
+objective/title. The other six — Cognitive Router, Fusion Lab, Quota and
+Capacity, Struggle and Escalation, Behavior Center, and Workspace and Git Hygiene — carry
 an `unknownReason` in `src/surfaces.ts` and render through
 `src/pages/SurfacePage.tsx` as `unknown: <title>: no ledger subject exists for
 this surface yet: …`, naming the missing durable subject and the V1 slice that
 produces it; never an empty success list. [`projections.md`](projections.md)
-is the per-surface contract and quotes the seven reasons verbatim.
+is the per-surface contract and quotes the six reasons verbatim.
 
 Every projected read goes through `readSnapshot` in `src/api.ts`: one atomic
 ledger snapshot `{data, as_of_sequence, observed_at, source}` whose
@@ -83,11 +85,12 @@ source health from a real `/health` probe (10s timeout), and the stream
 connection state. Endpoints consumed (`src/api.ts` and
 `src/hooks/useEventStream.ts`):
 `GET /health`, `GET /v1/missions`, `GET /v1/missions/{id}`, `GET /v1/outbox`,
-`GET /v1/ready`, `GET /v1/fleet`, `GET /v1/sessions`, `GET /v1/merge-rail`,
-`GET /v1/quality-lab`, `GET /v1/audit`, `POST /v1/auth/bootstrap`,
+`GET /v1/ready`, `GET /v1/fleet`, `GET /v1/sessions`,
+`GET /v1/context-lineage`, `GET /v1/merge-rail`, `GET /v1/quality-lab`,
+`GET /v1/audit`, `POST /v1/auth/bootstrap`,
 `POST /v1/commands`, `GET /v1/commands/{id}`, and
-`GET /v1/events?after=<seq>`. All fourteen are mounted by kernel
-`apps/bullet-farmd/src/api.rs`; the nine `GET /v1/…` reads other than
+`GET /v1/events?after=<seq>`. All fifteen are mounted by kernel
+`apps/bullet-farmd/src/api.rs`; the ten `GET /v1/…` reads other than
 `/v1/commands/{id}` and `/v1/events` are snapshot routes under the contract in
 `projections.md`.
 
@@ -99,8 +102,8 @@ lane (`ops/ci/real-farmd.sh`, `e2e/real-farmd.spec.ts`, 2 tests) rebuilds and
 serves `dist`, builds the sibling `bullet-kernel` farmd, captures its one-time
 bootstrap without logging it, proves cookie/Origin/CSRF/202/status
 reconciliation through the worker-token reconcile route, and checks that the
-five list projections answer from one shared watermark while an empty Fleet
-renders zero rows without green. The preview server is test scaffolding, not
+six list projections answer from one shared watermark while empty Fleet and
+Context Lineage render zero rows without green. The preview server is test scaffolding, not
 the missing Rust asset embedding. Because no dispatch, APPLIED, or VERIFIED
 path exists, the exact real results are durable `PENDING` and, after the
 worker reconcile, durable `UNKNOWN` (`EXECUTION_ADAPTER_UNAVAILABLE`); neither
