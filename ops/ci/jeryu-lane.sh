@@ -22,5 +22,5 @@ outcome=failure
 [[ "$status" -eq 0 ]] && outcome=success
 bash scripts/ci-observation.sh \
   "$lane" "$outcome" "$status" "bash scripts/ci-local.sh $lane"
-node ops/ci/sanitize-artifacts.mjs
+node ops/ci/sanitize-artifacts.mjs "$lane"
 exit "$status"

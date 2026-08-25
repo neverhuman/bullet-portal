@@ -54,13 +54,13 @@ jobs:
       - name: Sanitize diagnostics
         id: sanitize
         if: ${{ always() }}
-        run: node ops/ci/sanitize-artifacts.mjs
+        run: node ops/ci/sanitize-artifacts.mjs scheduled-hygiene
       - name: Upload sanitized diagnostics
         if: ${{ always() && steps.sanitize.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: portal-${{ github.run_id }}-scheduled-hygiene
-          path: .ci-artifacts
+          path: target/ci-upload/scheduled-hygiene/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
@@ -101,13 +101,13 @@ jobs:
       - name: Sanitize diagnostics
         id: sanitize
         if: ${{ always() }}
-        run: node ops/ci/sanitize-artifacts.mjs
+        run: node ops/ci/sanitize-artifacts.mjs coverage
       - name: Upload sanitized diagnostics
         if: ${{ always() && steps.sanitize.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: portal-${{ github.run_id }}-coverage
-          path: .ci-artifacts
+          path: target/ci-upload/coverage/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
@@ -152,13 +152,13 @@ jobs:
       - name: Sanitize diagnostics
         id: sanitize
         if: ${{ always() }}
-        run: node ops/ci/sanitize-artifacts.mjs
+        run: node ops/ci/sanitize-artifacts.mjs portable
       - name: Upload sanitized diagnostics
         if: ${{ always() && steps.sanitize.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: portal-${{ github.run_id }}-${{ matrix.os }}
-          path: .ci-artifacts
+          path: target/ci-upload/portable/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
