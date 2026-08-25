@@ -6,12 +6,12 @@ import type {
   CommandStatus,
   ContextLineageView,
   DemoReceipt,
+  EventEnvelope,
   FleetView,
   Health,
   MergeRailView,
   Mission,
   MissionView,
-  OutboxItem,
   OutboxView,
   Problem,
   QualityLabView,
@@ -78,6 +78,13 @@ schemaCompiler.addSchema(PUBLIC_API_RUNTIME_SCHEMA);
 const validatesCommandStatus = compileGeneratedValidator<CommandStatus>(
   PUBLIC_API_RUNTIME_REFS.CommandStatus,
 );
+const validatesBootstrapResponse = compileGeneratedValidator<BootstrapResponse>(
+  PUBLIC_API_RUNTIME_REFS.BootstrapResponse,
+);
+const validatesEventEnvelope = compileGeneratedValidator<EventEnvelope>(
+  PUBLIC_API_RUNTIME_REFS.EventEnvelope,
+);
+const validatesHealth = compileGeneratedValidator<Health>(PUBLIC_API_RUNTIME_REFS.Health);
 const validatesMission = compileGeneratedValidator<Mission>(PUBLIC_API_RUNTIME_REFS.Mission);
 const validatesMissionView = compileGeneratedValidator<MissionView>(
   PUBLIC_API_RUNTIME_REFS.MissionView,
@@ -85,6 +92,10 @@ const validatesMissionView = compileGeneratedValidator<MissionView>(
 const validatesReadyView = compileGeneratedValidator<ReadyView>(
   PUBLIC_API_RUNTIME_REFS.ReadyView,
 );
+const validatesOutboxView = compileGeneratedValidator<OutboxView>(
+  PUBLIC_API_RUNTIME_REFS.OutboxView,
+);
+const validatesProblem = compileGeneratedValidator<Problem>(PUBLIC_API_RUNTIME_REFS.Problem);
 
 export function isSnapshotEnvelope<T>(
   value: unknown,
@@ -101,12 +112,9 @@ export function isSnapshotEnvelope<T>(
   );
 }
 
-function isNullableString(value: unknown): value is string | null {
-  return value === null || typeof value === "string";
-}
+export const isHealth: ResponseValidator<Health> = validatesHealth;
 
-export const isHealth: ResponseValidator<Health> = (value): value is Health =>
-  isRecord(value) && typeof value.status === "string";
+export const isEventEnvelope: ResponseValidator<EventEnvelope> = validatesEventEnvelope;
 
 export const isMission: ResponseValidator<Mission> = validatesMission;
 
@@ -137,15 +145,7 @@ export const isDemoReceipt: ResponseValidator<DemoReceipt> = (
   typeof value.materialize_idempotent === "boolean" &&
   typeof value.stale_refused === "boolean";
 
-const isOutboxItem: ResponseValidator<OutboxItem> = (value): value is OutboxItem =>
-  isRecord(value) &&
-  isInteger(value.seq) &&
-  hasStrings(value, ["kind", "payload", "phase"]) &&
-  isNullableString(value.delivered_at) &&
-  isNullableString(value.acked_at);
-
-export const isOutboxView: ResponseValidator<OutboxView> = (value): value is OutboxView =>
-  isRecord(value) && Array.isArray(value.items) && value.items.every(isOutboxItem);
+export const isOutboxView: ResponseValidator<OutboxView> = validatesOutboxView;
 
 export const isReadyView: ResponseValidator<ReadyView> = validatesReadyView;
 
@@ -153,18 +153,8 @@ export const isNullableReadyView: ResponseValidator<ReadyView | null> = (
   value,
 ): value is ReadyView | null => value === null || isReadyView(value);
 
-const CSRF_TOKEN = /^csrf_[0-9a-f]{64}$/;
-
-export const isBootstrapResponse: ResponseValidator<BootstrapResponse> = (
-  value,
-): value is BootstrapResponse =>
-  isRecord(value) &&
-  hasExactKeys(value, ["csrf_token", "expires_in_seconds", "status"]) &&
-  value.status === "AUTHENTICATED" &&
-  typeof value.csrf_token === "string" &&
-  CSRF_TOKEN.test(value.csrf_token) &&
-  isInteger(value.expires_in_seconds) &&
-  value.expires_in_seconds > 0;
+export const isBootstrapResponse: ResponseValidator<BootstrapResponse> =
+  validatesBootstrapResponse;
 
 export const isCommandStatus: ResponseValidator<CommandStatus> = (
   value,
@@ -175,34 +165,7 @@ export const isCommandStatus: ResponseValidator<CommandStatus> = (
   (value.status === "PENDING" ? value.result === null : true) &&
   (["APPLIED", "VERIFIED", "FAILED"].includes(value.status) ? value.result !== null : true);
 
-export const isProblem: ResponseValidator<Problem> = (value): value is Problem =>
-  isRecord(value) &&
-  hasExactKeys(value, [
-    "code",
-    "correlation_id",
-    "detail",
-    "instance",
-    "repair",
-    "request_id",
-    "retryable",
-    "status",
-    "title",
-    "type",
-  ]) &&
-  hasStrings(value, [
-    "code",
-    "correlation_id",
-    "detail",
-    "instance",
-    "repair",
-    "request_id",
-    "title",
-    "type",
-  ]) &&
-  isInteger(value.status) &&
-  value.status >= 400 &&
-  value.status <= 599 &&
-  typeof value.retryable === "boolean";
+export const isProblem: ResponseValidator<Problem> = validatesProblem;
 
 const validatesFleetView = compileGeneratedValidator<FleetView>(PUBLIC_API_RUNTIME_REFS.FleetView);
 const validatesSessionSupervisorView = compileGeneratedValidator<SessionSupervisorView>(

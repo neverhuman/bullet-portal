@@ -4,7 +4,7 @@ import type { OutboxItem, OutboxView } from "../generated/api";
 import { toSnapshotValue, toUnknown, toValue } from "../loadable";
 import { OutboxCard } from "./OutboxCard";
 
-function item(seq: number, phase: string): OutboxItem {
+function item(seq: number, phase: OutboxItem["phase"]): OutboxItem {
   return {
     seq,
     kind: "dispatch_attempt",
@@ -17,13 +17,14 @@ function item(seq: number, phase: string): OutboxItem {
 
 describe("OutboxCard", () => {
   it("colors delivery phases honestly", () => {
+    const malformed = { ...item(5, "unknown"), phase: "garbled" } as unknown as OutboxItem;
     const view: OutboxView = {
       items: [
         item(1, "pending"),
         item(2, "applied"),
         item(3, "verified"),
         item(4, "unknown"),
-        item(5, "garbled"),
+        malformed,
       ],
     };
     render(<OutboxCard outbox={toValue(view)} />);

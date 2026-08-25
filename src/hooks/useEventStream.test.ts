@@ -3,6 +3,8 @@ import type { SseFrame } from "../sse";
 import { createSseParser } from "../sse";
 import { createTracker, parseFrame, snapshotCoversGap } from "./useEventStream";
 
+const EVENT_ID = "9".repeat(64);
+
 describe("sse parser", () => {
   it("parses default messages with ids and skips keep-alive comments", () => {
     const frames: SseFrame[] = [];
@@ -24,9 +26,9 @@ describe("sse parser", () => {
     const parsed = parseFrame({
       id: "9",
       event: "message",
-      data: '{"id":"evt_9","seq":9,"at":"2026-08-24T09:00:00Z","kind":"graph_delta","body":"{}"}',
+      data: `{"id":"${EVENT_ID}","seq":9,"at":"2026-08-24T09:00:00Z","kind":"graph_delta","body":"{}"}`,
     });
-    expect(parsed).toEqual({ id: "evt_9", seq: 9, at: "2026-08-24T09:00:00Z" });
+    expect(parsed).toEqual({ id: EVENT_ID, seq: 9, at: "2026-08-24T09:00:00Z" });
   });
 
   it("rejects a sequence mismatch between the SSE id and envelope", () => {
@@ -34,7 +36,7 @@ describe("sse parser", () => {
       parseFrame({
         id: "8",
         event: "message",
-        data: '{"id":"evt_9","seq":9,"at":"2026-08-24T09:00:00Z","kind":"x","body":"{}"}',
+        data: `{"id":"${EVENT_ID}","seq":9,"at":"2026-08-24T09:00:00Z","kind":"x","body":"{}"}`,
       }),
     ).toBeNull();
   });

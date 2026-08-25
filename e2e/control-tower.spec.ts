@@ -2,6 +2,10 @@ import { expect, test, type Page } from "@playwright/test";
 
 const observedAt = "2026-08-24T22:00:00.000Z";
 
+function eventId(sequence: number): string {
+  return sequence.toString(16).padStart(64, "0");
+}
+
 function snapshot(data: unknown, sequence = 0) {
   return {
     json: {
@@ -78,9 +82,9 @@ test("the event stream advances as_of_sequence from default EventEnvelopes", asy
   );
   const at = new Date().toISOString();
   const frames = [
-    `id: 1\ndata: ${JSON.stringify({ id: "evt_1", seq: 1, at, kind: "candidate_prepared", body: "{}" })}\n\n`,
+    `id: 1\ndata: ${JSON.stringify({ id: eventId(1), seq: 1, at, kind: "candidate_prepared", body: "{}" })}\n\n`,
     ": keep-alive\n\n",
-    `id: 2\ndata: ${JSON.stringify({ id: "evt_2", seq: 2, at, kind: "effect_receipt", body: "{}" })}\n\n`,
+    `id: 2\ndata: ${JSON.stringify({ id: eventId(2), seq: 2, at, kind: "effect_receipt", body: "{}" })}\n\n`,
   ].join("");
   await page.route("**/api/v1/events**", (route) =>
     route.fulfill({ status: 200, contentType: "text/event-stream", body: frames }),
@@ -133,7 +137,7 @@ test("a 1,2,4 gap survives malformed snapshot recovery until watermark 4", async
       const frames = [1, 2, 4]
         .map(
           (seq) =>
-            `id: ${seq}\ndata: ${JSON.stringify({ id: `evt_${seq}`, seq, at, kind: "test", body: "{}" })}\n\n`,
+            `id: ${seq}\ndata: ${JSON.stringify({ id: eventId(seq), seq, at, kind: "test", body: "{}" })}\n\n`,
         )
         .join("");
       await route.fulfill({ status: 200, contentType: "text/event-stream", body: frames });

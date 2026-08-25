@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { apiBase } from "../api";
+import { isEventEnvelope } from "../apiValidation";
 import { API_PREFIX } from "../generated/api";
 import type { SseFrame } from "../sse";
 import { readSseStream } from "../sse";
@@ -27,36 +28,31 @@ const INITIAL: EventStreamState = {
 
 export type ParsedEvent = { id: string; seq: number; at: string };
 
+function safeFrameSequence(frame: SseFrame): number | null {
+  if (frame.id === null || !/^\d+$/.test(frame.id)) {
+    return null;
+  }
+  const sequence = Number(frame.id);
+  return Number.isSafeInteger(sequence) && sequence >= 0 ? sequence : null;
+}
+
 /**
  * Kernel framing: SSE id = ledger seq and default-message data = EventEnvelope.
  */
 export function parseFrame(frame: SseFrame): ParsedEvent | null {
-  if (frame.event !== "message" || frame.id === null || !/^\d+$/.test(frame.id)) {
+  const frameSequence = safeFrameSequence(frame);
+  if (frame.event !== "message" || frameSequence === null) {
     return null;
   }
-  let record: Record<string, unknown>;
+  let record: unknown;
   try {
-    const data: unknown = JSON.parse(frame.data);
-    if (typeof data !== "object" || data === null || Array.isArray(data)) {
-      return null;
-    }
-    record = data as Record<string, unknown>;
+    record = JSON.parse(frame.data) as unknown;
   } catch {
     return null;
   }
-  const frameSequence = Number(frame.id);
   if (
-    !Number.isSafeInteger(frameSequence) ||
-    frameSequence < 0 ||
-    typeof record.seq !== "number" ||
-    !Number.isSafeInteger(record.seq) ||
-    record.seq !== frameSequence ||
-    typeof record.id !== "string" ||
-    record.id.length === 0 ||
-    typeof record.at !== "string" ||
-    Number.isNaN(Date.parse(record.at)) ||
-    typeof record.kind !== "string" ||
-    typeof record.body !== "string"
+    !isEventEnvelope(record) ||
+    record.seq !== frameSequence
   ) {
     return null;
   }
@@ -70,7 +66,7 @@ export type Tracker = {
   stale: () => boolean;
   requiredThrough: () => number | null;
   accept: (event: ParsedEvent) => Verdict;
-  markUncertain: () => void;
+  markUncertain: (observedThrough?: number) => void;
   applySnapshot: (watermark: number | null) => boolean;
 };
 
@@ -112,8 +108,8 @@ export function createTracker(cap: number): Tracker {
       }
       return "ok";
     },
-    markUncertain() {
-      requireThrough(lastSeq + 1);
+    markUncertain(observedThrough) {
+      requireThrough(Math.max(lastSeq + 1, observedThrough ?? 0));
     },
     applySnapshot(watermark) {
       const required = requiredThrough ?? lastSeq;
@@ -174,6 +170,8 @@ function createStream(cb: StreamCallbacks): () => void {
   let everConnected = false;
   let reconnect = false;
   let recovery: Promise<void> | null = null;
+  let activeConnection: AbortController | null = null;
+  let rebaseRequested = false;
 
   const patchCursor = (lastEventAt?: string): void => {
     cb.patch({
@@ -192,6 +190,15 @@ function createStream(cb: StreamCallbacks): () => void {
       (watermark) => {
         if (!disposed && tracker.applySnapshot(watermark)) {
           patchCursor();
+          const connection = activeConnection;
+          if (connection !== null && !connection.signal.aborted) {
+            rebaseRequested = true;
+            cb.patch({
+              connection: "reconnecting",
+              detail: "snapshot reconciled, reconnecting",
+            });
+            connection.abort(new Error("snapshot recovery rebased event stream"));
+          }
         } else if (!disposed) {
           cb.patch({ stale: tracker.stale() });
         }
@@ -210,7 +217,7 @@ function createStream(cb: StreamCallbacks): () => void {
   const handleFrame = (frame: SseFrame): void => {
     const event = parseFrame(frame);
     if (event === null) {
-      tracker.markUncertain();
+      tracker.markUncertain(safeFrameSequence(frame) ?? undefined);
       patchCursor();
       void recover();
       return;
@@ -258,23 +265,36 @@ function createStream(cb: StreamCallbacks): () => void {
         const url = reconnect
           ? `${apiBase}${API_PREFIX}/events`
           : `${apiBase}${API_PREFIX}/events?after=${cursor}`;
-        await readSseStream(
-          url,
-          controller.signal,
-          {
-            onOpen: () => {
-              everConnected = true;
-              cb.patch({ connection: "live", detail: "" });
+        const connection = new AbortController();
+        activeConnection = connection;
+        try {
+          await readSseStream(
+            url,
+            connection.signal,
+            {
+              onOpen: () => {
+                everConnected = true;
+                cb.patch({ connection: "live", detail: "" });
+              },
+              onFrame: handleFrame,
             },
-            onFrame: handleFrame,
-          },
-          reconnect ? cursor : undefined,
-        );
+            reconnect ? cursor : undefined,
+          );
+        } finally {
+          if (activeConnection === connection) {
+            activeConnection = null;
+          }
+        }
       } catch {
         // fall through to markDown + retry
       }
       if (disposed) {
         return;
+      }
+      if (rebaseRequested) {
+        rebaseRequested = false;
+        reconnect = true;
+        continue;
       }
       markDown();
       reconnect = true;
@@ -286,6 +306,7 @@ function createStream(cb: StreamCallbacks): () => void {
   return () => {
     disposed = true;
     controller.abort();
+    activeConnection?.abort();
   };
 }
 
