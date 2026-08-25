@@ -1,23 +1,33 @@
 import type {
+  AuditView,
   BootstrapResponse,
   CommandEnvelope,
   CommandStatus,
+  FleetView,
   Health,
+  MergeRailView,
   Mission,
   MissionView,
   OutboxView,
   Problem,
+  QualityLabView,
   ReadyView,
+  SessionSupervisorView,
 } from "./generated/api";
 import {
+  isAuditView,
   isBootstrapResponse,
   isCommandStatus,
+  isFleetView,
   isHealth,
+  isMergeRailView,
   isMissionList,
   isMissionView,
   isNullableReadyView,
   isOutboxView,
   isProblem,
+  isQualityLabView,
+  isSessionSupervisorView,
   isSnapshotEnvelope,
   SNAPSHOT_SOURCE,
   type ResponseValidator,
@@ -360,4 +370,24 @@ export function getMission(id: string): Promise<SnapshotRead<MissionView>> {
 
 export function fetchReady(): Promise<SnapshotRead<ReadyView | null>> {
   return readSnapshot("/v1/ready", isNullableReadyView);
+}
+
+export function fetchFleet(): Promise<SnapshotRead<FleetView>> {
+  return readSnapshot("/v1/fleet", isFleetView);
+}
+
+export function fetchSessions(): Promise<SnapshotRead<SessionSupervisorView>> {
+  return readSnapshot("/v1/sessions", isSessionSupervisorView);
+}
+
+export function fetchMergeRail(): Promise<SnapshotRead<MergeRailView>> {
+  return readSnapshot("/v1/merge-rail", isMergeRailView);
+}
+
+export function fetchQualityLab(): Promise<SnapshotRead<QualityLabView>> {
+  return readSnapshot("/v1/quality-lab", isQualityLabView);
+}
+
+export function fetchAudit(): Promise<SnapshotRead<AuditView>> {
+  return readSnapshot("/v1/audit", isAuditView);
 }

@@ -81,4 +81,44 @@ test.describe("real farmd command authority", () => {
     const removed = await fetch(`${farmd}/v1/demo/run`, { method: "POST" });
     expect(removed.status).toBe(410);
   });
+
+  test("projection routes answer from one atomic read and the browser renders zero rows as verified, not green", async ({ page }) => {
+    const routes = ["/v1/fleet", "/v1/sessions", "/v1/merge-rail", "/v1/quality-lab", "/v1/audit"];
+    const watermarks: number[] = [];
+    for (const route of routes) {
+      const response = await fetch(`${farmd}${route}`);
+      expect(response.status, route).toBe(200);
+      const body = (await response.json()) as {
+        data: Record<string, unknown>;
+        as_of_sequence: number;
+        observed_at: string;
+        source: string;
+      };
+      expect(body.source).toBe("bullet-kernel/sqlite-ledger");
+      expect(Number.isNaN(Date.parse(body.observed_at))).toBeFalsy();
+      expect(response.headers.get("x-bullet-as-of-sequence")).toBe(String(body.as_of_sequence));
+      watermarks.push(body.as_of_sequence);
+    }
+    expect(new Set(watermarks).size).toBe(1);
+
+    await page.goto("/#/fleet");
+    await expect(page.getByRole("heading", { name: "Fleet" })).toBeVisible();
+    await expect(page.getByTestId("fleet-leases-empty")).toContainText(
+      /active leases: 0 rows \(verified at sequence \d+\)/,
+    );
+    await expect(page.getByTestId("fleet-tagline")).toContainText("source bullet-kernel/sqlite-ledger");
+    await expect(page.getByTestId("fleet-tagline")).toContainText("projection published");
+    await expect(page.getByTestId("surface-fleet").locator(".verified")).toHaveCount(0);
+
+    await page.goto("/#/incidents-audit");
+    await expect(page.getByTestId("incidents-audit-summary")).toContainText(
+      `latest_sequence ${watermarks[0]}`,
+    );
+    await expect(page.getByTestId("incidents-audit-events-rows")).toBeVisible();
+
+    await page.goto("/#/quota-capacity");
+    await expect(page.getByTestId("quota-capacity-unknown")).toContainText(
+      "no ledger subject exists for this surface yet",
+    );
+  });
 });

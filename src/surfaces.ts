@@ -20,7 +20,14 @@ export type Surface = {
   spec: string;
   title: string;
   answers: string;
+  /**
+   * Present only while farmd serves no projection for this surface. Names the
+   * exact missing durable subject and the V1 slice that will produce it.
+   */
+  unknownReason?: string;
 };
+
+export const NO_LEDGER_SUBJECT = "no ledger subject exists for this surface yet";
 
 export const SURFACES: Surface[] = [
   {
@@ -40,18 +47,27 @@ export const SURFACES: Surface[] = [
     spec: "25.3",
     title: "Cognitive Router",
     answers: "taxonomy, eligible lanes, quota shadow price, chosen tier, shadow outcomes",
+    unknownReason:
+      `${NO_LEDGER_SUBJECT}: routing decisions and their provenance (task taxonomy, hard ` +
+      "exclusions, eligible lanes, quota shadow price, chosen tier, fallback ladder, calibration) " +
+      "are not persisted rows; produced by V1-S6 item 1 (persist typed Cognitive Tasks and routing " +
+      "provenance) and item 3 (hard-constraint routing)",
   },
   {
     id: "fusion-lab",
     spec: "25.4",
     title: "Fusion Lab",
     answers: "protocol, contributor lanes, disagreements, residual uncertainty, hidden eval",
+    unknownReason:
+      `${NO_LEDGER_SUBJECT}: fusion protocol runs, contributor lanes, independent artifacts, ` +
+      "ranker scores, and fuser provenance are not persisted rows; produced by V1-S6 item 1 " +
+      "(persist fusion, dissent, and selection)",
   },
   {
     id: "fleet",
     spec: "25.5",
     title: "Fleet",
-    answers: "provider, runner, lease, quota reservation, process state",
+    answers: "active lease rows judged against the store clock, linked attempt, ready queue",
   },
   {
     id: "live-attempt",
@@ -63,43 +79,63 @@ export const SURFACES: Surface[] = [
     id: "session-supervisor",
     spec: "25.7",
     title: "Session Supervisor",
-    answers: "process tree, interrupt, freeze, salvage",
+    answers: "attempt rows by state, fence, workspace, lease held, durable lease events",
   },
   {
     id: "context-lineage",
     spec: "25.8",
     title: "Context Lineage",
     answers: "capsule as-of, compression, dropped decisions",
+    unknownReason:
+      `${NO_LEDGER_SUBJECT}: context capsules and lineage nodes/edges are not persisted rows ` +
+      "(attempt rows carry only a context_revision counter); produced by V1-S6 item 1 (persist " +
+      "context capsules)",
   },
   {
     id: "quota-capacity",
     spec: "25.9",
     title: "Quota and Capacity",
     answers: "Observation of remaining quota — never green UNKNOWN",
+    unknownReason:
+      `${NO_LEDGER_SUBJECT}: budget/quota reservations and provider capacity observations are ` +
+      "not persisted rows; produced by V1-S6 item 1 (persist budget/quota reservations) and item 3 " +
+      "(UNKNOWN paid capacity blocks ordinary dispatch)",
   },
   {
     id: "struggle-cockpit",
     spec: "25.10",
     title: "Struggle and Escalation",
     answers: "struggle score, escalation ladder, thrash limit",
+    unknownReason:
+      `${NO_LEDGER_SUBJECT}: struggle scores, progress signatures, and escalation ladders are ` +
+      "not persisted rows; produced by V1-S6 item 1 (persist struggle/escalation)",
   },
   {
     id: "behavior-center",
     spec: "25.11",
     title: "Behavior Center",
     answers: "§17 hits, detector, enforcement, postcondition",
+    unknownReason:
+      `${NO_LEDGER_SUBJECT}: behavior rule events, enforcement, and remediation receipts are ` +
+      "not persisted rows (crates/behavior is a non-authoritative detector scaffold); produced by " +
+      "V1-S6 item 1 (persist behavior rules)",
   },
   {
     id: "workspace-hygiene",
     spec: "25.12",
     title: "Workspace and Git Hygiene",
     answers: "clone nonce, preservation receipt, worktree refusal",
+    unknownReason:
+      `${NO_LEDGER_SUBJECT}: workspace dirty/untracked state, preservation receipts, and ` +
+      "cleanup eligibility are not persisted rows (attempt rows carry only workspace_id and " +
+      "workspace_nonce, shown on Session Supervisor); produced by V1-S4 item 2 (preserve the " +
+      "workspace, resume from the exact checkpoint) and V1-S3 preservation receipts",
   },
   {
     id: "merge-rail",
     spec: "25.13",
     title: "Merge Rail",
-    answers: "pinned Candidate, expected-old-OID, integration dwell",
+    answers: "exact Candidates, effect intent state machine, append-only receipts",
   },
   {
     id: "quality-lab",
@@ -111,7 +147,7 @@ export const SURFACES: Surface[] = [
     id: "incidents-audit",
     spec: "25.15",
     title: "Incidents and Audit",
-    answers: "event log, sequence, lag, contradictions",
+    answers: "durable event tail, outbox phases, sequence, contradictions",
   },
 ];
 

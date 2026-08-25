@@ -1,16 +1,21 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import { PUBLIC_API_RUNTIME_REFS, PUBLIC_API_RUNTIME_SCHEMA } from "./generated/api";
 import type {
+  AuditView,
   BootstrapResponse,
   CommandStatus,
   DemoReceipt,
+  FleetView,
   Health,
+  MergeRailView,
   Mission,
   MissionView,
   OutboxItem,
   OutboxView,
   Problem,
+  QualityLabView,
   ReadyView,
+  SessionSupervisorView,
 } from "./generated/api";
 
 export type ResponseValidator<T> = (value: unknown) => value is T;
@@ -196,3 +201,47 @@ export const isProblem: ResponseValidator<Problem> = (value): value is Problem =
   value.status >= 400 &&
   value.status <= 599 &&
   typeof value.retryable === "boolean";
+
+const validatesFleetView = compileGeneratedValidator<FleetView>(PUBLIC_API_RUNTIME_REFS.FleetView);
+const validatesSessionSupervisorView = compileGeneratedValidator<SessionSupervisorView>(
+  PUBLIC_API_RUNTIME_REFS.SessionSupervisorView,
+);
+const validatesMergeRailView = compileGeneratedValidator<MergeRailView>(
+  PUBLIC_API_RUNTIME_REFS.MergeRailView,
+);
+const validatesQualityLabView = compileGeneratedValidator<QualityLabView>(
+  PUBLIC_API_RUNTIME_REFS.QualityLabView,
+);
+const validatesAuditView = compileGeneratedValidator<AuditView>(PUBLIC_API_RUNTIME_REFS.AuditView);
+
+export const isFleetView: ResponseValidator<FleetView> = validatesFleetView;
+
+export const isSessionSupervisorView: ResponseValidator<SessionSupervisorView> =
+  validatesSessionSupervisorView;
+
+export const isMergeRailView: ResponseValidator<MergeRailView> = validatesMergeRailView;
+
+export const isQualityLabView: ResponseValidator<QualityLabView> = validatesQualityLabView;
+
+/**
+ * The audit tail must end exactly at its watermark and be contiguous; a
+ * tail that contradicts its own latest_sequence is not a projection.
+ */
+export function auditTailIsCoherent(view: AuditView): boolean {
+  if (view.events.length > view.tail_window) {
+    return false;
+  }
+  const last = view.events[view.events.length - 1];
+  if (last === undefined) {
+    return view.latest_sequence === 0;
+  }
+  if (last.seq !== view.latest_sequence) {
+    return false;
+  }
+  return view.events.every(
+    (event, index) => index === 0 || event.seq === (view.events[index - 1]?.seq ?? -1) + 1,
+  );
+}
+
+export const isAuditView: ResponseValidator<AuditView> = (value): value is AuditView =>
+  validatesAuditView(value) && auditTailIsCoherent(value);

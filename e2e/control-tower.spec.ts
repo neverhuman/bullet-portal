@@ -208,12 +208,14 @@ test("an event-retention 410 rebases from a covering snapshot before reconnect",
   expect(requests[1]?.lastEventId).toBe("8");
 });
 
-test("merge rail is unknown, not an empty success list", async ({ page }) => {
+test("an unprojected surface names its missing ledger subject, not an empty success list", async ({ page }) => {
   await mockSnapshot(page);
   await mockHealthOk(page);
-  await page.goto("/#/merge-rail");
-  await expect(page.getByTestId("merge-rail-unknown")).toContainText(
-    "unknown: Merge Rail: control plane has not published this projection",
+  await page.goto("/#/quota-capacity");
+  await expect(page.getByTestId("quota-capacity-unknown")).toContainText(
+    "unknown: Quota and Capacity: no ledger subject exists for this surface yet: budget/quota reservations",
   );
-  await expect(page.getByText("No merges yet.")).toHaveCount(0);
+  await expect(page.getByTestId("quota-capacity-unknown")).toContainText("V1-S6");
+  await expect(page.getByText("No quota yet.")).toHaveCount(0);
+  await expect(page.getByTestId("surface-quota-capacity").locator(".verified")).toHaveCount(0);
 });

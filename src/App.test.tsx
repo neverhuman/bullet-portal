@@ -18,8 +18,10 @@ describe("App hash routes", () => {
   });
 
   it("opens an unpublished surface as unknown", () => {
-    window.location.hash = "#/quality-lab";
+    window.location.hash = "#/quota-capacity";
     render(<App />);
-    expect(screen.getByTestId("quality-lab-unknown")).toHaveTextContent("unknown:");
+    expect(screen.getByTestId("quota-capacity-unknown")).toHaveTextContent(
+      "unknown: Quota and Capacity: no ledger subject exists for this surface yet",
+    );
   });
 });
