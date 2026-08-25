@@ -33,7 +33,7 @@ function jsonResponse(
   return new Response(JSON.stringify(body), { status, headers });
 }
 
-const commandId = `cmd_${"a".repeat(32)}`;
+const commandId = `cmd_${"a".repeat(64)}`;
 const commandDigest = "b".repeat(64);
 const csrfToken = `csrf_${"c".repeat(64)}`;
 
@@ -382,7 +382,7 @@ describe("api transport honesty", () => {
           new Response(
             JSON.stringify({
               ...command("VERIFIED", { evidence: "PASS" }),
-              id: `cmd_${"d".repeat(32)}`,
+              id: `cmd_${"d".repeat(64)}`,
             }),
             {
               status: 200,
@@ -399,6 +399,18 @@ describe("api transport honesty", () => {
     await expect(getCommand(commandId)).rejects.toThrowError(
       "response body failed schema validation",
     );
+  });
+
+  it("rejects legacy-width and uppercase command subjects", async () => {
+    for (const id of [`cmd_${"a".repeat(32)}`, `cmd_${"A".repeat(64)}`]) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(jsonResponse({ ...command("PENDING"), id }, null))),
+      );
+      await expect(getCommand(commandId)).rejects.toThrowError(
+        "response body failed schema validation",
+      );
+    }
   });
 
   it("rejects malformed or non-authoritative snapshot envelope fields", async () => {

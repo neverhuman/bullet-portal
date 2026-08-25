@@ -36,7 +36,7 @@ test.describe("real farmd command authority", () => {
     await page.getByRole("button", { name: "Submit durable demo command" }).click();
     await expect(page.getByTestId("phase")).toContainText("command phase: PENDING");
     await expect(page.getByTestId("phase")).toHaveClass("pending");
-    await expect(page.getByTestId("command-id")).toContainText(/^cmd_[0-9a-f]{32}$/);
+    await expect(page.getByTestId("command-id")).toContainText(/^cmd_[0-9a-f]{64}$/);
     await expect(page.getByTestId("command")).toContainText("run_demo");
     await expect(page.getByTestId("command")).toContainText("not recorded");
     await page.waitForTimeout(750);

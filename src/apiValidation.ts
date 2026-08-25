@@ -142,7 +142,7 @@ export const isNullableReadyView: ResponseValidator<ReadyView | null> = (
   value,
 ): value is ReadyView | null => value === null || isReadyView(value);
 
-const COMMAND_ID = /^cmd_[0-9a-f]{32}$/;
+const COMMAND_ID = /^cmd_[0-9a-f]{64}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
 const CSRF_TOKEN = /^csrf_[0-9a-f]{64}$/;
 const COMMAND_STATUSES = new Set(["PENDING", "APPLIED", "VERIFIED", "FAILED", "UNKNOWN"]);

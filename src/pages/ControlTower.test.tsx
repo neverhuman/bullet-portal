@@ -33,7 +33,7 @@ const mocked = {
   submitCommand: vi.mocked(api.submitCommand),
 };
 
-const commandId = `cmd_${"a".repeat(32)}`;
+const commandId = `cmd_${"a".repeat(64)}`;
 const digest = "b".repeat(64);
 
 function command(status: CommandStatus["status"], result: CommandStatus["result"] = null) {
