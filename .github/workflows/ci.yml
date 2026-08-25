@@ -59,7 +59,7 @@ jobs:
         if: ${{ always() && steps.sanitize.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: portal-${{ github.run_id }}-fast
+          name: portal-${{ github.run_id }}-${{ github.run_attempt }}-fast
           path: .ci-artifacts
           include-hidden-files: true
           if-no-files-found: error
@@ -115,7 +115,7 @@ jobs:
         if: ${{ always() && steps.sanitize.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: portal-${{ github.run_id }}-lint
+          name: portal-${{ github.run_id }}-${{ github.run_attempt }}-lint
           path: .ci-artifacts
           include-hidden-files: true
           if-no-files-found: error
@@ -167,7 +167,7 @@ jobs:
         if: ${{ always() && steps.sanitize.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: portal-${{ github.run_id }}-contract
+          name: portal-${{ github.run_id }}-${{ github.run_attempt }}-contract
           path: .ci-artifacts
           include-hidden-files: true
           if-no-files-found: error
@@ -221,7 +221,7 @@ jobs:
         if: ${{ always() && steps.sanitize.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: portal-${{ github.run_id }}-security
+          name: portal-${{ github.run_id }}-${{ github.run_attempt }}-security
           path: .ci-artifacts
           include-hidden-files: true
           if-no-files-found: error
@@ -269,7 +269,7 @@ jobs:
         if: ${{ always() && steps.sanitize.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: portal-${{ github.run_id }}-docs
+          name: portal-${{ github.run_id }}-${{ github.run_attempt }}-docs
           path: .ci-artifacts
           include-hidden-files: true
           if-no-files-found: error
@@ -281,6 +281,8 @@ jobs:
     needs: [fast, lint, contract, security, docs]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    env:
+      EXPECTED_COMMIT: ${{ github.sha }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -288,7 +290,14 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22.23.2"
+      - name: Download exact-run observations and sanitized artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: portal-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: .ci-artifacts/atomic
+          merge-multiple: true
       - name: Converge required jobs
+        if: ${{ always() }}
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-        run: node ops/ci/aggregate.mjs
+        run: node ops/ci/aggregate.mjs .ci-artifacts/atomic "$EXPECTED_COMMIT"

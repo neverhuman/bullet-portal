@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { validateNeeds } from "./aggregate.mjs";
 
@@ -11,12 +10,6 @@ const success = Object.fromEntries(
   lanes.map((lane) => [lane, { result: "success", outputs: { observation: "true" } }]),
 );
 validateNeeds(success);
-const aggregateCli = (fixture) =>
-  spawnSync(process.execPath, ["ops/ci/aggregate.mjs"], {
-    env: { ...process.env, NEEDS_JSON: JSON.stringify(fixture) },
-    encoding: "utf8",
-  });
-assert(aggregateCli(success).status === 0, "aggregator CLI rejected the all-success fixture");
 for (const result of ["failure", "skipped", "cancelled"]) {
   const fixture = structuredClone(success);
   fixture.fast.result = result;
@@ -25,7 +18,6 @@ for (const result of ["failure", "skipped", "cancelled"]) {
 const missing = structuredClone(success);
 delete missing.docs;
 assertThrows(() => validateNeeds(missing), "aggregator accepted a missing job");
-assert(aggregateCli(missing).status !== 0, "aggregator CLI accepted a missing job");
 const absentObservation = structuredClone(success);
 absentObservation.security.outputs = {};
 assertThrows(() => validateNeeds(absentObservation), "aggregator accepted a missing observation");
@@ -44,6 +36,19 @@ assert(/^name: CI$/m.test(workflow), "stable workflow name drifted");
 assert(/^  required:\n    name: required$/m.test(workflow), "stable required job name drifted");
 assert(!workflow.includes("name: CI / required"), "required job duplicates the workflow name");
 assert(workflow.includes("if: ${{ always() }}"), "aggregator is not if: always()");
+assert(
+  workflow.includes("actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"),
+  "required aggregation does not download same-run artifacts through a pinned action",
+);
+assert(
+  workflow.includes("portal-${{ github.run_id }}-${{ github.run_attempt }}-*"),
+  "required artifact pattern is not bound to the exact run attempt",
+);
+assert(workflow.includes("EXPECTED_COMMIT: ${{ github.sha }}"), "required commit is not bound to github.sha");
+assert(
+  workflow.includes('node ops/ci/aggregate.mjs .ci-artifacts/atomic "$EXPECTED_COMMIT"'),
+  "required workflow bypasses downloaded evidence validation",
+);
 assert(
   workflow.includes("cancel-in-progress: ${{ github.event_name == 'pull_request' }}"),
   "cancellation is not PR-only",
@@ -89,8 +94,14 @@ assert(required.includes("lanes=(fast lint contract security docs)"), "local req
 assert(!required.includes("real-farmd.sh"), "standalone required resolves real farmd");
 const family = read("ops/ci/family.sh");
 assert(family.includes("ops/ci/real-farmd.sh"), "family lane lost real-farmd proof");
-assert(read("ops/ci/fast.sh").includes("assert-report.mjs vitest"), "fast zero-test guard absent");
-assert(read("ops/ci/contract.sh").includes("assert-report.mjs junit"), "contract zero-test guard absent");
+assert(
+  read("ops/ci/fast.sh").includes('assert-report.mjs vitest "$reports/vitest.json" 106'),
+  "exact 106-test Vitest identity ratchet absent",
+);
+assert(
+  read("ops/ci/contract.sh").includes('assert-report.mjs junit "$reports/playwright.xml" 10'),
+  "exact 10-test mocked Playwright identity ratchet absent",
+);
 assert((read("ops/build/bundle-tests.ts").match(/^test\(/gm) ?? []).length === 5, "bundle test inventory drifted");
 assert(
   ["e2e/control-tower.spec.ts", "e2e/fleet.spec.ts"]

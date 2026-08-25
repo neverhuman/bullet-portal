@@ -7,4 +7,5 @@ require_node_floor
 log "docs lane: local links + CI structure/meta-loss controls"
 node ops/ci/docs.mjs
 node ops/ci/meta.mjs
+node ops/ci/aggregate-test.mjs
 log "docs lane passed"
