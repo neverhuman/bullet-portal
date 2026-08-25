@@ -34,7 +34,7 @@ describe("OutboxCard", () => {
     expect(screen.getByTestId("outbox-phase-5")).toHaveClass("unknown");
   });
 
-  it("renders empty as verified only from a value, and failure as unknown", () => {
+  it("renders observed empty neutrally only from a value, and failure as unknown", () => {
     const { rerender } = render(
       <OutboxCard
         outbox={toSnapshotValue(
@@ -44,7 +44,9 @@ describe("OutboxCard", () => {
         )}
       />,
     );
-    expect(screen.getByTestId("outbox-empty")).toHaveTextContent("outbox: empty (verified)");
+    expect(screen.getByTestId("outbox-empty")).toHaveTextContent("outbox: empty (observed)");
+    expect(screen.getByTestId("outbox-empty")).toHaveClass("idle");
+    expect(screen.getByTestId("outbox-empty")).not.toHaveClass("verified");
     expect(screen.getByText(/source: bullet-kernel\/sqlite-ledger/)).toHaveTextContent(
       "observed 2026-08-24T22:00:00.000Z",
     );

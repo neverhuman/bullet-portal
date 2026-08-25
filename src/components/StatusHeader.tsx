@@ -74,7 +74,7 @@ function HealthLine({ health }: { health: Loadable<string> }) {
     );
   }
   return (
-    <span className={health.value === "ok" ? "verified" : "pending"} data-testid="health-probe">
+    <span className={health.value === "ok" ? "idle" : "pending"} data-testid="health-probe">
       farmd /health: {renderObservation({ kind: "value", text: health.value })} (observed{" "}
       {health.observedAt})
     </span>

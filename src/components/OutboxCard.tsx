@@ -38,8 +38,8 @@ function OutboxBody({ outbox }: { outbox: Loadable<OutboxView> }) {
   return (
     <>
       {outbox.value.items.length === 0 ? (
-        <p className="verified" data-testid="outbox-empty">
-          outbox: empty (verified)
+        <p className="idle" data-testid="outbox-empty">
+          outbox: empty (observed)
         </p>
       ) : (
         <ul>

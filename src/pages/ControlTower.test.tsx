@@ -228,11 +228,12 @@ describe("ControlTower command honesty", () => {
     expect(screen.getByTestId("health-probe")).toHaveClass("unknown");
   });
 
-  it("renders the health probe green only on a real ok", async () => {
+  it("renders a real health observation neutrally rather than as verification", async () => {
     render(<ControlTower />);
     await waitFor(() =>
       expect(screen.getByTestId("health-probe")).toHaveTextContent("farmd /health: ok"),
     );
-    expect(screen.getByTestId("health-probe")).toHaveClass("verified");
+    expect(screen.getByTestId("health-probe")).toHaveClass("idle");
+    expect(screen.getByTestId("health-probe")).not.toHaveClass("verified");
   });
 });
