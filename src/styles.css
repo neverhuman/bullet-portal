@@ -27,6 +27,18 @@ button {
   font-weight: 700;
   cursor: pointer;
 }
+.card a {
+  color: #a9c7ff;
+}
+.card a:hover {
+  color: #d6e4ff;
+}
+a:focus-visible,
+button:focus-visible,
+input:focus-visible {
+  outline: 3px solid #f7c95d;
+  outline-offset: 3px;
+}
 dl {
   display: grid;
   grid-template-columns: 180px 1fr;
@@ -67,6 +79,9 @@ dl {
   color: #9db0c9;
   text-decoration: none;
   font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
 }
 .nav a.nav-current {
   color: #e8edf5;
@@ -96,4 +111,14 @@ dl {
 button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
