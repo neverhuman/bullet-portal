@@ -59,7 +59,11 @@ describe("ShiftBriefPage", () => {
     stubUnreachable();
     render(<ShiftBriefPage />);
     expect(screen.getByRole("heading", { name: "Shift Brief" })).toBeInTheDocument();
-    expect(screen.getByTestId("shift-brief-rows").querySelectorAll("tbody tr")).toHaveLength(15);
+    const table = screen.getByTestId("shift-brief-rows");
+    const region = screen.getByRole("region", { name: "Shift Brief" });
+    expect(region).toHaveAttribute("tabindex", "0");
+    expect(region).toContainElement(table);
+    expect(table.querySelectorAll("tbody tr")).toHaveLength(15);
     for (const item of SURFACES) {
       expect(screen.getAllByTestId(`brief-row-${item.id}`)).toHaveLength(1);
       expect(statusText(item.id)).toBe(ABSENT_SUBJECT_SURFACES.includes(item.id) ? "unknown" : "durable");

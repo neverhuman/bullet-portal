@@ -195,7 +195,7 @@ export function ShiftBriefPage() {
   const rows = SURFACES.map((surface) => briefRow(surface, reads[surface.id] ?? { kind: "loading" }));
   return (
     <section className="card" data-testid="shift-brief">
-      <h1>Shift Brief</h1>
+      <h1 id="shift-brief-title">Shift Brief</h1>
       <p className="tagline" data-testid="shift-brief-tagline">
         profile availability unknown (farmd serves no selected-profile subject, so every absent
         ledger subject is unknown under every profile) · rows from the Portal surface declarations
@@ -208,34 +208,42 @@ export function ShiftBriefPage() {
       <p className="idle" data-testid="shift-brief-summary">
         {summarize(rows)}
       </p>
-      <table data-testid="shift-brief-rows">
-        <thead>
-          <tr>
-            <th>surface</th>
-            <th>status</th>
-            {COLUMNS.map(([header]) => (
-              <th key={header}>{header}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.surface.id} data-testid={`brief-row-${row.surface.id}`}>
-              <td>
-                <a href={`#/${row.surface.id}`}>{row.surface.title}</a> §{row.surface.spec}
-              </td>
-              <td className={row.statusClass} data-testid={`brief-${row.surface.id}-status`}>
-                {row.status}
-              </td>
-              {COLUMNS.map(([header, cell]) => (
-                <td key={header} data-testid={`brief-${row.surface.id}-${header.split(" ")[0]}`}>
-                  {cell(row)}
-                </td>
+      <div
+        className="table-scroll"
+        role="region"
+        aria-labelledby="shift-brief-title"
+        tabIndex={0}
+        data-testid="shift-brief-table-region"
+      >
+        <table data-testid="shift-brief-rows">
+          <thead>
+            <tr>
+              <th>surface</th>
+              <th>status</th>
+              {COLUMNS.map(([header]) => (
+                <th key={header}>{header}</th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.surface.id} data-testid={`brief-row-${row.surface.id}`}>
+                <td>
+                  <a href={`#/${row.surface.id}`}>{row.surface.title}</a> §{row.surface.spec}
+                </td>
+                <td className={row.statusClass} data-testid={`brief-${row.surface.id}-status`}>
+                  {row.status}
+                </td>
+                {COLUMNS.map(([header, cell]) => (
+                  <td key={header} data-testid={`brief-${row.surface.id}-${header.split(" ")[0]}`}>
+                    {cell(row)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }

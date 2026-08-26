@@ -35,9 +35,14 @@ button {
 }
 a:focus-visible,
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+.table-scroll:focus-visible {
   outline: 3px solid #f7c95d;
   outline-offset: 3px;
+}
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
 }
 dl {
   display: grid;
