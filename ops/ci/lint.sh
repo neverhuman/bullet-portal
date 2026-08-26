@@ -20,5 +20,6 @@ actionlint
 mapfile -t shell_files < <(find ops/ci scripts -type f -name '*.sh' -print | sort)
 (( ${#shell_files[@]} > 0 )) || { echo "[ci] zero shell files discovered" >&2; exit 1; }
 shellcheck -x -P ops/ci "${shell_files[@]}"
+bash ops/ci/proof-custody-test.sh
 git diff --check
 log "lint lane passed (${#shell_files[@]} shell files)"

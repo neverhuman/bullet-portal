@@ -32,6 +32,7 @@ case "$lane" in
     exit 2
     ;;
 esac
+tools+=(stat wc)
 
 missing=0
 for tool in "${tools[@]}"; do
