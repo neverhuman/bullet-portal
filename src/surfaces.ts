@@ -23,6 +23,13 @@ export type Surface = {
   /**
    * Present only while farmd serves no projection for this surface. Names the
    * exact missing durable subject and the V1 slice that will produce it.
+   *
+   * Profile availability is deliberately not modelled here. Typing a surface
+   * as out of a release profile is an availability assertion only farmd can
+   * make, from an authenticated installed profile, through a profile-bound
+   * availability subject the Portal validates against the generated contract.
+   * Until that contract exists every absent ledger subject is `unknownReason`
+   * in every view; no browser-side profile selection may change that.
    */
   unknownReason?: string;
 };
@@ -151,7 +158,32 @@ export function surfaceById(id: string): Surface | undefined {
   return SURFACES.find((surface) => surface.id === id);
 }
 
-export function hashToSurface(hash: string): SurfaceId {
+/**
+ * Whether farmd serves a projection for the surface (`durable`) or the
+ * surface names a missing ledger subject (`unknown`). There is no third state.
+ */
+export type SurfaceStatus = "durable" | "unknown";
+
+export function surfaceStatus(surface: Surface): SurfaceStatus {
+  return surface.unknownReason === undefined ? "durable" : "unknown";
+}
+
+/** The one-screen Shift Brief route (docs/nightshift.md), reachable from Nav. */
+export const SHIFT_BRIEF_ROUTE = "shift-brief";
+
+export type RouteId = typeof SHIFT_BRIEF_ROUTE | SurfaceId;
+
+/**
+ * Empty and unknown hashes resolve to Control Tower this batch; making the
+ * Shift Brief the default is follow-up W6-L3b once the E2E callers of "/" are
+ * unclaimed.
+ */
+export const DEFAULT_ROUTE: RouteId = "control-tower";
+
+export function hashToRoute(hash: string): RouteId {
   const raw = hash.replace(/^#\/?/, "");
-  return surfaceById(raw)?.id ?? "control-tower";
+  if (raw === SHIFT_BRIEF_ROUTE) {
+    return SHIFT_BRIEF_ROUTE;
+  }
+  return surfaceById(raw)?.id ?? DEFAULT_ROUTE;
 }

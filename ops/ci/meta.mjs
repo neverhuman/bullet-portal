@@ -133,9 +133,9 @@ assert(
 );
 assert(
   read("ops/ci/fast.sh").includes(
-    'assert-report.mjs vitest "$reports/vitest.json" 123',
+    'assert-report.mjs vitest "$reports/vitest.json" 130',
   ),
-  "exact 123-test Vitest identity ratchet absent",
+  "exact 130-test Vitest identity ratchet absent",
 );
 assert(
   read("ops/ci/fast.sh").includes("BULLET_FARMD_TEST_PROXY_INVALID"),

@@ -1,8 +1,17 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { NO_LEDGER_SUBJECT, SURFACES, surfaceById } from "../surfaces";
+import { NO_LEDGER_SUBJECT, SURFACES, surfaceById, surfaceStatus } from "../surfaces";
 import { PROJECTED_SURFACES } from "./ProjectedSurface";
 import { SurfacePage } from "./SurfacePage";
+
+const ABSENT_SUBJECT_SURFACES = [
+  "cognitive-router",
+  "fusion-lab",
+  "quota-capacity",
+  "struggle-cockpit",
+  "behavior-center",
+  "workspace-hygiene",
+];
 
 describe("SurfacePage", () => {
   it("renders the exact missing ledger subject, not an empty success list", () => {
@@ -26,14 +35,7 @@ describe("SurfacePage", () => {
     const unprojected = SURFACES.filter(
       (surface) => surface.id !== "control-tower" && !PROJECTED_SURFACES.has(surface.id),
     );
-    expect(unprojected.map((surface) => surface.id)).toEqual([
-      "cognitive-router",
-      "fusion-lab",
-      "quota-capacity",
-      "struggle-cockpit",
-      "behavior-center",
-      "workspace-hygiene",
-    ]);
+    expect(unprojected.map((surface) => surface.id)).toEqual(ABSENT_SUBJECT_SURFACES);
     for (const surface of unprojected) {
       expect(surface.unknownReason, surface.id).toContain(NO_LEDGER_SUBJECT);
       expect(surface.unknownReason, surface.id).toMatch(/V1-S[46]/);
@@ -43,5 +45,28 @@ describe("SurfacePage", () => {
         expect(surface.unknownReason, surface.id).toBeUndefined();
       }
     }
+  });
+
+  it("can render the six absent-subject surfaces only as unknown: no profile field, no other status", () => {
+    for (const id of ABSENT_SUBJECT_SURFACES) {
+      const surface = surfaceById(id);
+      expect(surface, id).toBeDefined();
+      if (surface === undefined) {
+        return;
+      }
+      expect(Object.keys(surface).sort(), id).toEqual(["answers", "id", "spec", "title", "unknownReason"]);
+      expect(surfaceStatus(surface), id).toBe("unknown");
+      const view = render(<SurfacePage surface={surface} />);
+      const unknown = screen.getByTestId(`${id}-unknown`);
+      expect(unknown, id).toHaveClass("unknown");
+      expect(unknown.textContent, id).toMatch(/^unknown: /);
+      expect(unknown.textContent, id).toContain(NO_LEDGER_SUBJECT);
+      const card = screen.getByTestId(`surface-${id}`);
+      expect(card.querySelector(".verified, .live, .pending"), id).toBeNull();
+      expect(card.textContent, id).not.toContain("OUT_OF_PROFILE");
+      expect(card.textContent, id).toContain("projection unknown · confidence unknown");
+      view.unmount();
+    }
+    expect(SURFACES.filter((surface) => surfaceStatus(surface) === "durable")).toHaveLength(9);
   });
 });

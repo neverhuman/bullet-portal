@@ -20,7 +20,7 @@ const successfulNeeds = Object.fromEntries(
   lanes.map((lane) => [lane, { result: "success", outputs: { observation: "true" } }]),
 );
 const artifactsByLane = {
-  fast: { ".ci-artifacts/reports/vitest.json": '{"numTotalTests":123}\n' },
+  fast: { ".ci-artifacts/reports/vitest.json": '{"numTotalTests":130}\n' },
   lint: {},
   contract: { ".ci-artifacts/reports/playwright.xml": '<testsuites tests="10"/>\n' },
   security: {},
@@ -98,7 +98,7 @@ scenario("unexpected observation", "CI_ARTIFACT_INVENTORY_INVALID", (root) => {
 scenario("symlinked artifact", "CI_ARTIFACT_SYMLINK_REJECTED", (root) => {
   const path = join(root, "reports/vitest.json");
   const target = join(root, "outside.txt");
-  writeFileSync(target, '{"numTotalTests":123}\n');
+  writeFileSync(target, '{"numTotalTests":130}\n');
   rmSync(path);
   symlinkSync(target, path);
   mutateObservation(root, "fast", (value) => {

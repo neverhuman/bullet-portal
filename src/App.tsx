@@ -3,39 +3,43 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Nav } from "./components/Nav";
 import { ControlTower } from "./pages/ControlTower";
 import { isProjected, ProjectedSurface } from "./pages/ProjectedSurface";
+import { ShiftBriefPage } from "./pages/ShiftBriefPage";
 import { SurfacePage } from "./pages/SurfacePage";
-import { hashToSurface, surfaceById, type SurfaceId } from "./surfaces";
+import { hashToRoute, SHIFT_BRIEF_ROUTE, surfaceById, type RouteId } from "./surfaces";
 
-function currentSurface(): SurfaceId {
-  return hashToSurface(window.location.hash);
+function currentRoute(): RouteId {
+  return hashToRoute(window.location.hash);
 }
 
 export function App() {
-  const [surfaceId, setSurfaceId] = useState<SurfaceId>(currentSurface);
+  const [route, setRoute] = useState<RouteId>(currentRoute);
 
   useEffect(() => {
     const onHash = (): void => {
-      setSurfaceId(currentSurface());
+      setRoute(currentRoute());
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  const surface = surfaceById(surfaceId) ?? surfaceById("control-tower");
-  if (surface === undefined) {
-    throw new Error("control-tower surface missing");
-  }
-
   return (
     <ErrorBoundary>
-      <Nav current={surfaceId} />
-      {surfaceId === "control-tower" ? (
-        <ControlTower />
-      ) : isProjected(surfaceId) ? (
-        <ProjectedSurface surface={surface} />
-      ) : (
-        <SurfacePage surface={surface} />
-      )}
+      <Nav current={route} />
+      <Page route={route} />
     </ErrorBoundary>
   );
+}
+
+function Page({ route }: { route: RouteId }) {
+  if (route === SHIFT_BRIEF_ROUTE) {
+    return <ShiftBriefPage />;
+  }
+  if (route === "control-tower") {
+    return <ControlTower />;
+  }
+  const surface = surfaceById(route);
+  if (surface === undefined) {
+    throw new Error(`${route} surface missing`);
+  }
+  return isProjected(route) ? <ProjectedSurface surface={surface} /> : <SurfacePage surface={surface} />;
 }
