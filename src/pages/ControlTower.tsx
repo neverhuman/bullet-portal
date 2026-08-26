@@ -21,13 +21,12 @@ import { useHealthProbe } from "../hooks/useHealthProbe";
 import type { Loadable } from "../loadable";
 import { toSnapshotValue, toUnknown } from "../loadable";
 
-type MutationPhase = "IDLE" | CommandStatus["status"];
+type MutationPhase = "IDLE" | Exclude<CommandStatus["status"], "VERIFIED">;
 
 const PHASE_CLASS: Record<MutationPhase, string> = {
   IDLE: "idle",
   PENDING: "pending",
   APPLIED: "pending",
-  VERIFIED: "verified",
   FAILED: "failed",
   UNKNOWN: "unknown",
 };
@@ -44,6 +43,10 @@ function regresses(previous: CommandStatus["status"], next: CommandStatus["statu
 
 function waitForPoll(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+}
+
+function unverifiableSuccess(commandId: string): string {
+  return `command ${commandId} reported durable VERIFIED, but no generated runtime Evidence and Effect receipt contract is available; displayed outcome is UNKNOWN`;
 }
 
 export function ControlTower() {
@@ -145,6 +148,13 @@ export function ControlTower() {
         runningRef.current = false;
         return;
       }
+      if (next.status === "VERIFIED") {
+        setCommand(next);
+        setPhase("UNKNOWN");
+        setError(unverifiableSuccess(next.id));
+        runningRef.current = false;
+        return;
+      }
       last = next;
       setCommand(next);
       setPhase(next.status);
@@ -154,7 +164,9 @@ export function ControlTower() {
       setError(`command ${last.id} durably ${last.status}`);
       return;
     }
-    await refreshSnapshot();
+    setCommand(last);
+    setPhase("UNKNOWN");
+    setError(unverifiableSuccess(last.id));
   }
 
   async function onRunDemo(): Promise<void> {
@@ -173,7 +185,7 @@ export function ControlTower() {
         return;
       }
       setCommand(admitted);
-      setPhase(admitted.status);
+      setPhase("PENDING");
       await reconcile(admitted, generation);
     } catch (err) {
       const ambiguous = err instanceof ApiError && err.outcomeUnknown;

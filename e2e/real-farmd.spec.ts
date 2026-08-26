@@ -121,6 +121,7 @@ test.describe("real farmd command authority", () => {
     await expect(page.getByTestId("command-id")).toHaveText(commandId ?? "");
     await expect(page.getByTestId("command")).toContainText("EXECUTION_ADAPTER_UNAVAILABLE");
     await expect(page.getByTestId("command")).toContainText(commandId ?? "");
+    await expect(page.getByTestId("command").locator(".verified")).toHaveCount(0);
     await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 2");
 
     const removed = await fetch(`${farmd}/api/v1/demo/run`, { method: "POST" });

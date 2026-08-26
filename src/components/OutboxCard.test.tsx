@@ -16,7 +16,7 @@ function item(seq: number, phase: OutboxItem["phase"]): OutboxItem {
 }
 
 describe("OutboxCard", () => {
-  it("colors delivery phases honestly", () => {
+  it("refuses a generic verified outbox phase without runtime receipts", () => {
     const malformed = { ...item(5, "unknown"), phase: "garbled" } as unknown as OutboxItem;
     const view: OutboxView = {
       items: [
@@ -30,7 +30,11 @@ describe("OutboxCard", () => {
     render(<OutboxCard outbox={toValue(view)} />);
     expect(screen.getByTestId("outbox-phase-1")).toHaveClass("pending");
     expect(screen.getByTestId("outbox-phase-2")).toHaveClass("pending");
-    expect(screen.getByTestId("outbox-phase-3")).toHaveClass("verified");
+    expect(screen.getByTestId("outbox-phase-3")).toHaveClass("unknown");
+    expect(screen.getByTestId("outbox-phase-3")).not.toHaveClass("verified");
+    expect(screen.getByTestId("outbox-phase-3")).toHaveTextContent(
+      "verified (receipt unavailable)",
+    );
     expect(screen.getByTestId("outbox-phase-4")).toHaveClass("unknown");
     expect(screen.getByTestId("outbox-phase-5")).toHaveClass("unknown");
   });

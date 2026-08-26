@@ -130,8 +130,8 @@ export const SURFACES: Surface[] = [
     answers: "clone nonce, preservation receipt, worktree refusal",
     unknownReason:
       `${NO_LEDGER_SUBJECT}: workspace dirty/untracked state, preservation receipts, and ` +
-      "cleanup eligibility are not persisted rows (attempt rows carry only workspace_id and " +
-      "workspace_nonce, shown on Session Supervisor); produced by V1-S4 item 2 (preserve the " +
+      "cleanup eligibility are not persisted rows (attempt rows carry only workspace_id, " +
+      "shown on Session Supervisor); produced by V1-S4 item 2 (preserve the " +
       "workspace, resume from the exact checkpoint) and V1-S3 preservation receipts",
   },
   {

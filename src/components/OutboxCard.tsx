@@ -5,11 +5,15 @@ import { renderObservation } from "../observation";
 const PHASE_CLASS: Record<string, string> = {
   pending: "pending",
   applied: "pending",
-  verified: "verified",
+  verified: "unknown",
 };
 
 function phaseClass(phase: string): string {
   return PHASE_CLASS[phase] ?? "unknown";
+}
+
+function phaseLabel(phase: string): string {
+  return phase === "verified" ? `${phase} (receipt unavailable)` : phase;
 }
 
 export function OutboxCard({ outbox }: { outbox: Loadable<OutboxView> }) {
@@ -57,7 +61,7 @@ function OutboxRow({ item }: { item: OutboxItem }) {
   return (
     <li>
       <span className={phaseClass(item.phase)} data-testid={`outbox-phase-${item.seq}`}>
-        {item.phase}
+        {phaseLabel(item.phase)}
       </span>{" "}
       — seq {item.seq} · {item.kind}
       {item.delivered_at !== null ? ` · delivered ${item.delivered_at}` : ""}

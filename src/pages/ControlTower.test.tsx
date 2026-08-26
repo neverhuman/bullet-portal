@@ -65,7 +65,7 @@ beforeEach(() => {
     payload: {},
   });
   mocked.submitCommand.mockResolvedValue(command("PENDING"));
-  mocked.getCommand.mockResolvedValue(command("VERIFIED", { evidence: "PASS" }));
+  mocked.getCommand.mockResolvedValue(command("UNKNOWN"));
   mocked.exchangeBootstrap.mockResolvedValue({
     status: "AUTHENTICATED",
     csrf_token: `csrf_${"c".repeat(64)}`,
@@ -96,7 +96,7 @@ describe("ControlTower command honesty", () => {
     expect(submit).toBeEnabled();
   });
 
-  it("shows APPLIED as non-green until the exact command becomes VERIFIED", async () => {
+  it("refuses a bare durable VERIFIED status without runtime Evidence and Effect receipts", async () => {
     mocked.getCommand
       .mockResolvedValueOnce(command("APPLIED", { applied: true }))
       .mockResolvedValueOnce(command("VERIFIED", { evidence: "PASS" }));
@@ -104,9 +104,22 @@ describe("ControlTower command honesty", () => {
     await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("APPLIED"));
     expect(screen.getByTestId("phase")).toHaveClass("pending");
-    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("VERIFIED"));
-    expect(screen.getByTestId("phase")).toHaveClass("verified");
-    expect(screen.getByTestId("command-id")).toHaveTextContent(commandId);
+    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
+    expect(screen.getByTestId("phase")).toHaveClass("unknown");
+    expect(screen.getByTestId("mutation-error")).toHaveTextContent(
+      `command ${commandId} reported durable VERIFIED`,
+    );
+    expect(screen.getByTestId("mutation-error")).toHaveTextContent(
+      "no generated runtime Evidence and Effect receipt contract is available",
+    );
+    const card = screen.getByTestId("command");
+    expect(card).toHaveTextContent(commandId);
+    expect(card).toHaveTextContent("run_demo");
+    expect(card).toHaveTextContent(digest);
+    expect(card).toHaveTextContent("VERIFIED (receipt unavailable)");
+    expect(card).toHaveTextContent("unverified generic result suppressed");
+    expect(card).not.toHaveTextContent('{"evidence":"PASS"}');
+    expect(card.querySelector(".verified")).toBeNull();
   });
 
   it("keeps a durable FAILED result red", async () => {
@@ -157,14 +170,14 @@ describe("ControlTower command honesty", () => {
     expect(screen.getByTestId("mutation-error")).not.toHaveTextContent("durably FAILED");
   });
 
-  it("clears an older verified command before a later admission fails", async () => {
+  it("clears an older terminal command before a later admission fails", async () => {
     mocked.submitCommand
       .mockResolvedValueOnce(command("PENDING"))
       .mockRejectedValueOnce(new api.ApiError("POST", "/api/v1/commands", 500, "HTTP 500"));
     render(<ControlTower />);
     const button = screen.getByRole("button", { name: "Submit durable demo command" });
     await userEvent.click(button);
-    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("VERIFIED"));
+    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
     expect(screen.getByTestId("command")).toBeInTheDocument();
     await userEvent.click(button);
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("FAILED"));
@@ -180,7 +193,7 @@ describe("ControlTower command honesty", () => {
     render(<ControlTower />);
     const button = screen.getByRole("button", { name: "Submit durable demo command" });
     await userEvent.click(button);
-    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("VERIFIED"));
+    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
     await userEvent.click(button);
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
     expect(screen.getByTestId("mutation-error")).toHaveTextContent(

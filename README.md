@@ -28,10 +28,14 @@ production-readiness claim.
 The operator pastes farmd's one-time CLI bootstrap into a password input. Farmd
 returns an HttpOnly/SameSite browser session and a session-bound CSRF value;
 only then can the browser submit a fresh idempotent `run_demo` envelope to
-`POST /api/v1/commands`. The Portal polls `GET /api/v1/commands/{id}` and renders only
-durable `VERIFIED` green. `PENDING` and `APPLIED` remain amber, while transport
-ambiguity and durable `UNKNOWN` remain unknown. Farmd has no dispatch, APPLIED,
-or VERIFIED path: a newly admitted real command stays `PENDING` until farmd's
+`POST /api/v1/commands`. The Portal polls `GET /api/v1/commands/{id}`. `PENDING`
+and `APPLIED` remain amber, while transport ambiguity and durable `UNKNOWN`
+remain unknown. The wire vocabulary includes `VERIFIED`, but its current
+`CommandStatus.result` is generic JSON and cannot validate the required exact
+Candidate, independent Evidence, Effect receipt, and command correlation. A
+bare `VERIFIED` status therefore displays as local `UNKNOWN`, its unverified
+result is discarded, and no command path is green. Farmd has no dispatch,
+APPLIED, or VERIFIED path: a newly admitted real command stays `PENDING` until farmd's
 worker-token `POST /internal/v1/commands/{id}/reconcile` settles it, and the
 only settlement it produces today is `UNKNOWN` (`EXECUTION_ADAPTER_UNAVAILABLE`),
 which `e2e/real-farmd.spec.ts` shows the browser rendering as unknown, never

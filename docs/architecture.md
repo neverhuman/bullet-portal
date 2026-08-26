@@ -48,18 +48,26 @@ Spec §25 vocabulary: PENDING, CONFIRMED, FAILED, UNKNOWN, STALE,
 CONTRADICTORY. Portal rendering:
 
 - Mutation phases use the exact public command names. `PENDING` and `APPLIED`
-  render amber; only persisted `VERIFIED` renders green; persisted `FAILED`
-  renders red; persisted or locally unobservable `UNKNOWN` renders unknown.
-  `IDLE` is neutral. A successful POST must be exact HTTP 202 with a validated
-  `PENDING` subject and still does not render green.
+  render amber; persisted `FAILED` renders red; persisted or locally
+  unobservable `UNKNOWN` renders unknown. `VERIFIED` may render green only when
+  a generated runtime contract validates the exact Candidate, independent
+  Evidence, Effect receipt, and command correlation. The current
+  `CommandStatus.result` is generic JSON, so a bare durable `VERIFIED` is
+  discarded and displayed as local `UNKNOWN`; the displayable phase type
+  excludes `VERIFIED`, and no command path is green. `IDLE` is neutral. A
+  successful POST must be exact HTTP 202 with a validated `PENDING` subject and
+  still does not render green.
 - Outbox delivery phases come from the kernel wire names
-  (`CommandPhase::as_str`): `pending` and `applied` render amber, `verified`
-  renders green, `unknown` — and any unrecognized phase — renders red.
+  (`CommandPhase::as_str`): `pending` and `applied` render amber. The exact raw
+  `verified` value is preserved but renders unknown with `receipt unavailable`:
+  generated `OutboxItem` carries no Candidate, independent Evidence, Effect
+  receipt, or command-correlation subject that could authorize green.
+  `unknown` — and any unrecognized phase — also renders unknown.
 - Observations use the generated `ObservationKind` (`value`, `empty`,
   `unknown`, `contradictory`). UNKNOWN is never rendered as healthy and never
   as an authoritative EMPTY: a failed `GET /api/v1/missions` renders
   `unknown: control plane unreachable (…)`, never "No missions yet.".
-  "No missions yet." and "outbox: empty (verified)" render only from an
+  "No missions yet." and "outbox: empty (observed)" render only from an
   HTTP 200 with a JSON body.
 - Projected tables (`RowsTable` in `src/components/ProjectionCard.tsx`) render
   an empty set as `<label>: 0 rows (verified at sequence N)` in the neutral
@@ -108,7 +116,8 @@ Context Lineage render zero rows without green. The preview server is test scaff
 the missing Rust asset embedding. Because no dispatch, APPLIED, or VERIFIED
 path exists, the exact real results are durable `PENDING` and, after the
 worker reconcile, durable `UNKNOWN` (`EXECUTION_ADAPTER_UNAVAILABLE`); neither
-is transaction completion.
+is transaction completion. The browser proof also asserts that the reconciled
+command card contains no green status.
 
 ## Event stream
 

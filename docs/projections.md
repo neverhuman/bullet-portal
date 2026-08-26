@@ -104,7 +104,7 @@ refreshes a one-shot projection and a projection never claims to be live.
 
 | Surface (`id`, spec) | Routes | DTO (`src/generated/api.ts`) | Component | Shown | Deliberately absent |
 | --- | --- | --- | --- | --- | --- |
-| Control Tower (`control-tower`, §25.1) | `GET /api/v1/missions`, `GET /api/v1/outbox`, `GET /health`, `GET /api/v1/events?after=<seq>`; `POST /api/v1/auth/bootstrap`, `POST /api/v1/commands`, `GET /api/v1/commands/{id}` | `Mission[]`, `OutboxView`, `Health`, `EventEnvelope`, `BootstrapResponse`, `CommandEnvelope`, `CommandStatus` | `src/pages/ControlTower.tsx` | `as_of_sequence`, projection lag from durable `Event.at`, stream state, `/health` probe, missions, outbox phases, the exact admitted command and its polled status | green for `PENDING` or `APPLIED`; any status that does not repeat the admitted id, kind, and payload digest; survival, cost, quota risk, and struggle (no ledger subject) |
+| Control Tower (`control-tower`, §25.1) | `GET /api/v1/missions`, `GET /api/v1/outbox`, `GET /health`, `GET /api/v1/events?after=<seq>`; `POST /api/v1/auth/bootstrap`, `POST /api/v1/commands`, `GET /api/v1/commands/{id}` | `Mission[]`, `OutboxView`, `Health`, `EventEnvelope`, `BootstrapResponse`, `CommandEnvelope`, `CommandStatus` | `src/pages/ControlTower.tsx` | `as_of_sequence`, projection lag from durable `Event.at`, stream state, `/health` probe, missions, outbox phases, the exact admitted command and its polled status; a bare durable `VERIFIED` is displayed as local `UNKNOWN` because generic `CommandStatus.result` cannot validate runtime Evidence and Effect receipts | green for any command until a generated runtime receipt contract binds the exact Candidate, independent Evidence, Effect receipt, and command id; any status that does not repeat the admitted id, kind, and payload digest; survival, cost, quota risk, and struggle (no ledger subject) |
 | Mission Graph (`mission-graph`, §25.2) | `GET /api/v1/missions`, then `GET /api/v1/missions/{id}` per mission | `Mission[]`, `MissionView` (`mission`, `packages: WorkPackage[]`, `fence`) | `src/pages/ProjectedSurface.tsx` (`MissionGraph`) | raw JSON `{missions, graphs}` at the shared watermark | plan revisions, variants, attempts, candidates, evidence, and effects are not in `MissionView`; they appear only on Session Supervisor, Merge Rail, and Quality Lab |
 | Live Attempt (`live-attempt`, §25.6) | as Mission Graph plus `GET /api/v1/ready` | `ReadyView` or `null`, `MissionView` | `src/pages/ProjectedSurface.tsx` (`LiveAttempt`) | raw JSON `{ready, graphs}`; `ready: null` is the empty queue at the watermark | session events, authority token hash, last-progress time: none is a ledger subject; `ReadyView` carries only ids, `title`, `enqueued_at` |
 | Fleet (`fleet`, §25.5) | `GET /api/v1/fleet` | `FleetView` (`authority_time`, `leases: FleetLease[]`, `ready_queue: ReadyRow[]`) | `src/pages/FleetPage.tsx` | `authority_time` (store clock, liveness basis); per lease `liveness` live/expired/unknown judged by the kernel against that clock, fence, runner id and epoch, `heartbeat_at`, `expires_at`, `ttl_seconds`, linked attempt state, package, mission; ready queue | any browser-clock liveness judgement; runner host or process identity; a lease with no attempt row prints `contradictory: attempt row missing` rather than being hidden |
@@ -141,12 +141,7 @@ longer in this table; only the exact revision-one slice above is projected.
 | Quota and Capacity (`quota-capacity`, §25.9) | no ledger subject exists for this surface yet: budget/quota reservations and provider capacity observations are not persisted rows; produced by V1-S6 item 1 (persist budget/quota reservations) and item 3 (UNKNOWN paid capacity blocks ordinary dispatch) | V1-S6 items 1 and 3 |
 | Struggle and Escalation (`struggle-cockpit`, §25.10) | no ledger subject exists for this surface yet: struggle scores, progress signatures, and escalation ladders are not persisted rows; produced by V1-S6 item 1 (persist struggle/escalation) | V1-S6 item 1 |
 | Behavior Center (`behavior-center`, §25.11) | no ledger subject exists for this surface yet: behavior rule events, enforcement, and remediation receipts are not persisted rows (crates/behavior is a non-authoritative detector scaffold); produced by V1-S6 item 1 (persist behavior rules) | V1-S6 item 1 |
-| Workspace and Git Hygiene (`workspace-hygiene`, §25.12) | no ledger subject exists for this surface yet: workspace dirty/untracked state, preservation receipts, and cleanup eligibility are not persisted rows (attempt rows carry only workspace_id and workspace_nonce, shown on Session Supervisor); produced by V1-S4 item 2 (preserve the workspace, resume from the exact checkpoint) and V1-S3 preservation receipts | V1-S4 item 2, V1-S3 item 5 |
-
-Known imprecision in the last reason string: `AttemptRow` in
-`src/generated/api.ts` has no `workspace_nonce` field, so Session Supervisor
-shows `workspace_id` only. The reason text is quoted as the code says it; the
-correction belongs to `src/surfaces.ts`, not to this document.
+| Workspace and Git Hygiene (`workspace-hygiene`, §25.12) | no ledger subject exists for this surface yet: workspace dirty/untracked state, preservation receipts, and cleanup eligibility are not persisted rows (attempt rows carry only workspace_id, shown on Session Supervisor); produced by V1-S4 item 2 (preserve the workspace, resume from the exact checkpoint) and V1-S3 preservation receipts | V1-S4 item 2, V1-S3 item 5 |
 
 ## Where this is exercised
 
@@ -170,8 +165,9 @@ correction belongs to `src/surfaces.ts`, not to this document.
   watermarks, and one shared watermark across all six; that empty Fleet and
   Context Lineage render verified zero-row observations with no
   `.verified` element; that Incidents & Audit shows `latest_sequence` equal to
-  that watermark; and that Quota and Capacity names its missing subject.
-- Packaged farmd (`bash ops/ci/packaged-farmd.sh`): the same two
+  that watermark; that the real reconciled `UNKNOWN` command card has no green
+  status; and that Quota and Capacity names its missing subject.
+- Packaged farmd (`bash ops/ci/packaged-farmd.sh`): the same three
   `e2e/real-farmd.spec.ts` tests, run against a `bullet-farmd` built with
   `--features embedded-portal` that serves this Portal's manifest-verified
   `dist` bytes at its own origin (`playwright.packaged.config.ts`, no preview

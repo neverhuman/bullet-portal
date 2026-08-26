@@ -4,8 +4,8 @@
 // DO NOT EDIT BY HAND.
 export const SCHEMA_VERSION = "v1alpha1" as const;
 export const SCHEMA_BUNDLE_HASH = "0942b0662628b82bc882bc02935db276adf01772ee27f9b257b0e5e9c6a32ce0" as const;
-export const INVARIANT_REGISTRY_HASH = "fd849db391c75398fd82f0f26da18a284ab1a5e5d1c6ff36c01f5015973a053f" as const;
-export const POLICY_SNAPSHOT_HASH = "827f880ef4a0d14cc56512adcfecd5ae5b141d2b9ef3886f390ce1f31cd30bf6" as const;
+export const INVARIANT_REGISTRY_HASH = "f43cf796d47c18bee2cc11c9084919d0b22b20f6f2b82a8bb5c924ee3108bf9a" as const;
+export const POLICY_SNAPSHOT_HASH = "fc1cf88471c4945732a9626a974ae8b293c1be27ddcb2ee9f8cae8ac84be61be" as const;
 export const CANONICAL_GOLDEN_JSON = "{\"a\":\"é\",\"array\":[true,null,17],\"z\":\"last\"}" as const;
 export const CANONICAL_GOLDEN_HASH = "1d800cb94962906f78d42cb8cc84c2c078311a50e35ca515240b800abc3d2263" as const;
 export const AUTHORITY_GOLDEN_HASH = "4ff1ce8a4ba7a37ae705a8d2459e5a9d900abe55610f6d6984fe514cd37860df" as const;
