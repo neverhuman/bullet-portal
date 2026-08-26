@@ -40,10 +40,12 @@ green.
 ## Quick start
 
 ```bash
-just setup
 just fast          # tsc + vitest + production build
 npm run dev        # http://127.0.0.1:5173
 ```
+
+Run `just setup` first only when this checkout has not yet run dependency
+preparation.
 
 The dev server proxies `/api/v1`, `/health`, and `/openapi.yaml` to
 `http://127.0.0.1:7420` (bullet-farmd). Browser requests remain same-origin
