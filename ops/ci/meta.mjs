@@ -11,6 +11,8 @@ const assert = (condition, message) => {
 const lanes = ["fast", "lint", "contract", "security", "docs"];
 const nightlyPurpose =
   "compatibility alias for the exact family lane; invokes no provider, forge, or live oracle and preserves the family lane's outcome";
+const zizmorCommand =
+  "zizmor --offline --no-ignores --strict-collection .";
 const success = Object.fromEntries(
   lanes.map((lane) => [
     lane,
@@ -156,10 +158,27 @@ assert(
   (read("e2e/real-farmd.spec.ts").match(/^\s*test\(/gm) ?? []).length === 3,
   "family test inventory drifted",
 );
-assert(
-  read("ops/ci/security.sh").includes("secret-canary.sh"),
-  "secret canary absent",
-);
+const security = read("ops/ci/security.sh");
+assert(security.includes("secret-canary.sh"), "secret canary absent");
+const zizmorProse = [
+  read("docs/release.md"),
+  read("docs/testing.md"),
+  read("tools/security-lane.sh"),
+];
+validateZizmorClaim(security, zizmorProse);
+for (const hostileSecurity of [
+  ...["--offline ", "--no-ignores ", "--strict-collection "].map((flag) =>
+    security.replace(flag, ""),
+  ),
+  security.replace(zizmorCommand, "zizmor ."),
+  security.replace(zizmorCommand, `${zizmorCommand}\n${zizmorCommand}`),
+  security.replace(zizmorCommand, `${zizmorCommand} || true`),
+]) {
+  assertThrows(
+    () => validateZizmorClaim(hostileSecurity, zizmorProse),
+    "weakened zizmor invocation was accepted",
+  );
+}
 const ignoredFingerprints = read(".gitleaksignore")
   .trim()
   .split("\n")
@@ -261,6 +280,45 @@ assert(
   "direct Jeryu refusal lost its stable code",
 );
 const justfile = read("Justfile");
+const ciLocal = read("scripts/ci-local.sh");
+const nightly = read("ops/ci/nightly.sh");
+validateNightlyChain(justfile, ciLocal, nightly);
+const nightlyCall = "bash ops/ci/family.sh";
+const nightlyRoute = "nightly)  bash ops/ci/nightly.sh ;;";
+for (const [hostileJustfile, hostileCiLocal, hostileNightly] of [
+  [justfile, ciLocal, nightly.replace(nightlyCall, "true")],
+  [justfile, ciLocal, nightly.replace(nightlyCall, `# ${nightlyCall}`)],
+  [
+    justfile,
+    ciLocal,
+    nightly.replace(nightlyCall, `${nightlyCall}\n${nightlyCall}`),
+  ],
+  [
+    justfile.replace(
+      "bash scripts/ci-local.sh nightly",
+      "bash scripts/ci-local.sh family",
+    ),
+    ciLocal,
+    nightly,
+  ],
+  [
+    justfile,
+    ciLocal.replace(nightlyRoute, "nightly)  bash ops/ci/family.sh ;;"),
+    nightly,
+  ],
+  [justfile, ciLocal, nightly.replace(nightlyCall, `${nightlyCall} || true`)],
+  [justfile, ciLocal, nightly.replace(nightlyCall, `${nightlyCall} &`)],
+  [
+    justfile,
+    ciLocal,
+    nightly.replace(nightlyCall, `set +e\n${nightlyCall}\nexit 0`),
+  ],
+]) {
+  assertThrows(
+    () => validateNightlyChain(hostileJustfile, hostileCiLocal, hostileNightly),
+    "nightly compatibility-chain mutation was accepted",
+  );
+}
 const setup = justfile.match(/^setup:\n((?:    .+\n)+)/m)?.[1] ?? "";
 assert(
   setup.includes("preinstall-scan.mjs"),
@@ -329,6 +387,65 @@ assertThrows(
 console.log(
   "[ci] CI meta-tests passed, including negative aggregator fixtures",
 );
+
+function validateNightlyChain(justfile, ciLocal, nightly) {
+  assert(
+    (justfile.match(/^nightly:$/gm) ?? []).length === 1,
+    "nightly Justfile recipe is missing or duplicated",
+  );
+  const recipe = justfile.match(/^nightly:\n((?:[ \t]+.*\n)*)/m)?.[1] ?? "";
+  assert(
+    JSON.stringify(semanticShellLines(recipe)) ===
+      JSON.stringify(["bash scripts/ci-local.sh nightly"]),
+    "nightly Justfile recipe does not exclusively invoke ci-local nightly",
+  );
+  const routes = ciLocal.match(/^\s*nightly\).*$/gm) ?? [];
+  assert(
+    routes.length === 1 && routes[0].trim() === "nightly)  bash ops/ci/nightly.sh ;;",
+    "ci-local nightly route is missing, duplicated, or bypasses nightly.sh",
+  );
+  assert(
+    JSON.stringify(semanticShellLines(nightly)) ===
+      JSON.stringify([
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"',
+        'cd "$REPO_ROOT"',
+        'log "nightly lane"',
+        "bash ops/ci/family.sh",
+        'log "nightly lane passed"',
+      ]),
+    "nightly.sh is not the exact foreground fail-closed family alias",
+  );
+}
+
+function validateZizmorClaim(security, [release, testing, wrapper]) {
+  const invocations = semanticShellLines(security).filter((line) =>
+    line.startsWith("zizmor"),
+  );
+  assert(
+    invocations.length === 1 && invocations[0] === zizmorCommand,
+    "security lane lost the exact singleton strict-offline zizmor invocation",
+  );
+  const literal = `\`${zizmorCommand}\``;
+  for (const [name, prose] of [["release", release], ["testing", testing]]) {
+    assert(
+      prose.split(literal).length === 2,
+      `${name} docs lost the exact singleton strict-offline zizmor literal`,
+    );
+  }
+  assert(
+    wrapper.split("\n").filter((line) => line === `#   ${zizmorCommand}`).length === 1,
+    "security wrapper lost the exact singleton strict-offline zizmor literal",
+  );
+}
+
+function semanticShellLines(definition) {
+  return definition
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && (!line.startsWith("#") || line.startsWith("#!")));
+}
 
 function validateNightlyProofLane(definition) {
   const matches = [
