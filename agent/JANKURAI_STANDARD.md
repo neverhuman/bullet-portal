@@ -9,8 +9,13 @@ authority source. The machine-readable half of this binding is
 
 ## Hard rules
 
-- No secrets in the browser. No handwritten DTOs. Generated clients only:
-  `src/generated/` is a `generator_only` zone (`agent/generated-zones.toml`).
+- No secrets in the browser and no handwritten wire DTOs. Generated DTOs,
+  runtime schemas, and `API_PREFIX` live only in `src/generated/`, a
+  `generator_only` zone (`agent/generated-zones.toml`). JSON request/response
+  and SSE transports remain handwritten in `src/api.ts`, `src/apiValidation.ts`,
+  `src/sse.ts`, and `src/hooks/useEventStream.ts`; they must validate generated
+  subjects fail-closed and must not be called generated clients. Transport
+  generation and its drift contract remain an explicit product gap.
 - Rendered UX must prove pending versus verified, and show unknown as unknown.
   An ambiguous result is rendered `UNKNOWN`; it is never resolved into success.
 - Split files before 500 LOC; prefer under 300.
@@ -36,8 +41,9 @@ string. The contract it satisfies:
   explicit detail instead.
 - **common fixes** — the message keeps the kernel's own `Repair:` field and its
   `request_id`, so the operator repeats the exact server-side repair rather than
-  guessing. A schema-validation failure means the generated client is behind the
-  kernel contract: regenerate `src/generated/` and rerun the contract lane. A
+  guessing. A schema-validation failure means the generated DTO/schema subject
+  or handwritten validator/transport is behind the kernel contract: regenerate
+  `src/generated/` and rerun the contract lane. A
   watermark mismatch means the snapshot and the stream disagree; reload the
   projection rather than adopting either half.
 - **repair_hint** — the lane that reproduces the failure locally: rendering and

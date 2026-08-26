@@ -114,21 +114,25 @@ is transaction completion.
 
 `src/hooks/useEventStream.ts` consumes `GET /api/v1/events?after=<seq>`. Kernel
 framing: SSE `id` = ledger seq and each default-message `data` is the generated
-`Event` JSON (`id`, `seq`, `at`, `kind`, `body`). The fetch-based SSE parser
+`EventEnvelope` JSON (`id`, `seq`, `at`, `kind`, `body`). The fetch-based SSE parser
 (`src/sse.ts`) validates the content type and skips keep-alive comments; the
 hook owns the exclusive sequence cursor and carries it across reconnects.
 
-- sequence comes from `Event.seq` (falling back to the SSE id); dedupe uses
-  `Event.id` (falling back to the SSE id) with bounded memory;
-- projection lag uses durable `Event.at`; malformed/missing timestamps remain
+- durable identity and sequence come only from the generated `EventEnvelope`;
+  the SSE id must be a safe nonnegative integer exactly equal to `EventEnvelope.seq`,
+  with no transport-metadata fallback, and dedupe uses `EventEnvelope.id` with
+  bounded memory;
+- projection lag uses durable `EventEnvelope.at`; malformed/missing timestamps remain
   unknown rather than becoming browser arrival time;
 - a sequence jump sets STALE and triggers a snapshot refetch; replay or a
   covering `X-Bullet-As-Of-Sequence` watermark advances the acknowledged cursor;
 - the connection state is always visible — `live`, `reconnecting`, or
   `unknown (events stream unavailable)` — never silently stale;
-- on any stream end or failure the portal reconnects with
-  `after=<last seq>` every 10s; while the endpoint is unreachable the page
-  still works from snapshot fetches.
+- the initial request uses `?after=<acknowledged seq>`; after any stream end or
+  failure the portal retries `/events` every 10s with the exact acknowledged
+  sequence in `Last-Event-ID`. Snapshot gap recovery also rebases through that
+  header immediately; while the endpoint is unreachable the page still works
+  from snapshot fetches.
 
 ## Error handling
 
@@ -151,4 +155,7 @@ hook owns the exclusive sequence cursor and carries it across reconnects.
   hub by `scripts/sync-family-contracts.sh` (`agent/generated-zones.toml`).
   The portal declares no duplicate of a generated DTO; its only local shapes
   are view-side (`ParsedEvent`, composed projection bodies) and never cross
-  the wire.
+  the wire. Request construction, JSON decoding, and SSE framing/reconnect are
+  still handwritten in `src/api.ts`, `src/apiValidation.ts`, `src/sse.ts`, and
+  `src/hooks/useEventStream.ts`; their strict validation is component-tested,
+  but no generated transport client or generator drift boundary exists yet.
