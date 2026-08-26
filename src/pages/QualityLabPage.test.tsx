@@ -40,12 +40,40 @@ const counts = [
 describe("QualityLabPage", () => {
   it("renders unknown when farmd is unreachable", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("ECONNREFUSED"); }));
-    render(<QualityLabPage surface={surface("quality-lab")} />);
+    const unreachable = render(<QualityLabPage surface={surface("quality-lab")} />);
     await waitFor(() => {
       expect(screen.getByTestId("quality-lab-unknown")).toHaveTextContent(
         "unknown: Quality Lab: control plane unreachable (GET /api/v1/quality-lab failed: ECONNREFUSED)",
       );
     });
+    unreachable.unmount();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        json({
+          evidence: [
+            {
+              id: id("evd", "b"),
+              candidate_id: id("can", "7"),
+              tier: "E2",
+              gate: "tests",
+              result: "FLAKY",
+              outcome: "FLAKY",
+              satisfies_requirement: true,
+            },
+          ],
+          outcome_counts: counts,
+        }),
+      ),
+    );
+    render(<QualityLabPage surface={surface("quality-lab")} />);
+    await waitFor(() => {
+      expect(screen.getByTestId("quality-lab-unknown")).toHaveTextContent(
+        "snapshot body failed schema validation",
+      );
+    });
+    expect(screen.queryByTestId("quality-lab-summary")).toBeNull();
   });
 
   it("renders zero evidence as verified-at-sequence with the outcome catalog explicit", async () => {
@@ -92,4 +120,5 @@ describe("QualityLabPage", () => {
     expect(screen.getByTestId("quality-lab-evidence-rows")).toHaveTextContent("false");
     expect(screen.getByTestId("quality-lab-summary")).toHaveTextContent("evidence rows 1 · PASS 0");
   });
+
 });

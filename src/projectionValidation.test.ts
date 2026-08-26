@@ -256,6 +256,39 @@ describe("generated projection validators", () => {
     expect(isMergeRailView({ ...rail, intents: [{ ...intent, state: "MERGED" }] })).toBe(false);
     expect(isMergeRailView({ ...rail, receipts: [{ ...receipt, verification_result: "OK" }] })).toBe(false);
     expect(isQualityLabView({ ...lab, evidence: [{ ...evidence, outcome: "passed" }] })).toBe(false);
+    const nonPassingOutcomes = [
+      "FAIL",
+      "FLAKY",
+      "INFRA_ERROR",
+      "CANCELLED",
+      "TIMED_OUT",
+      "NOT_RUN",
+      "UNSUPPORTED",
+      "UNKNOWN",
+      "SUPERSEDED",
+      "INVALIDATED",
+    ] as const;
+    for (const outcome of nonPassingOutcomes) {
+      expect(
+        isQualityLabView({
+          ...lab,
+          evidence: [{ ...evidence, outcome, satisfies_requirement: true }],
+        }),
+        outcome,
+      ).toBe(false);
+    }
+    expect(
+      isQualityLabView({
+        ...lab,
+        evidence: [{ ...evidence, outcome: "PASS", satisfies_requirement: false }],
+      }),
+    ).toBe(false);
+    expect(
+      isQualityLabView({
+        ...lab,
+        evidence: [{ ...evidence, outcome: "PASS", satisfies_requirement: true }],
+      }),
+    ).toBe(true);
   });
 
   it("accepts all and only the 16 generated TaskClass values", () => {

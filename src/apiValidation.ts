@@ -192,7 +192,13 @@ export const isSessionSupervisorView: ResponseValidator<SessionSupervisorView> =
 
 export const isMergeRailView: ResponseValidator<MergeRailView> = validatesMergeRailView;
 
-export const isQualityLabView: ResponseValidator<QualityLabView> = validatesQualityLabView;
+export const isQualityLabView: ResponseValidator<QualityLabView> = (
+  value,
+): value is QualityLabView =>
+  validatesQualityLabView(value) &&
+  value.evidence.every(
+    (row) => row.satisfies_requirement === (row.outcome === "PASS"),
+  );
 
 /**
  * The audit tail must end exactly at its watermark and be contiguous; a
