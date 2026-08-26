@@ -30,7 +30,7 @@ checker. Today every gate is BLOCKED. The honest status of each:
 | --- | --- | --- |
 | Component proof | `bash scripts/ci-local.sh required` green on the release commit | available locally; `npm run bundle:generate` refuses on a dirty tree by design, so this lane can only be green from a committed subject |
 | Conformance score | `bash ops/ci/audit.sh` at or above the upward-only `AUDIT_FLOOR` ratchet | local gate only: the pinned auditor is a machine-local build and is not registered in hosted CI |
-| Secret and dependency scan | `bash scripts/ci-local.sh security`: `gitleaks detect`, `npm audit`, `zizmor .` | runs and fails closed; it produces no release artifact |
+| Secret and dependency scan | `bash scripts/ci-local.sh security`: `gitleaks detect`, `npm audit`, `zizmor --offline --no-ignores --strict-collection .` | runs and fails closed; it produces no release artifact |
 | Integrity and provenance | checksum, signature and SBOM for a published bundle | BLOCKED: nothing is built for publication. The Portal bundle carries a content digest for the kernel to serve, which is integrity evidence for an embed, not for a release |
 | Backup and restore | a restore drill | not applicable in the usual sense: the Portal holds no durable truth. Its state is the kernel's, and the kernel's backup and restore contract is `bullet-kernel/docs/release.md`. Browser-local state is per-viewer and disposable |
 | Rollback | a rehearsed rollback procedure | BLOCKED: rollback means serving the previous embedded bundle from the kernel, and no versioned bundle history exists to roll back to |

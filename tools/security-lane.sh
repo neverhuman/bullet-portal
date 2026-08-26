@@ -14,7 +14,8 @@
 #     fails the lane if gitleaks accepts it, so a broken detector cannot look
 #     like a clean tree)
 #   npm audit                      (whole dependency graph, dev included)
-#   zizmor .                       (zizmor 1.25.2, committed workflow bytes)
+#   zizmor --offline --no-ignores --strict-collection .
+#                                  (zizmor 1.25.2, committed workflow bytes)
 # The lane also refuses if src/api.ts loses `CSRF_STORAGE_SLOT` or regresses to
 # the key-shaped `CSRF_STORAGE_KEY` identifier.
 #

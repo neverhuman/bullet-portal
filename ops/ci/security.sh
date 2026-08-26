@@ -28,9 +28,8 @@ if grep -Fq 'CSRF_STORAGE_KEY' src/api.ts; then
 fi
 bash ops/ci/secret-canary.sh
 npm audit
-# zizmor audits the committed workflow bytes. Without a GitHub API token it
-# reports that it is skipping its five online audits (impostor-commit,
-# ref-confusion, known-vulnerable-actions, stale-action-refs,
-# ref-version-mismatch); the offline audits still fail the lane on a finding.
-zizmor .
+# zizmor audits the committed workflow bytes without consulting GitHub. The
+# explicit offline mode makes the audit set deterministic; ignored findings
+# and incomplete collection both fail the lane.
+zizmor --offline --no-ignores --strict-collection .
 log "security lane passed"

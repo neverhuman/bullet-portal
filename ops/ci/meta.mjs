@@ -9,6 +9,8 @@ const assert = (condition, message) => {
   if (!condition) throw new Error(`CI_META_FAILED: ${message}`);
 };
 const lanes = ["fast", "lint", "contract", "security", "docs"];
+const nightlyPurpose =
+  "compatibility alias for the exact family lane; invokes no provider, forge, or live oracle and preserves the family lane's outcome";
 const success = Object.fromEntries(
   lanes.map((lane) => [
     lane,
@@ -303,9 +305,52 @@ for (const lane of ["security", "required"]) {
     `${lane} does not declare npm-audit network use`,
   );
 }
+validateNightlyProofLane(proofLanes);
+assertThrows(
+  () =>
+    validateNightlyProofLane(
+      proofLanes.replace(
+        `purpose = "${nightlyPurpose}"`,
+        'purpose = "explicit live-oracle entrypoint"',
+      ),
+    ),
+  "nightly metadata accepted a fabricated live-oracle claim",
+);
+assertThrows(
+  () =>
+    validateNightlyProofLane(
+      proofLanes.replace(
+        'name = "nightly"\ncommand = "just nightly"',
+        'name = "nightly"\ncommand = "just family"',
+      ),
+    ),
+  "nightly metadata accepted a command that bypasses its alias entrypoint",
+);
 console.log(
   "[ci] CI meta-tests passed, including negative aggregator fixtures",
 );
+
+function validateNightlyProofLane(definition) {
+  const matches = [
+    ...definition.matchAll(
+      /\[\[lane\]\]\nname = "nightly"\n([\s\S]*?)(?=\n\[\[lane\]\]|$)/g,
+    ),
+  ];
+  assert(matches.length === 1, "nightly proof-lane block is missing or duplicated");
+  const body = matches[0][1];
+  assert(
+    body.includes('command = "just nightly"\n'),
+    "nightly proof lane does not invoke its compatibility alias",
+  );
+  assert(
+    body.includes(`purpose = "${nightlyPurpose}"\n`),
+    "nightly proof lane claims a subject other than the family compatibility alias",
+  );
+  assert(
+    body.includes("requires_network = false\n"),
+    "nightly proof lane network declaration drifted from its family alias",
+  );
+}
 
 function assertThrows(callback, message) {
   try {

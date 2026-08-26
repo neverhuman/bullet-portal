@@ -82,5 +82,5 @@ requires_network = false
 [[lane]]
 name = "nightly"
 command = "just nightly"
-purpose = "explicit live-oracle entrypoint; a neutral exit is reported as neutral, never as success"
+purpose = "compatibility alias for the exact family lane; invokes no provider, forge, or live oracle and preserves the family lane's outcome"
 requires_network = false
