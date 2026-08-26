@@ -3,6 +3,11 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { validateNeeds } from "./aggregate.mjs";
 import { validateHostedWorkflows } from "./hosted-workflow-policy.mjs";
+import {
+  ZIZMOR_COMMAND,
+  semanticShellLines,
+  validateZizmorClaim,
+} from "./zizmor-policy.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 const assert = (condition, message) => {
@@ -11,8 +16,6 @@ const assert = (condition, message) => {
 const lanes = ["fast", "lint", "contract", "security", "docs"];
 const nightlyPurpose =
   "compatibility alias for the exact family lane; invokes no provider, forge, or live oracle and preserves the family lane's outcome";
-const zizmorCommand =
-  "zizmor --offline --no-ignores --strict-collection .";
 const success = Object.fromEntries(
   lanes.map((lane) => [
     lane,
@@ -170,9 +173,39 @@ for (const hostileSecurity of [
   ...["--offline ", "--no-ignores ", "--strict-collection "].map((flag) =>
     security.replace(flag, ""),
   ),
-  security.replace(zizmorCommand, "zizmor ."),
-  security.replace(zizmorCommand, `${zizmorCommand}\n${zizmorCommand}`),
-  security.replace(zizmorCommand, `${zizmorCommand} || true`),
+  security.replace(ZIZMOR_COMMAND, "zizmor ."),
+  security.replace(ZIZMOR_COMMAND, `${ZIZMOR_COMMAND}\n${ZIZMOR_COMMAND}`),
+  security.replace(ZIZMOR_COMMAND, `${ZIZMOR_COMMAND} || true`),
+  security.replace("set -euo pipefail", "set -uo pipefail"),
+  security.replace(ZIZMOR_COMMAND, `set +e\n${ZIZMOR_COMMAND}`),
+  security.replace(ZIZMOR_COMMAND, `set +o errexit\n${ZIZMOR_COMMAND}`),
+  security.replace(
+    ZIZMOR_COMMAND,
+    `trap 'exit 0' EXIT\n${ZIZMOR_COMMAND}`,
+  ),
+  security.replace(ZIZMOR_COMMAND, `${ZIZMOR_COMMAND}\nexit 0`),
+  security.replace(
+    ZIZMOR_COMMAND,
+    `${ZIZMOR_COMMAND}\nstatus=$?\nexit 0`,
+  ),
+  security.replace("require_tool zizmor || exit 1", "builtin set +e"),
+  security.replace("require_tool zizmor || exit 1", "command set +e"),
+  security.replace(
+    'log "security lane"',
+    'log "security lane"; set +e',
+  ),
+  security.replace(
+    'log "security lane"',
+    'log "security lane"; trap \'exit 0\' EXIT',
+  ),
+  security.replace(
+    'log "security lane"',
+    'log "security lane"; zizmor() { return 0; }',
+  ),
+  security.replace(
+    'log "security lane"',
+    'log "security lane"; shopt -s expand_aliases; alias zizmor=true',
+  ),
 ]) {
   assertThrows(
     () => validateZizmorClaim(hostileSecurity, zizmorProse),
@@ -417,34 +450,6 @@ function validateNightlyChain(justfile, ciLocal, nightly) {
       ]),
     "nightly.sh is not the exact foreground fail-closed family alias",
   );
-}
-
-function validateZizmorClaim(security, [release, testing, wrapper]) {
-  const invocations = semanticShellLines(security).filter((line) =>
-    line.startsWith("zizmor"),
-  );
-  assert(
-    invocations.length === 1 && invocations[0] === zizmorCommand,
-    "security lane lost the exact singleton strict-offline zizmor invocation",
-  );
-  const literal = `\`${zizmorCommand}\``;
-  for (const [name, prose] of [["release", release], ["testing", testing]]) {
-    assert(
-      prose.split(literal).length === 2,
-      `${name} docs lost the exact singleton strict-offline zizmor literal`,
-    );
-  }
-  assert(
-    wrapper.split("\n").filter((line) => line === `#   ${zizmorCommand}`).length === 1,
-    "security wrapper lost the exact singleton strict-offline zizmor literal",
-  );
-}
-
-function semanticShellLines(definition) {
-  return definition
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line && (!line.startsWith("#") || line.startsWith("#!")));
 }
 
 function validateNightlyProofLane(definition) {
