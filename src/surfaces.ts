@@ -170,20 +170,24 @@ export function surfaceStatus(surface: Surface): SurfaceStatus {
 
 /** The one-screen Shift Brief route (docs/nightshift.md), reachable from Nav. */
 export const SHIFT_BRIEF_ROUTE = "shift-brief";
+export const NOT_FOUND_ROUTE = "not-found";
 
-export type RouteId = typeof SHIFT_BRIEF_ROUTE | SurfaceId;
+export type RouteId = typeof SHIFT_BRIEF_ROUTE | typeof NOT_FOUND_ROUTE | SurfaceId;
 
 /**
- * Empty and unknown hashes resolve to Control Tower this batch; making the
- * Shift Brief the default is follow-up W6-L3b once the E2E callers of "/" are
- * unclaimed.
+ * Only the root hash opens the Shift Brief by default. Control Tower and all
+ * other declared surfaces remain first-class deep links; unknown hashes do
+ * not alias an operational view.
  */
-export const DEFAULT_ROUTE: RouteId = "control-tower";
+export const DEFAULT_ROUTE: RouteId = SHIFT_BRIEF_ROUTE;
 
 export function hashToRoute(hash: string): RouteId {
   const raw = hash.replace(/^#\/?/, "");
+  if (raw === "") {
+    return DEFAULT_ROUTE;
+  }
   if (raw === SHIFT_BRIEF_ROUTE) {
     return SHIFT_BRIEF_ROUTE;
   }
-  return surfaceById(raw)?.id ?? DEFAULT_ROUTE;
+  return surfaceById(raw)?.id ?? NOT_FOUND_ROUTE;
 }

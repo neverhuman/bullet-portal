@@ -3,9 +3,9 @@
 // Command: just contract-generate
 // DO NOT EDIT BY HAND.
 export const SCHEMA_VERSION = "v1alpha1" as const;
-export const SCHEMA_BUNDLE_HASH = "0942b0662628b82bc882bc02935db276adf01772ee27f9b257b0e5e9c6a32ce0" as const;
+export const SCHEMA_BUNDLE_HASH = "d8792cb9d172ebcad18e38659418b7806fa9f1f0938dcaabb5a300340d80f69f" as const;
 export const INVARIANT_REGISTRY_HASH = "f43cf796d47c18bee2cc11c9084919d0b22b20f6f2b82a8bb5c924ee3108bf9a" as const;
-export const POLICY_SNAPSHOT_HASH = "fc1cf88471c4945732a9626a974ae8b293c1be27ddcb2ee9f8cae8ac84be61be" as const;
+export const POLICY_SNAPSHOT_HASH = "cb716c5a6ab0c760efbc4723e2407075e8ee2af1cb23efbde4353ab4862d20a8" as const;
 export const CANONICAL_GOLDEN_JSON = "{\"a\":\"é\",\"array\":[true,null,17],\"z\":\"last\"}" as const;
 export const CANONICAL_GOLDEN_HASH = "1d800cb94962906f78d42cb8cc84c2c078311a50e35ca515240b800abc3d2263" as const;
 export const AUTHORITY_GOLDEN_HASH = "4ff1ce8a4ba7a37ae705a8d2459e5a9d900abe55610f6d6984fe514cd37860df" as const;
@@ -210,6 +210,44 @@ export interface CandidateManifestV1 {
   toolchain_hash: string;
 }
 
+export interface CandidatePreparationGrantV1 {
+  schema_version: string;
+  candidate_preparation_grant_id: string;
+  issuer: string;
+  key_id: string;
+  signing_purpose: string;
+  claims_domain: string;
+  envelope_domain: string;
+  request_digest: string;
+  authority_token_digest: string;
+  grant_nonce: string;
+  repository_id: string;
+  mission_id: string;
+  plan_revision_id: string;
+  work_package_id: string;
+  variant_id: string;
+  attempt_id: string;
+  attempt_fence: number;
+  runner_id: string;
+  runner_epoch: number;
+  workspace_id: string;
+  scope_grant_digest: string;
+  scope_revision: number;
+  context_revision: number;
+  change_id: string;
+  graph_revision_id: string;
+  parent_candidate_ids: string[];
+  context_capsule_id: string;
+  execution_envelope_id: string;
+  environment_digest: string;
+  toolchain_digest: string;
+  authority_epoch: number;
+  freeze_generation: number;
+  issued_at_unix_ms: number;
+  not_before_unix_ms: number;
+  expires_at_unix_ms: number;
+}
+
 export interface CertificationKey {
   schema_version: string;
   certification_key_id: string;
@@ -406,6 +444,41 @@ export interface EvidenceV1 {
   started_at_unix_ms: number;
   completed_at_unix_ms: number;
   signature: string;
+}
+
+export interface ExecutionEnvelopeV1 {
+  schema_version: string;
+  execution_envelope_id: string;
+  issuer: string;
+  key_id: string;
+  signing_purpose: string;
+  claims_domain: string;
+  runner_id: string;
+  runner_epoch: number;
+  provider: string;
+  model: string;
+  adapter: string;
+  provider_profile_id: string;
+  platform: string;
+  containment_profile_id: string;
+  environment_digest: string;
+  toolchain_digest: string;
+  sandbox_image_digest: string;
+  tools: ExecutionToolV1[];
+  authority_epoch: number;
+  freeze_generation: number;
+  issued_at_unix_ms: number;
+  expires_at_unix_ms: number;
+}
+
+export interface ExecutionToolV1 {
+  schema_version: string;
+  tool_id: string;
+  role: string;
+  executable_path: string;
+  executable_digest: string;
+  descriptor_digest: string;
+  version: string;
 }
 
 export interface ExperimentProtocolV1 {
@@ -991,6 +1064,15 @@ export interface ReleaseSignerPolicyV1 {
   signer_keys: ReleaseSignerKeyV1[];
 }
 
+export interface ReviewerAssignment {
+  schema_version: string;
+  reviewer_assignment_id: string;
+  candidate_id: string;
+  reviewer_principal: string;
+  independence_class: string;
+  seed: number;
+}
+
 export interface ReviewReceipt {
   schema_version: string;
   review_receipt_id: string;
@@ -999,15 +1081,6 @@ export interface ReviewReceipt {
   reason_code: string;
   subject_hash: string;
   signature: string;
-}
-
-export interface ReviewerAssignment {
-  schema_version: string;
-  reviewer_assignment_id: string;
-  candidate_id: string;
-  reviewer_principal: string;
-  independence_class: string;
-  seed: number;
 }
 
 export interface RiskPolicyV1 {
@@ -1089,6 +1162,13 @@ export interface SentinelResult {
 }
 
 export interface SignedAuthorityEnvelopeV1 {
+  schema_version: string;
+  issuer: string;
+  key_id: string;
+  paseto: string;
+}
+
+export interface SignedCandidatePreparationGrantV1 {
   schema_version: string;
   issuer: string;
   key_id: string;

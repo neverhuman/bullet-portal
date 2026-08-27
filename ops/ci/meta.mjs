@@ -4,18 +4,17 @@ import { createHash } from "node:crypto";
 import { validateNeeds } from "./aggregate.mjs";
 import { validateHostedWorkflows } from "./hosted-workflow-policy.mjs";
 import {
-  ZIZMOR_COMMAND,
-  semanticShellLines,
-  validateZizmorClaim,
-} from "./zizmor-policy.mjs";
+  NIGHTLY_PURPOSE,
+  validateNightlyChain,
+  validateNightlyProofLane,
+} from "./meta-nightly.mjs";
+import { ZIZMOR_COMMAND, validateZizmorClaim } from "./zizmor-policy.mjs";
 
 const read = (path) => readFileSync(path, "utf8");
 const assert = (condition, message) => {
   if (!condition) throw new Error(`CI_META_FAILED: ${message}`);
 };
 const lanes = ["fast", "lint", "contract", "security", "docs"];
-const nightlyPurpose =
-  "compatibility alias for the exact family lane; invokes no provider, forge, or live oracle and preserves the family lane's outcome";
 const success = Object.fromEntries(
   lanes.map((lane) => [
     lane,
@@ -102,6 +101,15 @@ assert(
   sanitizerTest.status === 0,
   `staged-artifact hostiles failed: ${sanitizerTest.stderr}`,
 );
+const reportIdentityTest = spawnSync(
+  process.execPath,
+  ["ops/ci/assert-report-test.mjs"],
+  { encoding: "utf8" },
+);
+assert(
+  reportIdentityTest.status === 0,
+  `Vitest identity hostiles failed: ${reportIdentityTest.stderr}`,
+);
 assert(
   read("ops/ci/scheduled-hygiene.sh").includes(
     "gitleaks git . --log-opts=--all",
@@ -133,9 +141,17 @@ assert(
 );
 assert(
   read("ops/ci/fast.sh").includes(
-    'assert-report.mjs vitest "$reports/vitest.json" 130',
+    'assert-report.mjs vitest "$reports/vitest.json" 131',
   ),
-  "exact 130-test Vitest identity ratchet absent",
+  "exact 131-test Vitest count ratchet absent",
+);
+assert(
+  read("ops/ci/fast.sh").includes(
+    "f4805174c97eb600794e0105adfbbe0809392981cc2ad88cb1800fa711c525dd",
+  ) && read("ops/ci/coverage.sh").includes(
+    "f4805174c97eb600794e0105adfbbe0809392981cc2ad88cb1800fa711c525dd",
+  ),
+  "exact Vitest identity digest ratchet absent",
 );
 assert(
   read("ops/ci/fast.sh").includes("BULLET_FARMD_TEST_PROXY_INVALID"),
@@ -143,18 +159,24 @@ assert(
 );
 assert(
   read("ops/ci/contract.sh").includes(
-    'assert-report.mjs junit "$reports/playwright.xml" 10',
+    'assert-report.mjs junit "$reports/playwright.xml" 13',
   ),
-  "exact 10-test mocked Playwright identity ratchet absent",
+  "exact 13-test mocked Playwright count ratchet absent",
+);
+assert(
+  read("ops/ci/contract.sh").includes(
+    "740ea52193f3c5e41bc4e0347142f3a5ff0b8840d4d55feb5279892bb1efc993",
+  ),
+  "exact mocked Playwright identity digest ratchet absent",
 );
 assert(
   (read("ops/build/bundle-tests.ts").match(/^test\(/gm) ?? []).length === 5,
   "bundle test inventory drifted",
 );
 assert(
-  ["e2e/control-tower.spec.ts", "e2e/fleet.spec.ts"]
+  ["e2e/control-tower.spec.ts", "e2e/fleet.spec.ts", "e2e/shift-brief.spec.ts"]
     .map((path) => (read(path).match(/^test\(/gm) ?? []).length)
-    .reduce((total, count) => total + count, 0) === 10,
+    .reduce((total, count) => total + count, 0) === 13,
   "standalone Playwright inventory drifted",
 );
 assert(
@@ -401,7 +423,7 @@ assertThrows(
   () =>
     validateNightlyProofLane(
       proofLanes.replace(
-        `purpose = "${nightlyPurpose}"`,
+        `purpose = "${NIGHTLY_PURPOSE}"`,
         'purpose = "explicit live-oracle entrypoint"',
       ),
     ),
@@ -420,59 +442,6 @@ assertThrows(
 console.log(
   "[ci] CI meta-tests passed, including negative aggregator fixtures",
 );
-
-function validateNightlyChain(justfile, ciLocal, nightly) {
-  assert(
-    (justfile.match(/^nightly:$/gm) ?? []).length === 1,
-    "nightly Justfile recipe is missing or duplicated",
-  );
-  const recipe = justfile.match(/^nightly:\n((?:[ \t]+.*\n)*)/m)?.[1] ?? "";
-  assert(
-    JSON.stringify(semanticShellLines(recipe)) ===
-      JSON.stringify(["bash scripts/ci-local.sh nightly"]),
-    "nightly Justfile recipe does not exclusively invoke ci-local nightly",
-  );
-  const routes = ciLocal.match(/^\s*nightly\).*$/gm) ?? [];
-  assert(
-    routes.length === 1 && routes[0].trim() === "nightly)  bash ops/ci/nightly.sh ;;",
-    "ci-local nightly route is missing, duplicated, or bypasses nightly.sh",
-  );
-  assert(
-    JSON.stringify(semanticShellLines(nightly)) ===
-      JSON.stringify([
-        "#!/usr/bin/env bash",
-        "set -euo pipefail",
-        'source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"',
-        'cd "$REPO_ROOT"',
-        'log "nightly lane"',
-        "bash ops/ci/family.sh",
-        'log "nightly lane passed"',
-      ]),
-    "nightly.sh is not the exact foreground fail-closed family alias",
-  );
-}
-
-function validateNightlyProofLane(definition) {
-  const matches = [
-    ...definition.matchAll(
-      /\[\[lane\]\]\nname = "nightly"\n([\s\S]*?)(?=\n\[\[lane\]\]|$)/g,
-    ),
-  ];
-  assert(matches.length === 1, "nightly proof-lane block is missing or duplicated");
-  const body = matches[0][1];
-  assert(
-    body.includes('command = "just nightly"\n'),
-    "nightly proof lane does not invoke its compatibility alias",
-  );
-  assert(
-    body.includes(`purpose = "${nightlyPurpose}"\n`),
-    "nightly proof lane claims a subject other than the family compatibility alias",
-  );
-  assert(
-    body.includes("requires_network = false\n"),
-    "nightly proof lane network declaration drifted from its family alias",
-  );
-}
 
 function assertThrows(callback, message) {
   try {

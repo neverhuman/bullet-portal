@@ -85,7 +85,7 @@ function makeFixture() {
   const bodies = {
     ".ci-artifacts/reports/farmd-test-proxy-override.log": "typed refusal\n",
     ".ci-artifacts/reports/vite-api-override.log": "typed refusal\n",
-    ".ci-artifacts/reports/vitest.json": '{"numTotalTests":130}\n',
+    ".ci-artifacts/reports/vitest.json": '{"numTotalTests":131}\n',
   };
   for (const [relative, body] of Object.entries(bodies)) {
     const path = join(fixture, relative);

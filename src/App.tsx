@@ -5,7 +5,13 @@ import { ControlTower } from "./pages/ControlTower";
 import { isProjected, ProjectedSurface } from "./pages/ProjectedSurface";
 import { ShiftBriefPage } from "./pages/ShiftBriefPage";
 import { SurfacePage } from "./pages/SurfacePage";
-import { hashToRoute, SHIFT_BRIEF_ROUTE, surfaceById, type RouteId } from "./surfaces";
+import {
+  hashToRoute,
+  NOT_FOUND_ROUTE,
+  SHIFT_BRIEF_ROUTE,
+  surfaceById,
+  type RouteId,
+} from "./surfaces";
 
 function currentRoute(): RouteId {
   return hashToRoute(window.location.hash);
@@ -33,6 +39,15 @@ export function App() {
 function Page({ route }: { route: RouteId }) {
   if (route === SHIFT_BRIEF_ROUTE) {
     return <ShiftBriefPage />;
+  }
+  if (route === NOT_FOUND_ROUTE) {
+    return (
+      <main className="card" data-testid="not-found">
+        <h1>Page not found</h1>
+        <p>The requested Portal route is not available.</p>
+        <a href="#/">Open Shift Brief</a>
+      </main>
+    );
   }
   if (route === "control-tower") {
     return <ControlTower />;

@@ -45,7 +45,7 @@ test("the health probe reports unknown when /health fails", async ({ page }) => 
   await mockSnapshot(page);
   await page.route("**/health", (route) => route.abort("connectionrefused"));
 
-  await page.goto("/");
+  await page.goto("/#/control-tower");
   await expect(page.getByTestId("health-probe")).toContainText("unknown: GET /health failed");
   await expect(page.getByTestId("health-probe")).not.toContainText("healthy");
 });
@@ -62,7 +62,7 @@ test("a failed missions read renders unknown, not an empty list", async ({ page 
   );
   await page.route("**/health", (route) => route.abort("connectionrefused"));
 
-  await page.goto("/");
+  await page.goto("/#/control-tower");
   await expect(page.getByTestId("missions-unknown")).toContainText(
     "unknown: control plane unreachable (GET /api/v1/missions failed: HTTP 500)",
   );
@@ -90,7 +90,7 @@ test("the event stream advances as_of_sequence from default EventEnvelopes", asy
     route.fulfill({ status: 200, contentType: "text/event-stream", body: frames }),
   );
 
-  await page.goto("/");
+  await page.goto("/#/control-tower");
   await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 2");
   await expect(page.getByTestId("projection-lag")).toContainText(/projection lag: \d+s/);
   await expect(page.getByTestId("stream-connection")).toContainText("reconnecting");
@@ -147,7 +147,7 @@ test("a 1,2,4 gap survives malformed snapshot recovery until watermark 4", async
     await new Promise<void>(() => {});
   });
 
-  await page.goto("/");
+  await page.goto("/#/control-tower");
   await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 2");
   await expect(page.getByTestId("stale-badge")).toHaveText("STALE");
   await expect(page.getByTestId("missions-unknown")).toContainText("invalid JSON body");
@@ -198,7 +198,7 @@ test("an event-retention 410 rebases from a covering snapshot before reconnect",
     await new Promise<void>(() => {});
   });
 
-  await page.goto("/");
+  await page.goto("/#/control-tower");
   await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 0");
   await expect(page.getByTestId("stale-badge")).toHaveText("STALE");
   expect(requests[0]?.url).toContain("/api/v1/events?after=0");
