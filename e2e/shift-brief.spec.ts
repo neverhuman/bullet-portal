@@ -39,14 +39,34 @@ async function mockControlTower(page: Page): Promise<void> {
   );
 }
 
-test("empty hash opens Shift Brief and never paints verified", async ({ page }) => {
+test("root hashes open Shift Brief and never paint verified", async ({ page }) => {
   await refuseFarmd(page);
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Shift Brief" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Control Tower" })).toHaveCount(0);
-  await expect(page.getByTestId("nav-shift-brief")).toHaveClass(/nav-current/);
-  await expect(page.getByTestId("shift-brief").locator(".verified")).toHaveCount(0);
-  await expect(page.getByTestId("shift-brief-decision")).toHaveClass(/unknown/);
+  for (const path of ["/", "/#", "/#/"]) {
+    await page.goto(path);
+    await expect(page.getByRole("heading", { name: "Shift Brief" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Control Tower" })).toHaveCount(0);
+    await expect(page.getByTestId("nav-shift-brief")).toHaveClass(/nav-current/);
+    await expect(page.getByTestId("shift-brief").locator(".verified")).toHaveCount(0);
+    await expect(page.getByTestId("shift-brief-decision")).toHaveClass(/unknown/);
+  }
+});
+
+test("six no-subject surfaces stay unknown and never paint verified", async ({ page }) => {
+  await refuseFarmd(page);
+  const unknown = [
+    ["cognitive-router", "Cognitive Router"],
+    ["fusion-lab", "Fusion Lab"],
+    ["quota-capacity", "Quota and Capacity"],
+    ["struggle-cockpit", "Struggle and Escalation"],
+    ["behavior-center", "Behavior Center"],
+    ["workspace-hygiene", "Workspace and Git Hygiene"],
+  ] as const;
+  for (const [id, title] of unknown) {
+    await page.goto(`/#/${id}`);
+    await expect(page.getByRole("heading", { name: title })).toBeVisible();
+    await expect(page.getByTestId(`${id}-unknown`)).toHaveClass(/unknown/);
+    await expect(page.getByTestId(`surface-${id}`).locator(".verified")).toHaveCount(0);
+  }
 });
 
 test("unknown hash renders the explicit not-found view", async ({ page }) => {

@@ -159,13 +159,13 @@ assert(
 );
 assert(
   read("ops/ci/contract.sh").includes(
-    'assert-report.mjs junit "$reports/playwright.xml" 13',
+    'assert-report.mjs junit "$reports/playwright.xml" 14',
   ),
-  "exact 13-test mocked Playwright count ratchet absent",
+  "exact 14-test mocked Playwright count ratchet absent",
 );
 assert(
   read("ops/ci/contract.sh").includes(
-    "740ea52193f3c5e41bc4e0347142f3a5ff0b8840d4d55feb5279892bb1efc993",
+    "8a95898f88efe2d2f8c7a2f2883868041ec96cb60a20d31af6761300a94983ad",
   ),
   "exact mocked Playwright identity digest ratchet absent",
 );
@@ -176,7 +176,7 @@ assert(
 assert(
   ["e2e/control-tower.spec.ts", "e2e/fleet.spec.ts", "e2e/shift-brief.spec.ts"]
     .map((path) => (read(path).match(/^test\(/gm) ?? []).length)
-    .reduce((total, count) => total + count, 0) === 13,
+    .reduce((total, count) => total + count, 0) === 14,
   "standalone Playwright inventory drifted",
 );
 assert(

@@ -167,11 +167,13 @@ longer in this table; only the exact revision-one slice above is projected.
   `.verified` element; that Incidents & Audit shows `latest_sequence` equal to
   that watermark; that the real reconciled `UNKNOWN` command card has no green
   status; and that Quota and Capacity names its missing subject.
-- Packaged farmd (`bash ops/ci/packaged-farmd.sh`): the same three
-  `e2e/real-farmd.spec.ts` tests, run against a `bullet-farmd` built with
-  `--features embedded-portal` that serves this Portal's manifest-verified
-  `dist` bytes at its own origin (`playwright.packaged.config.ts`, no preview
-  server). The lane additionally requires `GET /health` to carry
+- Packaged farmd (`bash ops/ci/packaged-farmd.sh`): the three
+  `e2e/real-farmd.spec.ts` live-farmd tests plus four mocked
+  `e2e/shift-brief.spec.ts` routing/no-green tests, run against a
+  `bullet-farmd` built with `--features embedded-portal` that serves this
+  Portal's manifest-verified `dist` bytes at its own origin
+  (`playwright.packaged.config.ts`, no preview server). The lane additionally
+  requires `GET /health` to carry
   `portal: "<framed BLAKE3 bundle root>"` equal to this build's
   `.bullet-portal-bundle-v1.json` root, and `GET /` to serve the entry point.
   This is the projection contract proved under packaged serving; it is not a

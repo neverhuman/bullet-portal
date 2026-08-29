@@ -22,7 +22,7 @@ const successfulNeeds = Object.fromEntries(
 const artifactsByLane = {
   fast: { ".ci-artifacts/reports/vitest.json": '{"numTotalTests":131}\n' },
   lint: {},
-  contract: { ".ci-artifacts/reports/playwright.xml": '<testsuites tests="13"/>\n' },
+  contract: { ".ci-artifacts/reports/playwright.xml": '<testsuites tests="14"/>\n' },
   security: {},
   docs: {},
 };

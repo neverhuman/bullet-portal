@@ -92,9 +92,11 @@ field naming the embedded bundle root (absent when no Portal is embedded).
 `bash ops/ci/packaged-farmd.sh` (`just packaged-farmd`) proves it end to end:
 it builds `dist`, binds the manifest, builds that farmd from the sibling
 Kernel, checks `/health` names this exact bundle root, and runs
-`e2e/real-farmd.spec.ts` against the daemon's own origin through
-`playwright.packaged.config.ts`. It is a family/release proof and is not part of
-standalone `required`.
+the three `e2e/real-farmd.spec.ts` cases plus the four mocked
+`e2e/shift-brief.spec.ts` routing/no-green cases against the daemon's own
+origin through `playwright.packaged.config.ts`. It is a packaged-origin
+projection/bundle component proof, not a transaction, live-provider, or release
+proof, and is not part of standalone `required`.
 
 ## Lanes
 
@@ -107,14 +109,14 @@ which runs `ops/ci/<lane>.sh`; the rules for editing those scripts are in
 | --- | --- | --- |
 | fast | `just fast` | Vitest unit/component tests with a nonzero/all-pass report, then the typed production build |
 | lint | `just lint` | actionlint 1.7.8, ShellCheck 0.10.0, and whitespace checks |
-| contract | `just contract` | bundle generator type/tests plus 10 mocked Playwright projection/SSE tests; `real-farmd.spec.ts` is excluded and a nonzero/all-pass JUnit report is required |
+| contract | `just contract` | bundle generator type/tests plus 14 mocked Playwright projection/SSE tests; `real-farmd.spec.ts` is excluded and a nonzero/all-pass JUnit report is required |
 | security | `just security` | gitleaks 8.21.2 current-tree scan and must-fail canary, the full npm audit, and zizmor 1.25.2 |
 | docs | `just docs` | relative links, workflow structure, test-partition inventory, and negative aggregator meta-tests |
 | required | `just check` | fast → lint → contract → security → docs, sequentially and exactly once; no sibling repository |
 | family | `just family` | explicit Linux-only real-farmd browser proof against the sibling Kernel; missing provisioning fails closed |
 | audit | `bash ops/ci/audit.sh` | Jankurai audit against the committed ratchet floor (`AUDIT_FLOOR=59`, may only rise); artifacts under `.jankurai/` |
 | nightly | `bash ops/ci/nightly.sh` | compatibility alias for the explicit family lane |
-| packaged-farmd | `just packaged-farmd` | `ops/ci/packaged-farmd.sh`: builds `dist`, runs `npm run bundle:generate`/`bundle:check` (refuses on a dirty source tree), builds the sibling Kernel's `bullet-farmd` with `--features embedded-portal` and `BULLET_PORTAL_DIST=$PWD/dist`, starts it on `127.0.0.1:7421` with `--portal-origin http://127.0.0.1:7421`, requires `/health` to name that exact bundle root and `/` to serve the entry point, then runs `e2e/real-farmd.spec.ts` (3 tests, `playwright.packaged.config.ts`) against the daemon's own origin with no preview server. Exits neutral 78 only when the sibling Kernel checkout is absent; every other failure is fatal |
+| packaged-farmd | `just packaged-farmd` | `ops/ci/packaged-farmd.sh`: builds `dist`, runs `npm run bundle:generate`/`bundle:check` (refuses on a dirty source tree), builds the sibling Kernel's `bullet-farmd` with `--features embedded-portal` and `BULLET_PORTAL_DIST=$PWD/dist`, starts it on `127.0.0.1:7421` with `--portal-origin http://127.0.0.1:7421`, requires `/health` to name that exact bundle root and `/` to serve the entry point, then runs `e2e/real-farmd.spec.ts` (3 live-farmd tests) and `e2e/shift-brief.spec.ts` (4 mocked routing/no-green tests) through `playwright.packaged.config.ts` against the daemon's own origin with no preview server. Exits neutral 78 only when the sibling Kernel checkout is absent; every other failure is fatal |
 
 The prepared mirror workflow runs the five atomic jobs in parallel on
 `ubuntu-24.04` and converges them at the exact `CI / required` context with an

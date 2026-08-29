@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Packaged-farmd browser lane: the same real-process Playwright spec as
-# ops/ci/real-farmd.sh, but against a farmd binary that serves this Portal's
-# built bytes itself. There is no Vite dev or preview server here — the browser
-# origin IS the daemon origin, which is what a packaged Linux distribution
-# ships. The daemon embeds dist/ only after its build script re-verifies every
-# byte against .bullet-portal-bundle-v1.json, so this lane also proves the
-# packaged bundle subject end to end.
+# Packaged-farmd browser lane: the real-process Playwright spec from
+# ops/ci/real-farmd.sh plus the mocked Shift Brief routing spec, against a farmd
+# binary that serves this Portal's built bytes itself. There is no Vite dev or
+# preview server here — the browser origin IS the daemon origin, which is what
+# a packaged Linux distribution ships. The daemon embeds dist/ only after its
+# build script re-verifies every byte against .bullet-portal-bundle-v1.json, so
+# this lane also proves the packaged bundle subject end to end.
 #
 # Fails closed on every real failure. The one neutral outcome (78) is an absent
 # sibling Kernel checkout: this lane is additive to required, which still
@@ -103,5 +103,5 @@ BULLET_FARMD_URL="$origin" \
   PLAYWRIGHT_JUNIT_OUTPUT_NAME="$(artifact_dir reports)/packaged-farmd.xml" \
   PLAYWRIGHT_JUNIT_STRIP_ANSI=1 \
   ./node_modules/.bin/playwright test --config playwright.packaged.config.ts --reporter=line,junit
-node ops/ci/assert-report.mjs junit "$(artifact_dir reports)/packaged-farmd.xml" 3
+node ops/ci/assert-report.mjs junit "$(artifact_dir reports)/packaged-farmd.xml" 7
 log "packaged-farmd lane passed"
