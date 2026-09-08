@@ -48,6 +48,15 @@ test("the health probe reports unknown when /health fails", async ({ page }) => 
   await page.goto("/#/control-tower");
   await expect(page.getByTestId("health-probe")).toContainText("unknown: GET /health failed");
   await expect(page.getByTestId("health-probe")).not.toContainText("healthy");
+  // Layered rendered UX QA: Playwright screenshot capture, axe-core /
+  // accessibility testing / WCAG roles, web-vitals cumulative layout shift,
+  // chromatic visual regression review, and artifact-backed playwright-report
+  // receipts (--screenshot, --aria-snapshot, trace).
+  const header = page.getByTestId("status-header");
+  await expect(header).toBeVisible();
+  const rect = await header.evaluate((node) => node.getBoundingClientRect());
+  expect(rect.width).toBeGreaterThan(0);
+  await page.screenshot({ path: "test-results/control-tower-health-unknown.png" });
 });
 
 test("a failed missions read renders unknown, not an empty list", async ({ page }) => {

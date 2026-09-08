@@ -14,9 +14,9 @@ DTO of its own. The parity checks at the end keep this file honest against
 
 ## Snapshot contract: one route, one atomic read
 
-`readSnapshot(path, validateData)` in `src/api.ts` is the only way a
+`readSnapshot(path, validateData)` in `src/apiTransport.ts` is the only way a
 projection enters the browser. A response is accepted only when all of the
-following hold (`src/apiValidation.ts`: `isSnapshotEnvelope`; `src/api.ts`:
+following hold (`src/apiValidation.ts`: `isSnapshotEnvelope`; `src/apiTransport.ts`:
 `fetchJson`, `readSnapshotSequence`):
 
 - HTTP 2xx within the 10 s `AbortController` timeout, media type

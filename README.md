@@ -1,5 +1,8 @@
 # bullet-portal
 
+[![CI](https://img.shields.io/badge/ci-local%20required-green.svg)](docs/testing.md)
+[![Jankurai](https://img.shields.io/badge/jankurai-audit-blue.svg)](docs/testing.md)
+
 Operations portal for Bullet Farm. Projection only — the browser holds no
 authority: every view names its observation source, and UNKNOWN is rendered
 as unknown, never as healthy and never as an authoritative empty list. Agents start at

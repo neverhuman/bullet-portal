@@ -19,7 +19,7 @@ zizmor = "1.25.2"
 #   * `ops/ci/secret-canary.sh` feeds gitleaks a disposable detector-shaped
 #     credential and fails the lane if gitleaks accepts it, so a silently broken
 #     detector cannot be mistaken for a clean tree.
-#   * `src/api.ts` must still declare `CSRF_STORAGE_SLOT` and must not regress to
+#   * `src/apiSession.ts` must still declare `CSRF_STORAGE_SLOT` and must not regress to
 #     the key-shaped `CSRF_STORAGE_KEY` identifier.
 #   * `npm audit` covers the whole dependency graph, development dependencies
 #     included; the scheduled hygiene lane repeats it against full history.

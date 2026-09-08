@@ -14,9 +14,11 @@
 #     fails the lane if gitleaks accepts it, so a broken detector cannot look
 #     like a clean tree)
 #   npm audit                      (whole dependency graph, dev included)
+#   cargo audit                    (not applicable: this repo has no Cargo.lock)
+#   sbom                           (not published: there is no Portal release artifact)
 #   zizmor --offline --no-ignores --strict-collection .
 #                                  (zizmor 1.25.2, committed workflow bytes)
-# The lane also refuses if src/api.ts loses `CSRF_STORAGE_SLOT` or regresses to
+# The lane also refuses if src/apiSession.ts loses `CSRF_STORAGE_SLOT` or regresses to
 # the key-shaped `CSRF_STORAGE_KEY` identifier.
 #
 # Declared in agent/security-policy.toml. Do not add `|| true` to any step.

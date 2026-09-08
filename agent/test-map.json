@@ -1,6 +1,58 @@
 {
   "workspace": "bullet-portal",
   "tests": {
+    ".ci-artifacts/": {
+      "command": "bash scripts/ci-local.sh lint",
+      "purpose": "unsigned CI observations and reports; the producing lane regenerates them"
+    },
+    ".jankurai/": {
+      "command": "bash ops/ci/audit.sh",
+      "purpose": "gitignored audit lane output; the audit lane regenerates it from the pinned local auditor"
+    },
+    ".storybook/": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "Storybook state coverage for the rendered status header"
+    },
+    "CHANGELOG.md": {
+      "command": "bash ops/ci/audit.sh",
+      "purpose": "release language must stay evidence-backed and honestly blocked; the audit lane checks it"
+    },
+    "CLAUDE.md": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "thin Claude adapter that only points at AGENTS.md"
+    },
+    "playwright.packaged.config.ts": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "packaged-farmd browser lane configuration"
+    },
+    "scripts/": {
+      "command": "bash scripts/ci-local.sh lint",
+      "purpose": "local CI entrypoints that delegate to the same ops/ci scripts hosted jobs call"
+    },
+    "test-results/": {
+      "command": "bash scripts/ci-local.sh contract",
+      "purpose": "Playwright screenshot and trace receipts; the contract lane regenerates them"
+    },
+    "tools/": {
+      "command": "bash scripts/ci-local.sh security",
+      "purpose": "canonical security-lane wrapper that execs ops/ci/security.sh"
+    },
+    "contracts/": {
+      "command": "bash scripts/ci-local.sh contract",
+      "purpose": "projection contract boundary; the contract lane proves generated clients"
+    },
+    "schemas/": {
+      "command": "bash ops/ci/audit.sh",
+      "purpose": "shape of local Jankurai score artifacts written by the audit lane"
+    },
+    "tests/": {
+      "command": "bash scripts/ci-local.sh lint",
+      "purpose": "Linux pidfd component supervisor and its acceptance inventory"
+    },
+    "tokens/": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "semantic design tokens consumed by the rendered surfaces"
+    },
     "src/": {
       "command": "npm test",
       "purpose": "prove observation rendering and Control Tower state"
@@ -39,11 +91,11 @@
     },
     "Justfile": {
       "command": "bash scripts/ci-local.sh fast",
-      "purpose": "command surface; every recipe delegates to scripts/ci-local.sh"
+      "purpose": "command surface; CI recipes delegate to scripts/ci-local.sh and the score recipe runs the local auditor"
     },
     ".gitignore": {
       "command": "bash scripts/ci-local.sh fast",
-      "purpose": "ignore rules; the fast lane proves the tree still builds"
+      "purpose": "exclusion list for generated and local outputs; the fast lane proves the tree still builds"
     },
     ".gitleaksignore": {
       "command": "bash scripts/ci-local.sh scheduled-hygiene",

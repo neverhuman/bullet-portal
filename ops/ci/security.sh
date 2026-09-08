@@ -18,11 +18,11 @@ require_tool zizmor || exit 1
 }
 [[ -f package-lock.json ]] || { echo "[ci] package-lock.json missing" >&2; exit 1; }
 gitleaks detect --source . --no-git --redact --no-banner --config "$REPO_ROOT/ops/ci/gitleaks.toml"
-grep -Fq 'const CSRF_STORAGE_SLOT' src/api.ts || {
+grep -Fq 'const CSRF_STORAGE_SLOT' src/apiSession.ts || {
   echo "[ci] expected non-secret CSRF storage symbol is absent" >&2
   exit 1
 }
-if grep -Fq 'CSRF_STORAGE_KEY' src/api.ts; then
+if grep -Fq 'CSRF_STORAGE_KEY' src/apiSession.ts src/api.ts; then
   echo "[ci] secret-like CSRF storage identifier regressed" >&2
   exit 1
 fi

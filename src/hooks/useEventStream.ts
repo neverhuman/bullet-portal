@@ -46,7 +46,7 @@ export function parseFrame(frame: SseFrame): ParsedEvent | null {
   }
   let record: unknown;
   try {
-    record = JSON.parse(frame.data) as unknown;
+    record = JSON.parse(frame.data);
   } catch {
     return null;
   }

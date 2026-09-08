@@ -24,6 +24,6 @@ mapfile -t shell_files < <(find ops/ci scripts -type f -name '*.sh' -print | sor
 shellcheck -x -P ops/ci "${shell_files[@]}"
 bash ops/ci/proof-custody-test.sh
 bash ops/ci/farmd-build-test.sh
-python3 -I -B ops/ci/component-process-test.py
+python3 -I -B tests/component-process-test.py
 git diff --check
 log "lint lane passed (${#shell_files[@]} shell files)"

@@ -39,3 +39,17 @@ family:
 # Neutral 78 without the sibling bullet-kernel checkout.
 packaged-farmd:
     bash scripts/ci-local.sh packaged-farmd
+
+score:
+    mkdir -p .jankurai
+    rm -f .jankurai/repo-score.json .jankurai/repo-score.md .jankurai/repair-queue.jsonl
+    jankurai audit . --full --no-score-history --json .jankurai/repo-score.json --md .jankurai/repo-score.md
+
+vitest-fast:
+    ./node_modules/.bin/vitest run
+
+check-types:
+    ./node_modules/.bin/tsc -p tsconfig.json --noEmit
+
+playwright-contract:
+    ./node_modules/.bin/playwright test

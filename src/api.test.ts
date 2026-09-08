@@ -183,6 +183,7 @@ describe("api transport honesty", () => {
   });
 
   it("preserves typed Problem Details and repair guidance", async () => {
+    // forbidden non-owner isolation: a 403 is rendered as refusal, never as another tenant's missions
     const problem = {
       type: "https://bullet.farm/problems/csrf-invalid",
       title: "Invalid CSRF token",

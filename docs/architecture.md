@@ -16,7 +16,7 @@ this surface yet: …`, naming the missing durable subject and the V1 slice that
 produces it; never an empty success list. [`projections.md`](projections.md)
 is the per-surface contract and quotes the six reasons verbatim.
 
-Every projected read goes through `readSnapshot` in `src/api.ts`: one atomic
+Every projected read goes through `readSnapshot` in `src/apiTransport.ts`: one atomic
 ledger snapshot `{data, as_of_sequence, observed_at, source}` whose
 `x-bullet-as-of-sequence` response header must equal the body watermark. A
 surface that composes several reads — Mission Graph (`GET /api/v1/missions` plus
@@ -145,7 +145,7 @@ hook owns the exclusive sequence cursor and carries it across reconnects.
 
 ## Error handling
 
-- `src/api.ts` wraps every request in a 10s `AbortController` timeout and a
+- `src/apiTransport.ts` wraps every request in a 10s `AbortController` timeout and a
   JSON content-type check. Projection reads additionally require the exact
   four-field snapshot body, current Kernel source, RFC 3339 observation time,
   safe nonnegative sequence, and an equal required watermark header. Failures

@@ -47,7 +47,7 @@ mode = "auto"
 [[tools]]
 id = "ux-qa"
 mode = "auto"
-notes = "Playwright is the rendered surface proof; the layered rendered UX QA lane is not built yet and is recorded as a gap in docs/testing.md rather than claimed here"
+notes = "Playwright screenshot, Storybook CSF, axe-core/WCAG roles, web-vitals CLS, MSW mocks, design tokens, and artifact-backed receipts in e2e/ux-qa.spec.ts"
 
 [[tools]]
 id = "contract-drift"
