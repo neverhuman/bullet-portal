@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Copied family script with fake Cargo; never builds or resolves canonical Kernel.
 set -euo pipefail
+umask 077
 portal="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 scratch="$(mktemp -d)"
 trap 'rm -rf -- "$scratch"' EXIT
@@ -21,6 +22,8 @@ printf 'stale\n' >"$FIXTURE_ROOT/poison-launched"
 exit 45
 FIXTURE
 chmod +x "$scratch/poison"
+cp "$scratch/poison" "$scratch/gitd"
+gitd_sha="$(sha256sum "$scratch/gitd" | awk '{print $1}')"
 cp "$scratch/poison" "$fixture/bullet-kernel/target/debug/bullet-farmd"
 cp "$scratch/poison" "$scratch/caller/debug/bullet-farmd"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$scratch/bin/npm"
@@ -28,7 +31,7 @@ cat >"$scratch/bin/cargo" <<'FIXTURE'
 #!/usr/bin/env bash
 set -euo pipefail
 [[ "$PWD" == "$FIXTURE_ROOT/family/bullet-kernel" ]]
-[[ "$*" == 'build --locked -p bullet-farmd' ]]
+[[ "$*" == 'build --locked -p bullet-farmd -p bullet-runner -p bullet -p bullet-verifier --features bullet-verifier/fixture-executor --bin bullet-farmd --bin bullet-command-worker --bin transaction_offline --bin bullet-runner --bin bullet-verifier-fixture' ]]
 [[ "$CARGO_TARGET_DIR" == "$FIXTURE_ROOT"/tmp/*/cargo-target ]]
 [[ "$(realpath -e "$CARGO_TARGET_DIR")" == "$CARGO_TARGET_DIR" ]]
 printf '%s\n' "$CARGO_TARGET_DIR" >"$FIXTURE_ROOT/selected-target"
@@ -48,19 +51,29 @@ elif [[ "$FIXTURE_MODE" == directory ]]; then
 else
   printf '#!/usr/bin/env bash\nprintf "fresh\\n" >"$FIXTURE_ROOT/fresh-launched"\nexit 43\n' >"$binary"
   [[ "$FIXTURE_MODE" == nonexecutable ]] || chmod +x "$binary"
+  [[ "$FIXTURE_MODE" != writable ]] || chmod g+w "$binary"
 fi
+for name in bullet-command-worker transaction_offline bullet-runner bullet-verifier-fixture; do
+  [[ "$FIXTURE_MODE" != "missing-$name" ]] || continue
+  cp "$FIXTURE_ROOT/poison" "$CARGO_TARGET_DIR/debug/$name"
+done
 FIXTURE
 chmod +x "$scratch/bin/npm" "$scratch/bin/cargo"
 ln -s "$scratch/tmp" "$scratch/tmp-link"
 passed=0
-for mode in valid relative-caller temporary-link fail missing link parent-link nonexecutable directory; do
+for mode in valid relative-caller temporary-link fail missing link parent-link nonexecutable directory writable \
+  missing-bullet-command-worker missing-transaction_offline missing-bullet-runner \
+  missing-bullet-verifier-fixture gitd-drift; do
   rm -f "$scratch/selected-target" "$scratch/fresh-launched" "$scratch/poison-launched"
   caller="$scratch/caller"
   temporary="$scratch/tmp"
   [[ "$mode" != relative-caller ]] || caller=relative-caller
   [[ "$mode" != temporary-link ]] || temporary="$scratch/tmp-link"
+  expected_gitd="$gitd_sha"
+  [[ "$mode" != gitd-drift ]] || expected_gitd="$(printf '%064d' 0)"
   status=0
   env PATH="$scratch/bin:$PATH" TMPDIR="$temporary" CARGO_TARGET_DIR="$caller" \
+    BULLET_GITD_BIN="$scratch/gitd" BULLET_GITD_SHA256="$expected_gitd" \
     FIXTURE_ROOT="$scratch" FIXTURE_MODE="$mode" \
     bash "$fixture/bullet-portal/ops/ci/real-farmd.sh" >"$scratch/output" 2>&1 || status=$?
   [[ "$status" -ne 0 && -f "$scratch/selected-target" && ! -e "$scratch/poison-launched" ]] \
@@ -69,9 +82,13 @@ for mode in valid relative-caller temporary-link fail missing link parent-link n
   [[ ! -e "${selected%/cargo-target}" ]] || { echo '[ci] farmd proof directory leaked' >&2; exit 1; }
   case "$mode" in
     valid|relative-caller|temporary-link)
-      [[ "$(<"$scratch/fresh-launched")" == fresh ]] ;;
+      [[ -f "$scratch/fresh-launched" && "$(<"$scratch/fresh-launched")" == fresh ]] \
+        || { cat "$scratch/output" >&2; exit 1; } ;;
     fail)
       [[ "$status" -eq 23 && ! -e "$scratch/fresh-launched" ]] ;;
+    gitd-drift)
+      [[ ! -e "$scratch/fresh-launched" ]]
+      grep -Fq BULLET_GITD_DIGEST_MISMATCH "$scratch/output" ;;
     *)
       [[ ! -e "$scratch/fresh-launched" ]]
       grep -Fq FARMD_BUILD_SUBJECT_INVALID "$scratch/output" ;;
