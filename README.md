@@ -127,5 +127,6 @@ The prepared mirror workflow runs the five atomic jobs in parallel on
 secretless checkouts, full-SHA action pins, no caches, and
 `npm ci --ignore-scripts`; Playwright's browser install is separate. Scheduled
 definitions add history/link/audit/coverage and macOS/Windows typed-refusal
-proofs. No hosted run or protection read-back exists yet, so these definitions
-are diagnostics, not release evidence. See [`docs/ci.md`](docs/ci.md).
+proofs. JeRyu currently admits `jankurai/proof` on push. The member `ci.yml`
+required aggregator is still not admitted, so these definitions remain
+diagnostics, not release evidence. See [`docs/ci.md`](docs/ci.md).
