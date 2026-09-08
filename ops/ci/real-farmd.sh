@@ -10,6 +10,7 @@ if [[ ! -f "$kernel_root/Cargo.toml" ]]; then
   exit 1
 fi
 proof_dir="$(mktemp -d)"
+proof_dir="$(cd "$proof_dir" && pwd -P)"
 farmd_pid=""
 worker_token="wrk_2222222222222222222222222222222222222222222222222222222222222222"
 worker_token_file="$proof_dir/worker.token"
@@ -29,8 +30,15 @@ log "build production Portal bundle"
 npm run build
 
 log "build local farmd"
-(cd "$kernel_root" && cargo build --locked -p bullet-farmd)
-farmd_bin="$kernel_root/target/debug/bullet-farmd"
+farmd_target="$proof_dir/cargo-target"
+mkdir "$farmd_target"
+(cd "$kernel_root" && CARGO_TARGET_DIR="$farmd_target" cargo build --locked -p bullet-farmd)
+farmd_bin="$farmd_target/debug/bullet-farmd"
+if [[ ! -f "$farmd_bin" || ! -x "$farmd_bin" || -L "$farmd_bin" \
+  || "$(realpath -e -- "$farmd_bin")" != "$farmd_bin" ]]; then
+  echo "[ci] FARMD_BUILD_SUBJECT_INVALID: fresh canonical executable required" >&2
+  exit 1
+fi
 "$farmd_bin" --data-dir "$proof_dir/data" --bind 127.0.0.1:0 \
   --portal-origin http://127.0.0.1:5173 \
   --worker-token-file "$worker_token_file" \
