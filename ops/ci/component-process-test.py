@@ -247,5 +247,36 @@ time.sleep(30)
         self.assert_gone()
 
 
+EXPECTED_TEST_NAMES = (
+    "test_int_reaps_escaped_descendants",
+    "test_invalid_timeout_refuses_before_child_creation",
+    "test_nonzero_preserves_worker_exit",
+    "test_normal_exit_refuses_and_reaps_residual_descendants",
+    "test_normal_preserves_output_and_clears_environment_without_shell",
+    "test_output_overflow_is_bounded_and_reaped",
+    "test_parent_death_reaps_escaped_descendants",
+    "test_stalled_output_receiver_refuses_without_hanging",
+    "test_term_reaps_escaped_descendants",
+    "test_timeout_reaps_escaped_nested_subreapers",
+)
+
+
+def suite_identities(suite):
+    for test in suite:
+        if isinstance(test, unittest.TestSuite):
+            yield from suite_identities(test)
+        else:
+            yield test.id()
+
+
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    if len(sys.argv) != 1:
+        raise SystemExit("COMPONENT_PROCESS_TEST_FILTER_FORBIDDEN")
+    suite = unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
+    expected = tuple(f"{__name__}.ComponentProcessTests.{name}" for name in EXPECTED_TEST_NAMES)
+    if len(expected) != 10 or tuple(sorted(suite_identities(suite))) != expected:
+        raise SystemExit("COMPONENT_PROCESS_TEST_INVENTORY_INVALID")
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    if result.testsRun != 10 or result.skipped or result.expectedFailures:
+        raise SystemExit("COMPONENT_PROCESS_TEST_EXECUTION_INCOMPLETE")
+    raise SystemExit(0 if result.wasSuccessful() else 1)
