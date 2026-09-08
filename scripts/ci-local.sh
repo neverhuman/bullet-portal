@@ -122,7 +122,7 @@ release_proof_lock() {
 dispatch_lane() {
   local lane="$1"
   case "$lane" in
-    required) bash ops/ci/required.sh ;;
+    required) BULLET_CI_OBSERVATION_OWNER="$CI_PROOF_LOCK_RECORD" bash ops/ci/required.sh ;;
     fast)     bash ops/ci/fast.sh ;;
     lint)     bash ops/ci/lint.sh ;;
     contract) bash ops/ci/contract.sh ;;
@@ -135,7 +135,7 @@ dispatch_lane() {
     scheduled-hygiene) bash ops/ci/scheduled-hygiene.sh ;;
     portable) bash ops/ci/portable.sh ;;
     audit)    bash ops/ci/audit.sh ;;
-    gates|all) bash ops/ci/required.sh ;;
+    gates|all) BULLET_CI_OBSERVATION_OWNER="$CI_PROOF_LOCK_RECORD" bash ops/ci/required.sh ;;
     *)
       echo "usage: $0 {required|fast|lint|contract|security|docs|family|coverage|scheduled-hygiene|portable|audit|nightly|packaged-farmd|all}" >&2
       return 2
@@ -143,13 +143,26 @@ dispatch_lane() {
   esac
 }
 
+observation_operation() {
+  BULLET_CI_OBSERVATION_OWNER="$CI_PROOF_LOCK_RECORD" node ops/ci/observation.mjs "$@"
+}
+
+verify_current_custody() {
+  if [[ "$CI_PROOF_LOCK_SCOPE" == "family" ]]; then
+    verify_proof_lock "$CI_PROOF_LOCK_RECORD" family "$PPID"
+  else
+    verify_proof_lock "$CI_PROOF_LOCK_RECORD" standalone "$$" "$1"
+  fi
+}
+
 run_with_proof_custody() {
-  local lane="$1" status inherited_record="" inherited_present=false
+  local lane="$1" status=0 inherited_record="" inherited_present=false
+  local lifecycle=false generation="" outcome seal_status
   if [[ ${BULLET_CI_PROOF_CUSTODY+x} ]]; then
     inherited_present=true
     inherited_record="$BULLET_CI_PROOF_CUSTODY"
   fi
-  unset BULLET_CI_PROOF_CUSTODY
+  unset BULLET_CI_PROOF_CUSTODY BULLET_CI_OBSERVATION_OWNER
 
   [[ "$lane" =~ ^[a-z0-9-]+$ ]] || {
     proof_lock_refusal
@@ -161,10 +174,25 @@ run_with_proof_custody() {
     acquire_proof_lock "$lane" || return $?
   fi
 
-  if dispatch_lane "$lane"; then
-    status=0
-  else
-    status=$?
+  case "$lane" in
+    fast|lint|contract|security|docs|coverage|scheduled-hygiene|portable) lifecycle=true ;;
+  esac
+  if [[ "$lifecycle" == true ]]; then
+    generation="$(observation_operation prepare "$lane")" || status=$?
+  fi
+  if [[ "$status" -eq 0 ]]; then
+    if dispatch_lane "$lane"; then status=0; else status=$?; fi
+    verify_current_custody "$lane" || return $?
+    if [[ "$lifecycle" == true ]]; then
+      outcome=failure
+      [[ "$status" -ne 0 ]] || outcome=success
+      if observation_operation seal "$lane" "$generation" "$outcome" "$status"; then
+        :
+      else
+        seal_status=$?
+        [[ "$status" -ne 0 ]] || status="$seal_status"
+      fi
+    fi
   fi
 
   if [[ "$CI_PROOF_LOCK_SCOPE" == "family" ]]; then
