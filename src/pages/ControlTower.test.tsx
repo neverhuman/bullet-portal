@@ -3,7 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
 import type { CommandStatus } from "../generated/api";
-import { clearPendingCommand, persistPendingCommand } from "../pendingCommand";
+import {
+  clearPendingCommand,
+  loadPendingCommand,
+  persistPendingCommand,
+} from "../pendingCommand";
 import { ControlTower } from "./ControlTower";
 
 vi.mock("../api", async (importOriginal) => {
@@ -270,12 +274,90 @@ describe("ControlTower command honesty", () => {
     persistPendingCommand({
       envelope: { idempotency_key: "portal_fixture", kind: "run_demo", payload: {} },
       commandId,
+      kind: "run_demo",
+      payloadDigest: digest,
     });
     render(<ControlTower />);
     await waitFor(() => expect(mocked.getCommand).toHaveBeenCalledWith(commandId));
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
     expect(mocked.submitCommand).not.toHaveBeenCalled();
     expect(mocked.newRunDemoEnvelope).not.toHaveBeenCalled();
+  });
+
+  it("keeps the envelope and stays UNKNOWN when admitted-id persistence fails", async () => {
+    persistPendingCommand({
+      envelope: { idempotency_key: "portal_fixture", kind: "run_demo", payload: {} },
+      commandId: null,
+      kind: "run_demo",
+      payloadDigest: null,
+    });
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("quota", "QuotaExceededError");
+    });
+    try {
+      render(<ControlTower />);
+      await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+      await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
+    } finally {
+      setItem.mockRestore();
+    }
+    expect(loadPendingCommand()?.envelope.idempotency_key).toBe("portal_fixture");
+    expect(loadPendingCommand()?.commandId).toBeNull();
+  });
+
+  it("retains a newer pending slot when an unmounted GET later completes", async () => {
+    let resolveOld: ((value: ReturnType<typeof command>) => void) | undefined;
+    mocked.getCommand.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveOld = resolve;
+        }),
+    );
+    persistPendingCommand({
+      envelope: { idempotency_key: "portal_old", kind: "run_demo", payload: {} },
+      commandId,
+      kind: "run_demo",
+      payloadDigest: digest,
+    });
+    const first = render(<ControlTower />);
+    await waitFor(() => expect(mocked.getCommand).toHaveBeenCalledWith(commandId));
+    first.unmount();
+    const laterId = `cmd_${"e".repeat(64)}`;
+    persistPendingCommand({
+      envelope: { idempotency_key: "portal_later", kind: "run_demo", payload: {} },
+      commandId: laterId,
+      kind: "run_demo",
+      payloadDigest: "f".repeat(64),
+    });
+    mocked.getCommand.mockResolvedValueOnce({
+      id: laterId,
+      status: "PENDING",
+      kind: "run_demo",
+      payload_digest: "f".repeat(64),
+      result: null,
+    });
+    render(<ControlTower />);
+    resolveOld?.(command("UNKNOWN"));
+    await waitFor(() => expect(loadPendingCommand()?.commandId).toBe(laterId));
+    expect(loadPendingCommand()?.envelope.idempotency_key).toBe("portal_later");
+  });
+
+  it("retains custody when a restored GET changes kind or digest", async () => {
+    persistPendingCommand({
+      envelope: { idempotency_key: "portal_fixture", kind: "run_demo", payload: {} },
+      commandId,
+      kind: "run_demo",
+      payloadDigest: digest,
+    });
+    mocked.getCommand.mockResolvedValue({
+      ...command("UNKNOWN"),
+      kind: "run_coding",
+    });
+    render(<ControlTower />);
+    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
+    expect(screen.getByTestId("mutation-error")).toHaveTextContent("restored subject conflicts");
+    expect(loadPendingCommand()?.commandId).toBe(commandId);
+    expect(mocked.submitCommand).not.toHaveBeenCalled();
   });
 
   it("renders a real health observation neutrally rather than as verification", async () => {
