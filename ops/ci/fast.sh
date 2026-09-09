@@ -8,8 +8,8 @@ reports="$(artifact_dir reports)"
 log "fast lane: vitest + typed production build"
 ./node_modules/.bin/vitest run --reporter=json \
   --outputFile="$reports/vitest.json"
-node ops/ci/assert-report.mjs vitest "$reports/vitest.json" 153 \
-  081182b3d3c9bcdd662e1b079e0c51d89509822569eeb569ed21762756d9a0a2
+node ops/ci/assert-report.mjs vitest "$reports/vitest.json" 159 \
+  971adb4eb2420264c4418894e586f9cb537823d6a3723968e80bc4c7d75acb91
 if VITE_BULLET_API="https://hostile.invalid" npm run build \
   >"$reports/vite-api-override.log" 2>&1; then
   printf '[ci] VITE_BULLET_API_UNSUPPORTED: configured API override was accepted\n' >&2

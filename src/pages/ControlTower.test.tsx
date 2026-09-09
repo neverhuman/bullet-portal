@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
 import type { CommandStatus } from "../generated/api";
+import { clearPendingCommand, persistPendingCommand } from "../pendingCommand";
 import { ControlTower } from "./ControlTower";
 
 vi.mock("../api", async (importOriginal) => {
@@ -55,6 +56,7 @@ function missionsError(): api.ApiError {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  clearPendingCommand();
   mocked.hasSessionMaterial.mockReturnValue(true);
   mocked.listMissions.mockResolvedValue(snapshot([]));
   mocked.fetchOutbox.mockResolvedValue(snapshot({ items: [] }));
@@ -239,6 +241,41 @@ describe("ControlTower command honesty", () => {
       ),
     );
     expect(screen.getByTestId("health-probe")).toHaveClass("unknown");
+  });
+
+  it("persists the envelope before POST and retries the same key after lost admission", async () => {
+    mocked.submitCommand.mockRejectedValue(
+      new api.ApiError("POST", "/api/v1/commands", null, "timeout after 10000ms"),
+    );
+    render(<ControlTower />);
+    const button = screen.getByRole("button", { name: "Submit durable demo command" });
+    await userEvent.click(button);
+    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
+    await userEvent.click(button);
+    await waitFor(() => expect(mocked.submitCommand).toHaveBeenCalledTimes(2));
+    expect(mocked.submitCommand).toHaveBeenNthCalledWith(1, {
+      idempotency_key: "portal_fixture",
+      kind: "run_demo",
+      payload: {},
+    });
+    expect(mocked.submitCommand).toHaveBeenNthCalledWith(2, {
+      idempotency_key: "portal_fixture",
+      kind: "run_demo",
+      payload: {},
+    });
+    expect(mocked.newRunDemoEnvelope).toHaveBeenCalledTimes(1);
+  });
+
+  it("resumes an admitted command after reload instead of minting a new key", async () => {
+    persistPendingCommand({
+      envelope: { idempotency_key: "portal_fixture", kind: "run_demo", payload: {} },
+      commandId,
+    });
+    render(<ControlTower />);
+    await waitFor(() => expect(mocked.getCommand).toHaveBeenCalledWith(commandId));
+    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
+    expect(mocked.submitCommand).not.toHaveBeenCalled();
+    expect(mocked.newRunDemoEnvelope).not.toHaveBeenCalled();
   });
 
   it("renders a real health observation neutrally rather than as verification", async () => {
