@@ -1,0 +1,68 @@
+# Prepared forge-neutral jobs. `native-node-clean` is intentionally not an
+# activated Bullet runner profile yet, and the first command is a fail-closed
+# gate. Ratification must provision exact Node/npm, immutable repository OIDs,
+# and required-context API read-back before removing that gate.
+
+[[job]]
+id = "fast"
+name = "prepared fast"
+runner_class = "native-node-clean"
+run = ["bash ops/ci/jeryu-activation-gate.sh", "bash ops/ci/jeryu-lane.sh fast"]
+cache_mounts = []
+artifact_paths = [
+  ".ci-artifacts/observations/fast.json",
+  ".ci-artifacts/reports/vitest.json",
+  ".ci-artifacts/reports/vite-api-override.log",
+  ".ci-artifacts/reports/farmd-test-proxy-override.log",
+]
+timeout_seconds = 900
+
+[[job]]
+id = "lint"
+name = "prepared lint"
+runner_class = "native-node-clean"
+run = ["bash ops/ci/jeryu-activation-gate.sh", "bash ops/ci/jeryu-lane.sh lint"]
+cache_mounts = []
+artifact_paths = [".ci-artifacts/observations/lint.json"]
+timeout_seconds = 600
+
+[[job]]
+id = "contract"
+name = "prepared contract"
+runner_class = "native-node-clean"
+run = ["bash ops/ci/jeryu-activation-gate.sh", "bash ops/ci/jeryu-lane.sh contract"]
+cache_mounts = []
+artifact_paths = [
+  ".ci-artifacts/observations/contract.json",
+  ".ci-artifacts/reports/playwright.xml",
+  ".ci-artifacts/playwright",
+]
+timeout_seconds = 1200
+
+[[job]]
+id = "security"
+name = "prepared security"
+runner_class = "native-node-clean"
+run = ["bash ops/ci/jeryu-activation-gate.sh", "bash ops/ci/jeryu-lane.sh security"]
+cache_mounts = []
+artifact_paths = [".ci-artifacts/observations/security.json"]
+timeout_seconds = 900
+
+[[job]]
+id = "docs"
+name = "prepared docs"
+runner_class = "native-node-clean"
+run = ["bash ops/ci/jeryu-activation-gate.sh", "bash ops/ci/jeryu-lane.sh docs"]
+cache_mounts = []
+artifact_paths = [".ci-artifacts/observations/docs.json"]
+timeout_seconds = 600
+
+[[job]]
+id = "required"
+name = "prepared CI / required"
+runner_class = "native-node-clean"
+needs = ["fast", "lint", "contract", "security", "docs"]
+run = ["bash ops/ci/jeryu-activation-gate.sh", "node ops/ci/aggregate.mjs --jeryu"]
+cache_mounts = []
+artifact_paths = []
+timeout_seconds = 300

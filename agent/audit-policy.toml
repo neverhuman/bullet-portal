@@ -1,0 +1,33 @@
+# Jankurai audit policy for bullet-portal.
+#
+# The thresholds below are the auditor defaults, written out so nothing here
+# weakens the decision: standard mode still fails under 85 and still treats
+# critical and high findings as hard. `ops/ci/audit.sh` applies its own
+# upward-only `AUDIT_FLOOR` ratchet on top of this policy.
+minimum_score = 85
+fail_on = ["critical", "high"]
+advisory_on = ["medium", "low"]
+
+# Explicit cost-surface enumeration for HLT-026-COST-BUDGET-GAP. The Portal is a
+# read-only browser projection: it calls no provider, model or metered API, it
+# stores nothing it pays for, and every lane here is local and offline (vitest,
+# tsc, Playwright against a mocked or local farmd). There is no spend to bound.
+cost_surface = []
+
+# Accepted false positives for HLT-001-DEAD-MARKER. Listing a term here
+# suppresses only that exact word for the dead-marker heuristic; every other
+# dead-language, secret and web-security check still runs over the same files.
+#
+# `stale` is projection vocabulary, not deferred work. `EventStream.stale` in
+# src/hooks/useEventStream.ts is true while the stream has not yet caught up to
+# the required watermark, and src/components/StatusHeader.tsx renders exactly
+# that state as the visible `STALE` badge with `data-testid="stale-badge"`. The
+# whole point of this surface is to show staleness rather than hide it, and the
+# kernel reason code it mirrors is `SNAPSHOT_WATERMARK_MISMATCH`. Renaming it
+# would remove the honesty, not dead language.
+#
+# `fallback` appears once, in the src/surfaces.ts description of the routing
+# plane's "fallback ladder" — the kernel's ordered tier list, named in operator
+# vocabulary so the projection matches what the control plane calls it.
+[dead_language]
+allow_terms = ["stale", "fallback"]

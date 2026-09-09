@@ -1,0 +1,10 @@
+# Keep every built-in detector; only this independently traced public label is
+# excluded. Kernel transaction_offline/signed_verification.rs INTENT_KEY_ID is
+# copied to PublicKeySubject, separately from the generated signing secret.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Exact public verification-intent fixture key identifier"
+regexTarget = "match"
+regexes = ['''^[k]ey_id": "verification-intent-fixture-1"$''']

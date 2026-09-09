@@ -1,0 +1,86 @@
+# Canonical proof lanes. Every lane is `bash ops/ci/<lane>.sh`, exposed through
+# `bash scripts/ci-local.sh <lane>` and the matching `just` recipe. The five
+# atomic lanes are fast, lint, contract, security and docs; local `required`
+# runs exactly those five, sequentially, exactly once. No standalone lane
+# resolves a sibling repository, no lane reaches a forge, and no lane may
+# translate a missing tool, a skipped case or a neutral exit 78 into green.
+# The narrative version of this table is `docs/ci.md`; the routing table is
+# `agent/test-map.json`.
+
+[[lane]]
+name = "fast"
+command = "just fast"
+purpose = "standalone vitest run with an asserted case count plus the typed production build; never resolves a sibling repository"
+requires_network = false
+
+[[lane]]
+name = "lint"
+command = "just lint"
+purpose = "actionlint 1.7.8 over the workflows, ShellCheck 0.10.0 over every ops/ci and scripts shell file, and a whitespace check; zero discovered shell files fails the lane"
+requires_network = false
+
+[[lane]]
+name = "contract"
+command = "just contract"
+purpose = "bundle typecheck and tests plus the mocked Playwright suite with an asserted case count; no live farmd and no live models"
+requires_network = false
+
+[[lane]]
+name = "security"
+command = "just security"
+purpose = "gitleaks 8.21.2 secret scan, a detector canary that fails the lane if gitleaks accepts a planted credential, the CSRF storage-symbol guard, npm audit over the whole graph, and zizmor 1.25.2 over the workflow bytes"
+requires_network = true
+
+[[lane]]
+name = "docs"
+command = "just docs"
+purpose = "local documentation link resolution plus the CI structure and meta-loss controls"
+requires_network = false
+
+[[lane]]
+name = "required"
+command = "just check"
+purpose = "canonical local merge gate: fast, lint, contract, security and docs, sequentially and exactly once, each with an observation record"
+requires_network = true
+
+[[lane]]
+name = "family"
+command = "just family"
+purpose = "the real sibling-farmd browser proof, deliberately outside standalone required; refuses with FAMILY_MUTATION_LINUX_ONLY (exit 78) off Linux"
+requires_network = false
+
+[[lane]]
+name = "packaged-farmd"
+command = "just packaged-farmd"
+purpose = "browser proof against a packaged farmd serving this Portal; exits 78 (neutral, never green) without the sibling bullet-kernel checkout"
+requires_network = false
+
+[[lane]]
+name = "coverage"
+command = "bash scripts/ci-local.sh coverage"
+purpose = "the unit and component suites with a ratcheted coverage summary over src, excluding tests and the generated zone"
+requires_network = false
+
+[[lane]]
+name = "portable"
+command = "bash scripts/ci-local.sh portable"
+purpose = "the fast lane plus a recorded, re-checked typed platform refusal, so a non-Linux host refuses in a named way instead of silently passing"
+requires_network = false
+
+[[lane]]
+name = "scheduled-hygiene"
+command = "bash scripts/ci-local.sh scheduled-hygiene"
+purpose = "full-history secret scan, full dependency audit, and external link resolution; scheduled, never a merge gate"
+requires_network = true
+
+[[lane]]
+name = "audit"
+command = "just audit"
+purpose = "local Jankurai score against the upward-only AUDIT_FLOOR ratchet, writing .jankurai/repo-score.{json,md}"
+requires_network = false
+
+[[lane]]
+name = "nightly"
+command = "just nightly"
+purpose = "compatibility alias for the exact family lane; invokes no provider, forge, or live oracle and preserves the family lane's outcome"
+requires_network = false

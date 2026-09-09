@@ -1,0 +1,141 @@
+{
+  "workspace": "bullet-portal",
+  "tests": {
+    ".ci-artifacts/": {
+      "command": "bash scripts/ci-local.sh lint",
+      "purpose": "unsigned CI observations and reports; the producing lane regenerates them"
+    },
+    ".jankurai/": {
+      "command": "bash ops/ci/audit.sh",
+      "purpose": "gitignored audit lane output; the audit lane regenerates it from the pinned local auditor"
+    },
+    ".storybook/": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "Storybook state coverage for the rendered status header"
+    },
+    "CHANGELOG.md": {
+      "command": "bash ops/ci/audit.sh",
+      "purpose": "release language must stay evidence-backed and honestly blocked; the audit lane checks it"
+    },
+    "CLAUDE.md": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "thin Claude adapter that only points at AGENTS.md"
+    },
+    "playwright.packaged.config.ts": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "packaged-farmd browser lane configuration"
+    },
+    "scripts/": {
+      "command": "bash scripts/ci-local.sh lint",
+      "purpose": "local CI entrypoints that delegate to the same ops/ci scripts hosted jobs call"
+    },
+    "test-results/": {
+      "command": "bash scripts/ci-local.sh contract",
+      "purpose": "Playwright screenshot and trace receipts; the contract lane regenerates them"
+    },
+    "tools/": {
+      "command": "bash scripts/ci-local.sh security",
+      "purpose": "canonical security-lane wrapper that execs ops/ci/security.sh"
+    },
+    "contracts/": {
+      "command": "bash scripts/ci-local.sh contract",
+      "purpose": "projection contract boundary; the contract lane proves generated clients"
+    },
+    "schemas/": {
+      "command": "bash ops/ci/audit.sh",
+      "purpose": "shape of local Jankurai score artifacts written by the audit lane"
+    },
+    "tests/": {
+      "command": "bash scripts/ci-local.sh lint",
+      "purpose": "Linux pidfd component supervisor and its acceptance inventory"
+    },
+    "tokens/": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "semantic design tokens consumed by the rendered surfaces"
+    },
+    "src/": {
+      "command": "npm test",
+      "purpose": "prove observation rendering and Control Tower state"
+    },
+    "e2e/": {
+      "command": "bash scripts/ci-local.sh contract",
+      "purpose": "prove pending-to-verified and unknown-as-unknown"
+    },
+    "ops/": {
+      "command": "just check",
+      "purpose": "verify local CI parity"
+    },
+    ".github/": {
+      "command": "bash scripts/ci-local.sh required",
+      "purpose": "prove hosted lanes match local scripts"
+    },
+    "ci.toml": {
+      "command": "bash scripts/ci-local.sh docs",
+      "purpose": "prove prepared Jeryu jobs preserve the local lane boundary and remain activation-blocked"
+    },
+    "docs/": {
+      "command": "bash scripts/ci-local.sh docs",
+      "purpose": "validate local links and CI truth claims"
+    },
+    "README.md": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "documentation; the fast lane proves the commands it names"
+    },
+    "AGENTS.md": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "agent entrypoint; the fast lane proves the commands it names"
+    },
+    "SPLIT.md": {
+      "command": "bash scripts/ci-local.sh required",
+      "purpose": "split-family contract; the required lane is the check it names"
+    },
+    "Justfile": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "command surface; CI recipes delegate to scripts/ci-local.sh and the score recipe runs the local auditor"
+    },
+    ".gitignore": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "exclusion list for generated and local outputs; the fast lane proves the tree still builds"
+    },
+    ".gitleaksignore": {
+      "command": "bash scripts/ci-local.sh scheduled-hygiene",
+      "purpose": "prove the exact historical false-positive fingerprint while the current-tree scan and secret canary remain load-bearing"
+    },
+    "LICENSE": {
+      "command": "test -s LICENSE",
+      "purpose": "license text; no executable proof"
+    },
+    "agent/": {
+      "command": "bash ops/ci/audit.sh",
+      "purpose": "Jankurai metadata; the audit lane validates it"
+    },
+    "package.json": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "npm scripts and dependency manifest"
+    },
+    "package-lock.json": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "locked dependency graph"
+    },
+    "vite.config.ts": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "dev proxy and build configuration"
+    },
+    "tsconfig.json": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "TypeScript configuration checked by tsc"
+    },
+    "playwright.config.ts": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "mocked-farmd browser lane configuration"
+    },
+    "playwright.real.config.ts": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "real-farmd browser lane configuration"
+    },
+    "index.html": {
+      "command": "bash scripts/ci-local.sh fast",
+      "purpose": "application entry document"
+    }
+  }
+}

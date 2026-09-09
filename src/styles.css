@@ -1,0 +1,129 @@
+:root {
+  color: #e8edf5;
+  background: #10141c;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 20px 64px;
+}
+h1 {
+  margin: 0 0 8px;
+  font-size: 32px;
+}
+.tagline {
+  color: #9db0c9;
+  margin-bottom: 24px;
+}
+button {
+  background: #d7a13a;
+  color: #10141c;
+  border: 0;
+  padding: 10px 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.card a {
+  color: #a9c7ff;
+}
+.card a:hover {
+  color: #d6e4ff;
+}
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+.table-scroll:focus-visible {
+  outline: 3px solid #f7c95d;
+  outline-offset: 3px;
+}
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+dl {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 8px 16px;
+}
+.pending {
+  color: #d7a13a;
+}
+.verified {
+  color: #7dce8a;
+}
+.unknown {
+  color: #e07a7a;
+  font-weight: 700;
+}
+.card {
+  background: #1a2130;
+  padding: 20px;
+  margin-top: 20px;
+}
+.idle {
+  color: #9db0c9;
+}
+.failed {
+  color: #e07a7a;
+  font-weight: 700;
+}
+.live {
+  color: #7dce8a;
+}
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 16px;
+}
+.nav a {
+  color: #9db0c9;
+  text-decoration: none;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
+.nav a.nav-current {
+  color: #e8edf5;
+  font-weight: 700;
+}
+.reconnecting {
+  color: #d7a13a;
+}
+.stale {
+  background: #d7a13a;
+  color: #10141c;
+  padding: 2px 6px;
+  font-weight: 700;
+}
+.statusline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: #9db0c9;
+}
+.source {
+  color: #9db0c9;
+  font-size: 12px;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

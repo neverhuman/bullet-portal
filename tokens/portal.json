@@ -1,0 +1,11 @@
+{
+  "description": "semantic design tokens for the Portal projection surfaces",
+  "color": {
+    "status.live": { "value": "#0f7b3a" },
+    "status.unknown": { "value": "#6b7280" },
+    "status.stale": { "value": "#b45309" }
+  },
+  "space": {
+    "surface.gap": { "value": "12px" }
+  }
+}

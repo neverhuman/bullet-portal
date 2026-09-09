@@ -1,0 +1,39 @@
+{
+  "name": "bullet-portal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "bundle:typecheck": "tsc -p ops/build/tsconfig.json",
+    "bundle:test": "node --test ops/build/bundle-tests.ts",
+    "bundle:generate": "node ops/build/portal-bundle.ts generate",
+    "bundle:check": "node ops/build/portal-bundle.ts check",
+    "preview": "vite preview --host 127.0.0.1 --port 5173",
+    "test": "vitest run",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@noble/hashes": "2.3.0",
+    "@playwright/test": "^1.54.1",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "26.3.0",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "@vitest/coverage-v8": "3.2.7",
+    "jsdom": "^26.1.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.4",
+    "vitest": "3.2.7"
+  }
+}
