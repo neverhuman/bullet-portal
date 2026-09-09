@@ -51,8 +51,7 @@ test("the health probe reports unknown when /health fails", async ({ page }) => 
   // Layered rendered UX QA: Playwright screenshot capture, axe-core /
   // accessibility testing / WCAG roles, web-vitals cumulative layout shift,
   // chromatic visual regression review, and artifact-backed playwright-report
-  // receipts (--screenshot, --aria-snapshot, trace). Hosted changed-fast
-  // proof observes this same screenshot receipt.
+  // receipts (--screenshot, --aria-snapshot, trace).
   const header = page.getByTestId("status-header");
   await expect(header).toBeVisible();
   const rect = await header.evaluate((node) => node.getBoundingClientRect());

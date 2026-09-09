@@ -38,14 +38,29 @@ wait_for() {
 
 new_fixture() {
   local repo="$TEST_ROOT/$1"
-  mkdir -p "$repo/scripts" "$repo/ops/ci" "$repo/.git"
+  mkdir -p "$repo/scripts" "$repo/ops/ci"
+  git -c init.templateDir= init --quiet --initial-branch=main "$repo"
   chmod 700 "$repo/.git"
-  printf 'ref: refs/heads/main\n' >"$repo/.git/HEAD"
   cp "$REPO_ROOT/scripts/ci-local.sh" "$repo/scripts/ci-local.sh"
+  cp "$REPO_ROOT/ops/ci/observation.mjs" "$repo/ops/ci/observation.mjs"
+  cat >"$repo/.gitignore" <<'IGNORED'
+/.ci-artifacts/
+/child.log
+/report
+/outside
+/outside-dir/
+/modes
+/ready
+/lane.pid
+/release
+/publication
+/dispatcher.output
+/retained-git/
+IGNORED
   cat >"$repo/ops/ci/fast.sh" <<'FIXTURE'
 #!/usr/bin/env bash
 set -euo pipefail
-[[ ! ${BULLET_CI_PROOF_CUSTODY+x} ]] || exit 90
+[[ ! ${BULLET_CI_PROOF_CUSTODY+x} && ! ${BULLET_CI_OBSERVATION_OWNER+x} ]] || exit 90
 printf 'child\n' >>"$FIXTURE_CHILD_LOG"
 if [[ "${FIXTURE_NESTED:-}" == "1" ]]; then
   set +e
@@ -67,10 +82,18 @@ if [[ -n "${FIXTURE_MODE_REPORT:-}" ]]; then
 fi
 if [[ "${FIXTURE_WRITE_REPORT:-1}" == "1" ]]; then
   printf 'report\n' >"$FIXTURE_REPORT"
+  mkdir -p .ci-artifacts/reports
+  # Fixture payloads test custody; real fast.sh verifies report semantics.
+  for fixture_artifact in vitest.json vite-api-override.log farmd-test-proxy-override.log; do
+    printf 'report\n' >".ci-artifacts/reports/$fixture_artifact"
+  done
 fi
 exit "${FIXTURE_STATUS:-0}"
 FIXTURE
   chmod +x "$repo/scripts/ci-local.sh" "$repo/ops/ci/fast.sh"
+  git -C "$repo" add -- .gitignore scripts/ci-local.sh ops/ci/observation.mjs ops/ci/fast.sh
+  git -C "$repo" -c core.hooksPath=/dev/null -c commit.gpgsign=false \
+    -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m fixture
   printf '%s\n' "$repo"
 }
 
@@ -255,8 +278,7 @@ repo="$(new_fixture git-symlink)"
 mkdir "$repo/outside-dir"
 printf 'outside\n' >"$repo/outside-dir/sentinel"
 printf 'original\n' >"$repo/report"
-rm "$repo/.git/HEAD"
-rmdir "$repo/.git"
+mv "$repo/.git" "$repo/retained-git"
 ln -s "$repo/outside-dir" "$repo/.git"
 set +e
 run_dispatcher "$repo" FIXTURE_CHILD_LOG="$repo/child.log" FIXTURE_REPORT="$repo/report" >/dev/null 2>&1

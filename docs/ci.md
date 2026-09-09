@@ -1,8 +1,8 @@
 # Continuous integration
 
-Status: prepared member aggregator; JeRyu admits `jankurai/proof`
+Status: prepared, not hosted authority
 Owner: Bullet Farm maintainers
-Last reviewed: 2026-09-08
+Last reviewed: 2026-08-25
 
 Portal CI is forge-neutral at the command boundary. The five atomic lanes are
 `bash scripts/ci-local.sh fast|lint|contract|security|docs`; local `required`
