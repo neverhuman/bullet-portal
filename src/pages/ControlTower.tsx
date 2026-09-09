@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   errorText,
@@ -11,6 +11,13 @@ import {
   newRunDemoEnvelope,
   submitCommand,
 } from "../api";
+import {
+  clearPendingCommand,
+  envelopeForRetryOrCreate,
+  loadPendingCommand,
+  pendingConflicts,
+  rememberAdmittedCommand,
+} from "../pendingCommand";
 import { CommandCard } from "../components/CommandCard";
 import { MissionsCard } from "../components/MissionsCard";
 import { OutboxCard } from "../components/OutboxCard";
@@ -153,6 +160,7 @@ export function ControlTower() {
         setPhase("UNKNOWN");
         setError(unverifiableSuccess(next.id));
         runningRef.current = false;
+        clearPendingCommand();
         return;
       }
       last = next;
@@ -160,7 +168,10 @@ export function ControlTower() {
       setPhase(next.status);
     }
     runningRef.current = false;
+    clearPendingCommand();
     if (last.status === "FAILED" || last.status === "UNKNOWN") {
+      setCommand(last);
+      setPhase(last.status);
       setError(`command ${last.id} durably ${last.status}`);
       return;
     }
@@ -169,8 +180,51 @@ export function ControlTower() {
     setError(unverifiableSuccess(last.id));
   }
 
+  async function resumePending(): Promise<void> {
+    const pending = loadPendingCommand();
+    if (pending === null || pending.commandId === null || runningRef.current) {
+      return;
+    }
+    runningRef.current = true;
+    const generation = commandGeneration.current + 1;
+    commandGeneration.current = generation;
+    setPhase("PENDING");
+    setError(null);
+    try {
+      const admitted = await getCommand(pending.commandId);
+      if (commandGeneration.current !== generation) {
+        return;
+      }
+      setCommand(admitted);
+      await reconcile(admitted, generation);
+    } catch (err) {
+      if (commandGeneration.current === generation) {
+        setPhase("UNKNOWN");
+        setError(
+          `command ${pending.commandId} reconciliation unknown (${errorText(err)})`,
+        );
+        runningRef.current = false;
+      }
+    }
+  }
+
+  useEffect(() => {
+    void resumePending();
+  }, []);
+
   async function onRunDemo(): Promise<void> {
     if (runningRef.current) {
+      return;
+    }
+    const pending = loadPendingCommand();
+    if (pending?.commandId !== null && pending?.commandId !== undefined) {
+      await resumePending();
+      return;
+    }
+    const envelope = envelopeForRetryOrCreate(newRunDemoEnvelope);
+    if (pendingConflicts(envelope)) {
+      setPhase("UNKNOWN");
+      setError("pending command envelope conflicts with this request; reconcile it first");
       return;
     }
     runningRef.current = true;
@@ -180,10 +234,11 @@ export function ControlTower() {
     setError(null);
     setCommand(null);
     try {
-      const admitted = await submitCommand(newRunDemoEnvelope());
+      const admitted = await submitCommand(envelope);
       if (commandGeneration.current !== generation) {
         return;
       }
+      rememberAdmittedCommand(admitted.id);
       setCommand(admitted);
       setPhase("PENDING");
       await reconcile(admitted, generation);
@@ -192,6 +247,9 @@ export function ControlTower() {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         forgetBrowserSession();
         setSessionMaterial(false);
+      }
+      if (!ambiguous && !(err instanceof ApiError && (err.status === 401 || err.status === 403))) {
+        clearPendingCommand();
       }
       setPhase(ambiguous ? "UNKNOWN" : "FAILED");
       setError(
