@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { surfaceById } from "../surfaces";
+import { surfaceById, type Surface } from "../surfaces";
 import { ProjectedSurface } from "./ProjectedSurface";
 
 const missionId = `mis_${"1".repeat(64)}`;
@@ -117,4 +117,50 @@ describe("ProjectedSurface", () => {
       );
     });
   });
+
+  it("renders a live attempt from matching mission and ready snapshots", async () => {
+    const mission = {
+      id: missionId, organization_id: organizationId, repository_id: repositoryId,
+      title: "t", objective: "o", acceptance_contract_id: acceptanceContractId, state: "active",
+    };
+    const graph = { mission, packages: [], fence: 2 };
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/missions")) return json([mission]);
+      if (url.endsWith(`/api/v1/missions/${missionId}`)) return json(graph);
+      if (url.endsWith("/api/v1/ready")) return json(null);
+      throw new Error(`unexpected endpoint: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const surface = surfaceById("live-attempt");
+    if (!surface) throw new Error("live-attempt surface missing");
+    render(<ProjectedSurface surface={surface} />);
+    const element = await screen.findByTestId("live-attempt-projection");
+    expect(JSON.parse(element.textContent ?? "")).toEqual({ ready: null, graphs: [graph] });
+    expect(screen.getByTestId("live-attempt-tagline")).toHaveTextContent("as_of_sequence 3");
+    expect(fetch.mock.calls.map(([input]) => String(input)).sort()).toEqual([
+      "/api/v1/missions", `/api/v1/missions/${missionId}`, "/api/v1/ready",
+    ].sort());
+  });
+
+  it.each<[Surface["id"], string[]]>([
+    ["fleet", ["fleet"]],
+    ["session-supervisor", ["sessions"]],
+    ["context-lineage", ["context-lineage"]],
+    ["merge-rail", ["merge-rail"]],
+    ["quality-lab", ["quality-lab"]],
+    ["incidents-audit", ["audit", "outbox"]],
+  ])("routes %s to its own endpoint and preserves an unavailable result", async (id, endpoints) => {
+    const fetch = vi.fn(async (_input: RequestInfo | URL) => { throw new Error("route unavailable"); });
+    vi.stubGlobal("fetch", fetch);
+    const surface = surfaceById(id);
+    if (!surface) throw new Error(`${id} surface missing`);
+    render(<ProjectedSurface surface={surface} />);
+    expect(await screen.findByTestId(`${id}-unknown`)).toHaveTextContent("route unavailable");
+    expect(fetch.mock.calls.map(([input]) => String(input)).sort()).toEqual(
+      endpoints.map((endpoint) => `/api/v1/${endpoint}`).sort(),
+    );
+    expect(screen.getByTestId(`${id}-tagline`)).toHaveTextContent("confidence unknown");
+  });
+
 });

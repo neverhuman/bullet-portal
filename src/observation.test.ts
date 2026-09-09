@@ -14,4 +14,17 @@ describe("observation rendering", () => {
     expect(isHealthy(obs)).toBe(false);
     expect(renderObservation(obs)).toMatch(/^contradictory/);
   });
+
+  it("keeps an empty observation distinct from health", () => {
+    const obs = { kind: "empty" as const, text: "no rows" };
+    expect(renderObservation(obs)).toBe("empty");
+    expect(isHealthy(obs)).toBe(false);
+  });
+
+  it("retains a value observation text and health meaning", () => {
+    const obs = { kind: "value" as const, text: "verified measurement" };
+    expect(renderObservation(obs)).toBe("verified measurement");
+    expect(isHealthy(obs)).toBe(true);
+  });
+
 });
