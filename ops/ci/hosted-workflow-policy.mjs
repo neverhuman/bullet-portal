@@ -113,6 +113,18 @@ function validateHostedWorkflow(definition, isScheduled) {
       "      - name: Scan source and lockfiles before installation",
       "        run: node ops/ci/preinstall-scan.mjs",
     ]);
+    if (!isScheduled && jobName === "lint") {
+      exactNamedStep(steps, "Install checksum-pinned actionlint 1.7.8", [
+        "      - name: Install checksum-pinned actionlint 1.7.8",
+        "        run: bash ops/ci/install-actionlint.sh",
+      ]);
+    }
+    if (!isScheduled && jobName === "docs") {
+      exactNamedStep(steps, "Install locked dependencies without lifecycle scripts", [
+        "      - name: Install locked dependencies without lifecycle scripts",
+        "        run: npm ci --ignore-scripts --no-audit --no-fund",
+      ]);
+    }
     exactNamedStep(steps, laneStepName, laneStep(lane, laneStepName));
     exactNamedStep(
       steps,
@@ -135,7 +147,7 @@ function validateHostedWorkflow(definition, isScheduled) {
     );
     const installerIndexes = steps
       .map((step, index) =>
-        /npm install --global|npm ci |install-gitleaks\.sh|taiki-e\/install-action@|playwright install/.test(
+        /npm install --global|npm ci |install-(?:gitleaks|actionlint)\.sh|taiki-e\/install-action@|playwright install/.test(
           step,
         )
           ? index
@@ -151,7 +163,7 @@ function validateHostedWorkflow(definition, isScheduled) {
   if (!isScheduled) validateRequiredConvergence(definition);
   const expectedHash = isScheduled
     ? "83e80d3f981ef39d4f7a84fbf06b6ffb9d05254c491525eed6c8941bb697da22"
-    : "41d796d45036e41f4f8999935c9cacde2c50c3f051dca49cb4ec6221c5fd6aeb";
+    : "60931e893c27c8b91a0beada139469074f2802c1488409acbb8f79d1bd7411b9";
   assert(
     createHash("sha256").update(definition).digest("hex") === expectedHash,
     "hosted workflow source digest drifted",
@@ -283,8 +295,8 @@ function uploadStep(lane, isScheduled, jobName) {
 }
 
 function runRequiredHostiles(definition) {
-  const expectInvalid = (mutated, label) =>
-    assertThrows(() => validateHostedWorkflow(mutated, false), label);
+  const expectInvalid = (mutated, label, expectedReason) =>
+    assertThrows(() => validateHostedWorkflow(mutated, false), label, expectedReason);
   expectInvalid(
     definition.replace(
       "          bash scripts/ci-local.sh fast",
@@ -368,6 +380,26 @@ function runRequiredHostiles(definition) {
     ),
     "custom shell that ignores convergence was accepted",
   );
+  const docs = exactJob(definition, "docs");
+  const install = "      - name: Install locked dependencies without lifecycle scripts\n" +
+    "        run: npm ci --ignore-scripts --no-audit --no-fund";
+  for (const replacement of ["", install.replace("--ignore-scripts ", ""),
+    install.replace("run: npm ci", "run: true # npm ci")]) {
+    expectInvalid(definition.replace(docs, docs.replace(install, replacement)),
+      "docs dependency installation was removed or weakened",
+      `step Install locked dependencies without lifecycle scripts is ${replacement === "" ? "missing or duplicated" : "not the exact admitted block"}`);
+  }
+  const lint = exactJob(definition, "lint");
+  const actionlint = "      - name: Install checksum-pinned actionlint 1.7.8\n" +
+    "        run: bash ops/ci/install-actionlint.sh";
+  const scan = "      - name: Scan source and lockfiles before installation\n" +
+    "        run: node ops/ci/preinstall-scan.mjs";
+  expectInvalid(definition.replace(lint, lint.replace(actionlint, "")
+    .replace(scan, `${actionlint}\n${scan}`)), "actionlint installed before source admission",
+    "lint installs before source admission");
+  expectInvalid(definition.replace(actionlint, actionlint.replace("run: bash", "run: true # bash")),
+    "actionlint installation was replaced by a no-op",
+    "step Install checksum-pinned actionlint 1.7.8 is not the exact admitted block");
   const single = modeledArchiveEntries("file", "observations/lint.json", [
     "observations/lint.json",
   ]);
@@ -438,10 +470,13 @@ function modeledArchiveEntries(kind, input, files) {
   return files.map((path) => path.slice(`${input}/`.length));
 }
 
-function assertThrows(callback, message) {
+function assertThrows(callback, message, expectedReason) {
   try {
     callback();
-  } catch {
+  } catch (error) {
+    if (expectedReason !== undefined) {
+      assert(error instanceof Error && error.message === `CI_META_FAILED: ${expectedReason}`, message);
+    }
     return;
   }
   throw new Error(`CI_META_FAILED: ${message}`);
