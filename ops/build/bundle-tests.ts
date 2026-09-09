@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { link, mkdtemp, mkdir, readFile, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -151,7 +151,111 @@ test("content, membership, name, lock, and tool mutations invalidate the exact m
   assert.equal(substitutedTool.file_count, firstTool.file_count);
   assert.equal(substitutedTool.size, firstTool.size);
   assert.notEqual(substitutedTool.blake3, firstTool.blake3);
+  const legacyRecords = [
+    { blake3: blake3Bytes(encoder.encode("import '../lib/cli.js';\n")), path: "bin/npm-cli.js", size: 24 },
+    { blake3: blake3Bytes(encoder.encode("export const value = 1;\n")), path: "lib/cli.js", size: 24 },
+  ];
+  assert.equal(firstTool.blake3, blake3Bytes(encoder.encode(`bullet.portal.tool-tree.v1\0${JSON.stringify(legacyRecords)}`)));
+  await npmLinkPairs(t, input);
 });
+
+async function npmLinkPairs(t: test.TestContext, input: ManifestInput): Promise<void> {
+  async function linked(): Promise<{ root: string; link: string; target: string; manifest: string }> {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bullet-npm-links-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    await mkdir(path.join(root, "node_modules/.bin"), { recursive: true });
+    await mkdir(path.join(root, "node_modules/@npmcli/arborist/bin"), { recursive: true });
+    const manifest = path.join(root, "node_modules/@npmcli/arborist/package.json");
+    await writeFile(manifest, JSON.stringify({ name: "@npmcli/arborist", bin: { arborist: "bin/index.js" } }));
+    const target = path.join(root, "node_modules/@npmcli/arborist/bin/index.js");
+    await writeFile(target, "#!/usr/bin/env node\n");
+    const link = path.join(root, "node_modules/.bin/arborist");
+    await symlink("../@npmcli/arborist/bin/index.js", link);
+    return { root, link, target, manifest };
+  }
+  const valid = await linked();
+  const first = await hashToolDirectory(valid.root);
+  assert.deepEqual(await hashToolDirectory(valid.root), first);
+  assert.equal(first.file_count, 3); // declaration, regular target and literal link
+  input.tools = [tool("git"), tool("node"), { name: "npm", version: "10.9.8", ...first }];
+  const manifest = await expectedManifestBytes(input);
+  await writeFile(valid.target, "#!/usr/bin/env nodE\n");
+  const changed = await hashToolDirectory(valid.root);
+  assert.equal(changed.size, first.size);
+  assert.notEqual(changed.blake3, first.blake3);
+  input.tools[2] = { name: "npm", version: "10.9.8", ...changed };
+  const changedManifest = await expectedManifestBytes(input);
+  expectBundleError(() => assertExactManifest(manifest, changedManifest), "BUNDLE_MANIFEST_DRIFT");
+  await unlink(valid.link);
+  await writeFile(valid.link, "../@npmcli/arborist/bin/index.js");
+  const replacedLink = await hashToolDirectory(valid.root);
+  assert.equal(replacedLink.size, changed.size);
+  assert.equal(replacedLink.file_count, changed.file_count);
+  assert.notEqual(replacedLink.blake3, changed.blake3);
+  input.tools[2] = { name: "npm", version: "10.9.8", ...replacedLink };
+  const replacedManifest = await expectedManifestBytes(input);
+  expectBundleError(() => assertExactManifest(changedManifest, replacedManifest), "BUNDLE_MANIFEST_DRIFT");
+  for (const invalid of ["dangling", "absolute", "escape", "cycle", "undeclared", "wrong-target", "wrong-name",
+    "malformed", "unsafe-declaration", "target-link", "directory-link", "unrelated-link", "noncanonical",
+    "external", "hardlinked-target", "hardlinked-declaration", "missing-declaration", "oversized-link", "oversized-declaration"] as const) {
+    const fixture = await linked();
+    switch (invalid) {
+      case "dangling": await unlink(fixture.target); break;
+      case "absolute":
+      case "escape":
+      case "cycle":
+      case "wrong-target":
+      case "noncanonical": {
+        await unlink(fixture.link);
+        const target = invalid === "absolute" ? fixture.target : invalid === "escape" ? "../../../outside.js"
+          : invalid === "cycle" ? "arborist" : invalid === "noncanonical" ? "../@npmcli/arborist/bin/./index.js"
+            : "../@npmcli/arborist/bin/other.js";
+        if (invalid === "wrong-target") await writeFile(path.join(path.dirname(fixture.target), "other.js"), "safe\n");
+        await symlink(target, fixture.link);
+        break;
+      }
+      case "undeclared": await rename(fixture.link, path.join(path.dirname(fixture.link), "other")); break;
+      case "wrong-name": await writeFile(fixture.manifest, JSON.stringify({ name: "other", bin: { arborist: "bin/index.js" } })); break;
+      case "malformed": await writeFile(fixture.manifest, "{"); break;
+      case "unsafe-declaration":
+        await writeFile(fixture.manifest, JSON.stringify({ name: "@npmcli/arborist", bin: { arborist: "bin/../bin/index.js" } }));
+        break;
+      case "target-link":
+        await rename(fixture.target, `${fixture.target}.real`);
+        await symlink("index.js.real", fixture.target);
+        break;
+      case "directory-link":
+        await rename(path.dirname(fixture.target), `${path.dirname(fixture.target)}-real`);
+        await symlink("bin-real", path.dirname(fixture.target), "dir");
+        break;
+      case "unrelated-link": await symlink("node_modules/@npmcli/arborist/bin/index.js", path.join(fixture.root, "other")); break;
+      case "external": {
+        const outside = await mkdtemp(path.join(os.tmpdir(), "bullet-npm-outside-"));
+        t.after(() => rm(outside, { recursive: true, force: true }));
+        await writeFile(path.join(outside, "cli.js"), "external bytes\n");
+        await unlink(fixture.link);
+        await symlink(path.relative(path.dirname(fixture.link), path.join(outside, "cli.js")), fixture.link);
+        break;
+      }
+      case "hardlinked-target": await link(fixture.target, `${fixture.target}.alias`); break;
+      case "hardlinked-declaration": await link(fixture.manifest, `${fixture.manifest}.alias`); break;
+      case "missing-declaration": await unlink(fixture.manifest); break;
+      case "oversized-link":
+        await unlink(fixture.link);
+        await symlink(`../@npmcli/arborist/${"x".repeat(513)}`, fixture.link);
+        break;
+      case "oversized-declaration": await writeFile(fixture.manifest, " ".repeat(512 * 1024 + 1)); break;
+    }
+    await expectBundleRejection(() => hashToolDirectory(fixture.root), "TOOL_SUBJECT_INVALID");
+  }
+  const stringBin = await linked();
+  await unlink(stringBin.link);
+  await mkdir(path.join(stringBin.root, "node_modules/node-gyp/bin"), { recursive: true });
+  await writeFile(path.join(stringBin.root, "node_modules/node-gyp/package.json"), JSON.stringify({ name: "node-gyp", bin: "./bin/node-gyp.js" }));
+  await writeFile(path.join(stringBin.root, "node_modules/node-gyp/bin/node-gyp.js"), "safe\n");
+  await symlink("../node-gyp/bin/node-gyp.js", path.join(stringBin.root, "node_modules/.bin/node-gyp"));
+  assert.equal((await hashToolDirectory(stringBin.root)).file_count, 5);
+}
 
 test("hostile paths, duplicates, portable collisions, symlinks, and unexpected files fail closed", async (t) => {
   for (const hostile of [

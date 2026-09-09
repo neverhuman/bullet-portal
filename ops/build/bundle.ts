@@ -3,6 +3,7 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { constants } from "node:fs";
 import { open, readdir, lstat } from "node:fs/promises";
 import path from "node:path";
+import { readNpmBinLink } from "./npm-links.ts";
 
 export const MANIFEST_NAME = ".bullet-portal-bundle-v1.json";
 const ROOT_DOMAIN = "bullet.portal.bundle.root.v1";
@@ -213,16 +214,20 @@ function admitToolPath(relative: string): string {
   return normalized;
 }
 
-async function toolTreeRecords(root: string, directory = root): Promise<Array<{ path: string; size: number; blake3: string }>> {
-  const records: Array<{ path: string; size: number; blake3: string }> = [];
+interface ToolRecord { path: string; size: number; blake3: string; symlink_target?: string }
+const rejectNpmLink = (detail: string): never => fail("TOOL_SUBJECT_INVALID", detail);
+
+async function toolTreeRecords(root: string, directory = root): Promise<ToolRecord[]> {
+  const records: ToolRecord[] = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const absolute = path.join(directory, entry.name);
     const metadata = await lstat(absolute);
     const relative = admitToolPath(path.relative(root, absolute));
     if (entry.isSymbolicLink() || metadata.isSymbolicLink()) {
-      fail("TOOL_SUBJECT_INVALID", `npm package symlink rejected: ${relative}`);
-    }
-    if (entry.isDirectory() && metadata.isDirectory()) {
+      const target = await readNpmBinLink(root, relative, rejectNpmLink);
+      const bytes = new TextEncoder().encode(target);
+      records.push({ path: relative, size: bytes.length, blake3: blake3Bytes(bytes), symlink_target: target });
+    } else if (entry.isDirectory() && metadata.isDirectory()) {
       records.push(...(await toolTreeRecords(root, absolute)));
     } else if (entry.isFile() && metadata.isFile()) {
       records.push({ path: relative, ...(await hashFile(absolute, MAX_FILE_BYTES)) });
@@ -253,8 +258,17 @@ export async function hashToolDirectory(root: string): Promise<{ size: number; f
     }
   }
   if (records.length === 0) fail("TOOL_SUBJECT_INVALID", "npm package tree is empty");
+  const links = records.filter((record) => record.symlink_target !== undefined);
+  const regularPaths = new Set(records.filter((record) => record.symlink_target === undefined).map((record) => record.path));
+  for (const record of links) {
+    const target = await readNpmBinLink(root, record.path, rejectNpmLink);
+    if (target !== record.symlink_target || !regularPaths.has(path.posix.join(path.posix.dirname(record.path), target))) {
+      fail("TOOL_SUBJECT_INVALID", "npm bin link changed or its target was not hashed as a regular file");
+    }
+  }
   const body = new TextEncoder().encode(canonicalJson(records));
-  const domain = new TextEncoder().encode("bullet.portal.tool-tree.v1\0");
+  // Preserve historical no-link identities. Linked layouts have distinct framing.
+  const domain = new TextEncoder().encode(links.length === 0 ? "bullet.portal.tool-tree.v1\0" : "bullet.portal.tool-tree.v2\0");
   const framed = new Uint8Array(domain.length + body.length);
   framed.set(domain);
   framed.set(body, domain.length);
