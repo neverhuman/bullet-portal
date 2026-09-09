@@ -12,11 +12,12 @@ import {
   submitCommand,
 } from "../api";
 import {
-  clearPendingCommand,
+  clearPendingCommandIf,
   envelopeForRetryOrCreate,
   loadPendingCommand,
   pendingConflicts,
   rememberAdmittedCommand,
+  restoredSubjectConflicts,
 } from "../pendingCommand";
 import { CommandCard } from "../components/CommandCard";
 import { MissionsCard } from "../components/MissionsCard";
@@ -160,7 +161,13 @@ export function ControlTower() {
         setPhase("UNKNOWN");
         setError(unverifiableSuccess(next.id));
         runningRef.current = false;
-        clearPendingCommand();
+        if (commandGeneration.current === generation) {
+          clearPendingCommandIf({
+            commandId: next.id,
+            kind: next.kind,
+            payloadDigest: next.payload_digest,
+          });
+        }
         return;
       }
       last = next;
@@ -168,7 +175,13 @@ export function ControlTower() {
       setPhase(next.status);
     }
     runningRef.current = false;
-    clearPendingCommand();
+    if (commandGeneration.current === generation) {
+      clearPendingCommandIf({
+        commandId: last.id,
+        kind: last.kind,
+        payloadDigest: last.payload_digest,
+      });
+    }
     if (last.status === "FAILED" || last.status === "UNKNOWN") {
       setCommand(last);
       setPhase(last.status);
@@ -193,6 +206,14 @@ export function ControlTower() {
     try {
       const admitted = await getCommand(pending.commandId);
       if (commandGeneration.current !== generation) {
+        return;
+      }
+      if (restoredSubjectConflicts(pending, admitted)) {
+        setPhase("UNKNOWN");
+        setError(
+          `command ${pending.commandId} restored subject conflicts with persisted kind or digest`,
+        );
+        runningRef.current = false;
         return;
       }
       setCommand(admitted);
@@ -238,18 +259,25 @@ export function ControlTower() {
       if (commandGeneration.current !== generation) {
         return;
       }
-      rememberAdmittedCommand(admitted.id);
+      const persisted = rememberAdmittedCommand({
+        commandId: admitted.id,
+        kind: admitted.kind,
+        payloadDigest: admitted.payload_digest,
+      });
       setCommand(admitted);
       setPhase("PENDING");
+      if (!persisted) {
+        setPhase("UNKNOWN");
+        setError(
+          `command ${admitted.id} admitted but persistence failed; retry will reuse the envelope`,
+        );
+      }
       await reconcile(admitted, generation);
     } catch (err) {
       const ambiguous = err instanceof ApiError && err.outcomeUnknown;
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         forgetBrowserSession();
         setSessionMaterial(false);
-      }
-      if (!ambiguous && !(err instanceof ApiError && (err.status === 401 || err.status === 403))) {
-        clearPendingCommand();
       }
       setPhase(ambiguous ? "UNKNOWN" : "FAILED");
       setError(
