@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
@@ -40,6 +40,15 @@ const mocked = {
 
 const commandId = `cmd_${"a".repeat(64)}`;
 const digest = "b".repeat(64);
+const slot = "bullet-farm.pending-command.v1";
+
+function pendingRecord(key = "portal_fixture", id: string | null = commandId) {
+  return {
+    envelope: { idempotency_key: key, kind: "run_demo", payload: {} },
+    commandId: id, kind: "run_demo", payloadDigest: id === null ? null : digest,
+  };
+}
+
 
 function command(status: CommandStatus["status"], result: CommandStatus["result"] = null) {
   return { id: commandId, status, kind: "run_demo", payload_digest: digest, result };
@@ -271,12 +280,7 @@ describe("ControlTower command honesty", () => {
   });
 
   it("resumes an admitted command after reload instead of minting a new key", async () => {
-    persistPendingCommand({
-      envelope: { idempotency_key: "portal_fixture", kind: "run_demo", payload: {} },
-      commandId,
-      kind: "run_demo",
-      payloadDigest: digest,
-    });
+    persistPendingCommand(pendingRecord("portal_fixture"));
     render(<ControlTower />);
     await waitFor(() => expect(mocked.getCommand).toHaveBeenCalledWith(commandId));
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
@@ -285,12 +289,7 @@ describe("ControlTower command honesty", () => {
   });
 
   it("keeps the envelope and stays UNKNOWN when admitted-id persistence fails", async () => {
-    persistPendingCommand({
-      envelope: { idempotency_key: "portal_fixture", kind: "run_demo", payload: {} },
-      commandId: null,
-      kind: "run_demo",
-      payloadDigest: null,
-    });
+    persistPendingCommand(pendingRecord("portal_fixture", null));
     const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("quota", "QuotaExceededError");
     });
@@ -306,19 +305,14 @@ describe("ControlTower command honesty", () => {
   });
 
   it("retains a newer pending slot when an unmounted GET later completes", async () => {
-    let resolveOld: ((value: ReturnType<typeof command>) => void) | undefined;
+    let resolveOld = (_value: ReturnType<typeof command>): void => { throw new Error("old GET not started"); };
     mocked.getCommand.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
           resolveOld = resolve;
         }),
     );
-    persistPendingCommand({
-      envelope: { idempotency_key: "portal_old", kind: "run_demo", payload: {} },
-      commandId,
-      kind: "run_demo",
-      payloadDigest: digest,
-    });
+    persistPendingCommand(pendingRecord("portal_old"));
     const first = render(<ControlTower />);
     await waitFor(() => expect(mocked.getCommand).toHaveBeenCalledWith(commandId));
     first.unmount();
@@ -337,18 +331,13 @@ describe("ControlTower command honesty", () => {
       result: null,
     });
     render(<ControlTower />);
-    resolveOld?.(command("UNKNOWN"));
+    await act(async () => { resolveOld(command("UNKNOWN")); });
     await waitFor(() => expect(loadPendingCommand()?.commandId).toBe(laterId));
     expect(loadPendingCommand()?.envelope.idempotency_key).toBe("portal_later");
   });
 
   it("retains custody when a restored GET changes kind or digest", async () => {
-    persistPendingCommand({
-      envelope: { idempotency_key: "portal_fixture", kind: "run_demo", payload: {} },
-      commandId,
-      kind: "run_demo",
-      payloadDigest: digest,
-    });
+    persistPendingCommand(pendingRecord("portal_fixture"));
     mocked.getCommand.mockResolvedValue({
       ...command("UNKNOWN"),
       kind: "run_coding",
@@ -358,6 +347,85 @@ describe("ControlTower command honesty", () => {
     expect(screen.getByTestId("mutation-error")).toHaveTextContent("restored subject conflicts");
     expect(loadPendingCommand()?.commandId).toBe(commandId);
     expect(mocked.submitCommand).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["malformed", "{"],
+    ["legacy admitted", JSON.stringify({ envelope: pendingRecord().envelope, commandId })],
+  ])("keeps %s custody UNKNOWN without a new POST", async (_label, raw) => {
+    sessionStorage.setItem(slot, raw);
+    render(<ControlTower />);
+    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
+    await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+    expect(mocked.submitCommand).not.toHaveBeenCalled();
+    expect(mocked.newRunDemoEnvelope).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(slot)).toBe(raw);
+  });
+
+  it("displays unreadable storage as UNKNOWN without a new POST", async () => {
+    persistPendingCommand(pendingRecord("portal_fixture", null));
+    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("denied", "SecurityError");
+    });
+    try {
+      render(<ControlTower />);
+      await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
+      await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+      expect(mocked.submitCommand).not.toHaveBeenCalled();
+      expect(mocked.newRunDemoEnvelope).not.toHaveBeenCalled();
+    } finally { getItem.mockRestore(); }
+    expect(loadPendingCommand()).toEqual(pendingRecord("portal_fixture", null));
+  });
+
+  it.each([
+    ["kind", { kind: "run_coding", payload: {} }],
+    ["payload", { kind: "run_demo", payload: { other: true } }],
+  ] as const)("refuses a pending %s that conflicts with the demo action", async (_label, scope) => {
+    const stored = pendingRecord("portal_other", null);
+    persistPendingCommand({ ...stored, kind: scope.kind, envelope: { ...stored.envelope, ...scope } });
+    render(<ControlTower />);
+    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
+    await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+    expect(mocked.submitCommand).not.toHaveBeenCalled();
+    expect(mocked.newRunDemoEnvelope).not.toHaveBeenCalled();
+    expect(loadPendingCommand()?.envelope).toEqual({ ...stored.envelope, ...scope });
+  });
+
+  it("ignores a late unmounted POST after the current tower retries and starts another command", async () => {
+    let resolveOld = (_value: ReturnType<typeof command>): void => { throw new Error("old POST not started"); };
+    mocked.submitCommand.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
+    const first = render(<ControlTower />);
+    await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+    expect(mocked.submitCommand).toHaveBeenCalledTimes(1);
+    first.unmount();
+    const current = render(<ControlTower />);
+    await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+    await waitFor(() => expect(loadPendingCommand()).toBeNull());
+    const laterId = `cmd_${"e".repeat(64)}`;
+    const later = pendingRecord("portal_later", laterId);
+    mocked.newRunDemoEnvelope.mockReturnValue(later.envelope);
+    mocked.submitCommand.mockResolvedValue({ ...command("PENDING"), id: laterId });
+    mocked.getCommand.mockResolvedValue({ ...command("PENDING"), id: laterId });
+    await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+    await waitFor(() => expect(loadPendingCommand()).toEqual(later));
+    await act(async () => { resolveOld(command("PENDING")); });
+    expect(loadPendingCommand()).toEqual(later);
+    expect(mocked.submitCommand).toHaveBeenCalledTimes(3);
+    expect(mocked.submitCommand.mock.calls[0][0]).toEqual(mocked.submitCommand.mock.calls[1][0]);
+    expect(mocked.newRunDemoEnvelope).toHaveBeenCalledTimes(2);
+    current.unmount();
+  });
+
+  it("polls while mounted and stops the old generation on unmount", async () => {
+    persistPendingCommand(pendingRecord());
+    mocked.getCommand.mockResolvedValue(command("PENDING"));
+    const view = render(<ControlTower />);
+    await waitFor(() => expect(mocked.getCommand.mock.calls.length).toBeGreaterThanOrEqual(2));
+    view.unmount();
+    const count = mocked.getCommand.mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(mocked.getCommand).toHaveBeenCalledTimes(count);
+    expect(loadPendingCommand()).toEqual(pendingRecord());
   });
 
   it("renders a real health observation neutrally rather than as verification", async () => {

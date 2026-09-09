@@ -1,11 +1,12 @@
 import type { CommandEnvelope } from "./generated/api";
 
 const PENDING_SLOT = "bullet-farm.pending-command.v1";
+type CommandScope = Pick<CommandEnvelope, "kind" | "payload">;
 
 export type PendingCommand = {
   envelope: CommandEnvelope;
   commandId: string | null;
-  kind: string | null;
+  kind: string;
   payloadDigest: string | null;
 };
 
@@ -15,113 +16,101 @@ export type AdmittedSubject = {
   payloadDigest: string;
 };
 
-function browserStorage(): Storage | null {
+export class PendingCommandError extends Error {}
+
+function browserStorage(): Storage {
   try {
-    return typeof window === "undefined" ? null : window.sessionStorage;
+    if (typeof window !== "undefined") return window.sessionStorage;
   } catch {
-    return null;
+    // The retained slot is not known to be empty when storage is unavailable.
   }
+  throw new PendingCommandError("pending command storage unavailable; reconciliation required");
 }
 
-function envelopeScope(envelope: CommandEnvelope): string {
+function envelopeScope(envelope: CommandScope): string {
   return `${envelope.kind}:${JSON.stringify(envelope.payload)}`;
 }
 
-function asEnvelope(value: unknown): CommandEnvelope | null {
-  if (typeof value !== "object" || value === null) {
-    return null;
-  }
-  const envelope = value as CommandEnvelope;
-  if (
-    typeof envelope.idempotency_key !== "string" ||
-    envelope.idempotency_key === "" ||
-    typeof envelope.kind !== "string" ||
-    envelope.kind === "" ||
-    typeof envelope.payload !== "object" ||
-    envelope.payload === null
-  ) {
-    return null;
-  }
-  return {
-    idempotency_key: envelope.idempotency_key,
-    kind: envelope.kind,
-    payload: envelope.payload,
-  };
+function sameEnvelope(left: CommandEnvelope, right: CommandEnvelope): boolean {
+  return left.idempotency_key === right.idempotency_key && envelopeScope(left) === envelopeScope(right);
 }
 
-function optionalText(value: unknown): string | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  return typeof value === "string" && value !== "" ? value : null;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function text(value: unknown): value is string {
+  return typeof value === "string" && value !== "";
+}
+
+function asEnvelope(value: unknown): CommandEnvelope | null {
+  if (
+    !isRecord(value) ||
+    !text(value.idempotency_key) ||
+    !text(value.kind) ||
+    !isRecord(value.payload)
+  ) return null;
+  return { idempotency_key: value.idempotency_key, kind: value.kind, payload: value.payload };
 }
 
 export function loadPendingCommand(): PendingCommand | null {
   try {
-    const raw = browserStorage()?.getItem(PENDING_SLOT);
-    if (raw === null || raw === undefined) {
-      return null;
-    }
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null || !("envelope" in parsed)) {
-      return null;
-    }
-    const record = parsed as Record<string, unknown>;
+    const raw = browserStorage().getItem(PENDING_SLOT);
+    if (raw === null) return null;
+    const record: unknown = JSON.parse(raw);
+    if (!isRecord(record)) throw new Error("invalid record");
     const envelope = asEnvelope(record.envelope);
-    if (envelope === null) {
-      return null;
+    if (envelope === null) throw new Error("invalid envelope");
+    if (record.commandId === null) {
+      // The original envelope-only format is a safe same-key retry, not an admission.
+      if (
+        (record.kind !== undefined && record.kind !== envelope.kind) ||
+        (record.payloadDigest !== undefined && record.payloadDigest !== null)
+      ) throw new Error("invalid pending subject");
+      return { envelope, commandId: null, kind: envelope.kind, payloadDigest: null };
     }
-    const commandId = optionalText(record.commandId);
-    return {
-      envelope,
-      commandId,
-      kind: optionalText(record.kind),
-      payloadDigest: optionalText(record.payloadDigest),
-    };
-  } catch {
-    return null;
+    if (
+      !text(record.commandId) ||
+      record.kind !== envelope.kind ||
+      !text(record.payloadDigest)
+    ) throw new Error("incomplete admitted subject");
+    return { envelope, commandId: record.commandId, kind: envelope.kind, payloadDigest: record.payloadDigest };
+  } catch (err) {
+    if (err instanceof PendingCommandError) throw err;
+    throw new PendingCommandError("pending command storage unreadable or invalid; retained for reconciliation");
   }
 }
 
 export function persistPendingCommand(record: PendingCommand): void {
-  const storage = browserStorage();
-  if (storage === null) {
-    throw new Error("pending command storage unavailable");
+  try {
+    browserStorage().setItem(PENDING_SLOT, JSON.stringify(record));
+  } catch {
+    throw new PendingCommandError("pending command storage write failed; reconciliation required");
   }
-  storage.setItem(
-    PENDING_SLOT,
-    JSON.stringify({
-      envelope: record.envelope,
-      commandId: record.commandId,
-      kind: record.kind,
-      payloadDigest: record.payloadDigest,
-    }),
-  );
 }
 
 export function clearPendingCommand(): void {
   try {
-    browserStorage()?.removeItem(PENDING_SLOT);
+    browserStorage().removeItem(PENDING_SLOT);
   } catch {
-    // Unavailable storage cannot hide an in-memory retry obligation.
+    throw new PendingCommandError("pending command storage removal failed; reconciliation required");
   }
 }
 
-export function clearPendingCommandIf(subject: AdmittedSubject): boolean {
+export function clearPendingCommandIf(subject: AdmittedSubject, expected: CommandEnvelope): boolean {
   const pending = loadPendingCommand();
   if (
     pending === null ||
+    !sameEnvelope(pending.envelope, expected) ||
     pending.commandId !== subject.commandId ||
-    (pending.kind !== null && pending.kind !== subject.kind) ||
-    (pending.payloadDigest !== null && pending.payloadDigest !== subject.payloadDigest)
-  ) {
-    return false;
-  }
+    pending.kind !== subject.kind ||
+    pending.payloadDigest !== subject.payloadDigest
+  ) return false;
   clearPendingCommand();
   return true;
 }
 
-export function pendingConflicts(next: CommandEnvelope): boolean {
+export function pendingConflicts(next: CommandScope): boolean {
   const pending = loadPendingCommand();
   return pending !== null && envelopeScope(pending.envelope) !== envelopeScope(next);
 }
@@ -130,38 +119,28 @@ export function restoredSubjectConflicts(
   pending: PendingCommand,
   observed: { id: string; kind: string; payload_digest: string },
 ): boolean {
-  if (pending.commandId !== null && pending.commandId !== observed.id) {
-    return true;
-  }
-  if (pending.kind !== null && pending.kind !== observed.kind) {
-    return true;
-  }
-  if (pending.payloadDigest !== null && pending.payloadDigest !== observed.payload_digest) {
-    return true;
-  }
-  return false;
+  return pending.commandId !== observed.id || pending.kind !== observed.kind ||
+    pending.payloadDigest === null || pending.payloadDigest !== observed.payload_digest;
 }
 
 export function envelopeForRetryOrCreate(create: () => CommandEnvelope): CommandEnvelope {
   const pending = loadPendingCommand();
-  if (pending !== null) {
-    return pending.envelope;
-  }
+  if (pending !== null) return pending.envelope;
   const envelope = create();
-  persistPendingCommand({
-    envelope,
-    commandId: null,
-    kind: envelope.kind,
-    payloadDigest: null,
-  });
+  persistPendingCommand({ envelope, commandId: null, kind: envelope.kind, payloadDigest: null });
   return envelope;
 }
 
-export function rememberAdmittedCommand(subject: AdmittedSubject): boolean {
+export function rememberAdmittedCommand(subject: AdmittedSubject, expected: CommandEnvelope): boolean {
   const pending = loadPendingCommand();
-  if (pending === null) {
-    return false;
-  }
+  if (
+    pending === null ||
+    !sameEnvelope(pending.envelope, expected) ||
+    subject.kind !== expected.kind ||
+    (pending.commandId !== null && restoredSubjectConflicts(pending, {
+      id: subject.commandId, kind: subject.kind, payload_digest: subject.payloadDigest,
+    }))
+  ) return false;
   try {
     persistPendingCommand({
       envelope: pending.envelope,

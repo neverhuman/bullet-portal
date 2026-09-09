@@ -16,6 +16,7 @@ import {
   envelopeForRetryOrCreate,
   loadPendingCommand,
   pendingConflicts,
+  PendingCommandError,
   rememberAdmittedCommand,
   restoredSubjectConflicts,
 } from "../pendingCommand";
@@ -23,7 +24,7 @@ import { CommandCard } from "../components/CommandCard";
 import { MissionsCard } from "../components/MissionsCard";
 import { OutboxCard } from "../components/OutboxCard";
 import { StatusHeader } from "../components/StatusHeader";
-import type { CommandStatus, Mission, OutboxView } from "../generated/api";
+import type { CommandEnvelope, CommandStatus, Mission, OutboxView } from "../generated/api";
 import { useEventStream } from "../hooks/useEventStream";
 import { useHealthProbe } from "../hooks/useHealthProbe";
 import type { Loadable } from "../loadable";
@@ -123,7 +124,7 @@ export function ControlTower() {
     }
   }
 
-  async function reconcile(initial: CommandStatus, generation: number): Promise<void> {
+  async function reconcile(initial: CommandStatus, generation: number, envelope: CommandEnvelope): Promise<void> {
     let last = initial;
     while (!isTerminal(last.status)) {
       await waitForPoll();
@@ -145,6 +146,7 @@ export function ControlTower() {
         }
         return;
       }
+      if (commandGeneration.current !== generation) return;
       if (
         next.id !== initial.id ||
         next.kind !== initial.kind ||
@@ -166,7 +168,7 @@ export function ControlTower() {
             commandId: next.id,
             kind: next.kind,
             payloadDigest: next.payload_digest,
-          });
+          }, envelope);
         }
         return;
       }
@@ -180,7 +182,7 @@ export function ControlTower() {
         commandId: last.id,
         kind: last.kind,
         payloadDigest: last.payload_digest,
-      });
+      }, envelope);
     }
     if (last.status === "FAILED" || last.status === "UNKNOWN") {
       setCommand(last);
@@ -194,92 +196,86 @@ export function ControlTower() {
   }
 
   async function resumePending(): Promise<void> {
-    const pending = loadPendingCommand();
-    if (pending === null || pending.commandId === null || runningRef.current) {
-      return;
-    }
-    runningRef.current = true;
+    if (runningRef.current) return;
     const generation = commandGeneration.current + 1;
     commandGeneration.current = generation;
-    setPhase("PENDING");
-    setError(null);
     try {
-      const admitted = await getCommand(pending.commandId);
-      if (commandGeneration.current !== generation) {
-        return;
+      const pending = loadPendingCommand();
+      if (pending === null) return;
+      if (pendingConflicts({ kind: "run_demo", payload: {} })) {
+        throw new PendingCommandError("pending command conflicts with the demo action; reconcile it first");
       }
+      if (pending.commandId === null) return;
+      runningRef.current = true;
+      setPhase("PENDING");
+      setError(null);
+      const admitted = await getCommand(pending.commandId);
+      if (commandGeneration.current !== generation) return;
       if (restoredSubjectConflicts(pending, admitted)) {
-        setPhase("UNKNOWN");
-        setError(
+        throw new PendingCommandError(
           `command ${pending.commandId} restored subject conflicts with persisted kind or digest`,
         );
-        runningRef.current = false;
-        return;
       }
       setCommand(admitted);
-      await reconcile(admitted, generation);
+      await reconcile(admitted, generation, pending.envelope);
     } catch (err) {
-      if (commandGeneration.current === generation) {
-        setPhase("UNKNOWN");
-        setError(
-          `command ${pending.commandId} reconciliation unknown (${errorText(err)})`,
-        );
-        runningRef.current = false;
-      }
+      if (commandGeneration.current !== generation) return;
+      setPhase("UNKNOWN");
+      setError(`command reconciliation unknown (${errorText(err)})`);
+      runningRef.current = false;
     }
   }
 
   useEffect(() => {
     void resumePending();
+    return () => {
+      commandGeneration.current += 1;
+      runningRef.current = false;
+    };
   }, []);
 
   async function onRunDemo(): Promise<void> {
-    if (runningRef.current) {
-      return;
-    }
-    const pending = loadPendingCommand();
-    if (pending?.commandId !== null && pending?.commandId !== undefined) {
-      await resumePending();
-      return;
-    }
-    const envelope = envelopeForRetryOrCreate(newRunDemoEnvelope);
-    if (pendingConflicts(envelope)) {
-      setPhase("UNKNOWN");
-      setError("pending command envelope conflicts with this request; reconcile it first");
-      return;
-    }
-    runningRef.current = true;
-    const generation = commandGeneration.current + 1;
-    commandGeneration.current = generation;
-    setPhase("PENDING");
-    setError(null);
-    setCommand(null);
+    if (runningRef.current) return;
+    let generation = commandGeneration.current;
     try {
-      const admitted = await submitCommand(envelope);
-      if (commandGeneration.current !== generation) {
+      const pending = loadPendingCommand();
+      if (pendingConflicts({ kind: "run_demo", payload: {} })) {
+        throw new PendingCommandError("pending command conflicts with the demo action; reconcile it first");
+      }
+      if (pending?.commandId !== null && pending?.commandId !== undefined) {
+        await resumePending();
         return;
       }
+      const envelope = envelopeForRetryOrCreate(newRunDemoEnvelope);
+      runningRef.current = true;
+      generation = commandGeneration.current + 1;
+      commandGeneration.current = generation;
+      setPhase("PENDING");
+      setError(null);
+      setCommand(null);
+      const admitted = await submitCommand(envelope);
+      if (commandGeneration.current !== generation) return;
+      setCommand(admitted);
+      setPhase("PENDING");
       const persisted = rememberAdmittedCommand({
         commandId: admitted.id,
         kind: admitted.kind,
         payloadDigest: admitted.payload_digest,
-      });
-      setCommand(admitted);
-      setPhase("PENDING");
+      }, envelope);
       if (!persisted) {
         setPhase("UNKNOWN");
-        setError(
-          `command ${admitted.id} admitted but persistence failed; retry will reuse the envelope`,
-        );
+        setError(`command ${admitted.id} admitted but persistence failed; retry will reuse the envelope`);
       }
-      await reconcile(admitted, generation);
+      await reconcile(admitted, generation, envelope);
     } catch (err) {
+      if (commandGeneration.current !== generation) return;
+      const custodyFailure = err instanceof PendingCommandError;
       const ambiguous = err instanceof ApiError && err.outcomeUnknown;
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         forgetBrowserSession();
         setSessionMaterial(false);
       }
-      setPhase(ambiguous ? "UNKNOWN" : "FAILED");
+      setPhase(ambiguous || custodyFailure ? "UNKNOWN" : "FAILED");
       setError(
         ambiguous
           ? `command admission outcome unknown; no command id was received (${errorText(err)})`
