@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  exchangeBootstrap, forgetBrowserSession, getCommand, newRunDemoEnvelope, submitCommand,
+  exchangeBootstrap, forgetBrowserSession, getCommand, newRunCodingEnvelope, newRunDemoEnvelope,
+  submitCommand,
 } from "./api";
 
 const id = `cmd_${"a".repeat(64)}`;
@@ -54,6 +55,32 @@ describe("command admission boundaries", () => {
       idempotency_key: `portal_${"ff".repeat(16)}`, kind: "run_demo", payload: {},
     });
     expect(getRandomValues).toHaveBeenCalledTimes(2);
+  });
+
+  it("allocates a run_coding envelope with explicit account and model", () => {
+    const getRandomValues = vi.fn((bytes: Uint8Array) => {
+      bytes.fill(1);
+      return bytes;
+    });
+    vi.stubGlobal("crypto", { getRandomValues });
+    expect(newRunCodingEnvelope({
+      accountId: "acct-local",
+      provider: "antigravity",
+      model: "gemini-2.5",
+    })).toEqual({
+      idempotency_key: `portal_${"01".repeat(16)}`,
+      kind: "run_coding",
+      payload: {
+        account_id: "acct-local",
+        provider: "antigravity",
+        model: "gemini-2.5",
+        expected_revision: 1,
+        launch_nonce: "01".repeat(32),
+        quota_reservation: `rsv_${"01".repeat(32)}`,
+        quota_units: 1,
+        allocated_run: `run_${"01".repeat(32)}`,
+      },
+    });
   });
 
   it.each([

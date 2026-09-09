@@ -8,14 +8,14 @@ import {
   getCommand,
   hasSessionMaterial,
   listMissions,
-  newRunDemoEnvelope,
+  newRunCodingEnvelope,
+  type CodingProviderName,
   submitCommand,
 } from "../api";
 import {
   clearPendingCommandIf,
   envelopeForRetryOrCreate,
   loadPendingCommand,
-  pendingConflicts,
   PendingCommandError,
   rememberAdmittedCommand,
   restoredSubjectConflicts,
@@ -58,12 +58,39 @@ function unverifiableSuccess(commandId: string): string {
   return `command ${commandId} reported durable VERIFIED, but no generated runtime Evidence and Effect receipt contract is available; displayed outcome is UNKNOWN`;
 }
 
+function codingFields(
+  accountId: string,
+  provider: CodingProviderName,
+  model: string,
+): { accountId: string; provider: CodingProviderName; model: string } {
+  return { accountId, provider, model };
+}
+
+function pendingCodingConflicts(
+  accountId: string,
+  provider: CodingProviderName,
+  model: string,
+): boolean {
+  const pending = loadPendingCommand();
+  if (pending === null) return false;
+  if (pending.envelope.kind !== "run_coding") return true;
+  const payload = pending.envelope.payload as Record<string, unknown>;
+  return (
+    payload.account_id !== accountId ||
+    payload.provider !== provider ||
+    payload.model !== model
+  );
+}
+
 export function ControlTower() {
   const [missions, setMissions] = useState<Loadable<Mission[]>>({ kind: "loading" });
   const [outbox, setOutbox] = useState<Loadable<OutboxView>>({ kind: "loading" });
   const [command, setCommand] = useState<CommandStatus | null>(null);
   const [phase, setPhase] = useState<MutationPhase>("IDLE");
   const [error, setError] = useState<string | null>(null);
+  const [accountId, setAccountId] = useState("acct-local");
+  const [model, setModel] = useState("claude-opus-4-6");
+  const [provider, setProvider] = useState<CodingProviderName>("claude");
   const [bootstrapToken, setBootstrapToken] = useState("");
   const [sessionMaterial, setSessionMaterial] = useState(hasSessionMaterial);
   const [authPending, setAuthPending] = useState(false);
@@ -202,8 +229,8 @@ export function ControlTower() {
     try {
       const pending = loadPendingCommand();
       if (pending === null) return;
-      if (pendingConflicts({ kind: "run_demo", payload: {} })) {
-        throw new PendingCommandError("pending command conflicts with the demo action; reconcile it first");
+      if (pendingCodingConflicts(accountId, provider, model)) {
+        throw new PendingCommandError("pending command conflicts with the coding action; reconcile it first");
       }
       if (pending.commandId === null) return;
       runningRef.current = true;
@@ -234,19 +261,20 @@ export function ControlTower() {
     };
   }, []);
 
-  async function onRunDemo(): Promise<void> {
+  async function onRunCoding(): Promise<void> {
     if (runningRef.current) return;
     let generation = commandGeneration.current;
     try {
       const pending = loadPendingCommand();
-      if (pendingConflicts({ kind: "run_demo", payload: {} })) {
-        throw new PendingCommandError("pending command conflicts with the demo action; reconcile it first");
+      if (pendingCodingConflicts(accountId, provider, model)) {
+        throw new PendingCommandError("pending command conflicts with the coding action; reconcile it first");
       }
       if (pending?.commandId !== null && pending?.commandId !== undefined) {
         await resumePending();
         return;
       }
-      const envelope = envelopeForRetryOrCreate(newRunDemoEnvelope);
+      const fields = codingFields(accountId, provider, model);
+      const envelope = envelopeForRetryOrCreate(() => newRunCodingEnvelope(fields));
       runningRef.current = true;
       generation = commandGeneration.current + 1;
       commandGeneration.current = generation;
@@ -321,12 +349,38 @@ export function ControlTower() {
           ) : null}
         </form>
       )}
+      <label htmlFor="coding-account">Account</label>{" "}
+      <input
+        id="coding-account"
+        data-testid="coding-account"
+        value={accountId}
+        onChange={(event) => setAccountId(event.target.value)}
+      />{" "}
+      <label htmlFor="coding-model">Model</label>{" "}
+      <input
+        id="coding-model"
+        data-testid="coding-model"
+        value={model}
+        onChange={(event) => setModel(event.target.value)}
+      />{" "}
+      <label htmlFor="coding-provider">Provider</label>{" "}
+      <select
+        id="coding-provider"
+        data-testid="coding-provider"
+        value={provider}
+        onChange={(event) => setProvider(event.target.value as CodingProviderName)}
+      >
+        <option value="claude">claude</option>
+        <option value="codex">codex</option>
+        <option value="cursor">cursor</option>
+        <option value="antigravity">antigravity</option>
+      </select>{" "}
       <button
         type="button"
         disabled={!sessionMaterial || runningRef.current}
-        onClick={() => void onRunDemo()}
+        onClick={() => void onRunCoding()}
       >
-        Submit durable demo command
+        Submit durable coding command
       </button>
       <p className={PHASE_CLASS[phase]} data-testid="phase">
         command phase: {phase}

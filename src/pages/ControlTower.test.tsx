@@ -21,7 +21,7 @@ vi.mock("../api", async (importOriginal) => {
     getCommand: vi.fn(),
     hasSessionMaterial: vi.fn(),
     listMissions: vi.fn(),
-    newRunDemoEnvelope: vi.fn(),
+    newRunCodingEnvelope: vi.fn(),
     submitCommand: vi.fn(),
   };
 });
@@ -34,7 +34,7 @@ const mocked = {
   getCommand: vi.mocked(api.getCommand),
   hasSessionMaterial: vi.mocked(api.hasSessionMaterial),
   listMissions: vi.mocked(api.listMissions),
-  newRunDemoEnvelope: vi.mocked(api.newRunDemoEnvelope),
+  newRunCodingEnvelope: vi.mocked(api.newRunCodingEnvelope),
   submitCommand: vi.mocked(api.submitCommand),
 };
 
@@ -42,16 +42,27 @@ const commandId = `cmd_${"a".repeat(64)}`;
 const digest = "b".repeat(64);
 const slot = "bullet-farm.pending-command.v1";
 
+const codingPayload = {
+  account_id: "acct-local",
+  provider: "claude",
+  model: "claude-opus-4-6",
+  expected_revision: 1,
+  launch_nonce: "aa".repeat(32),
+  quota_reservation: `rsv_${"bb".repeat(32)}`,
+  quota_units: 1,
+  allocated_run: `run_${"cc".repeat(32)}`,
+};
+
 function pendingRecord(key = "portal_fixture", id: string | null = commandId) {
   return {
-    envelope: { idempotency_key: key, kind: "run_demo", payload: {} },
-    commandId: id, kind: "run_demo", payloadDigest: id === null ? null : digest,
+    envelope: { idempotency_key: key, kind: "run_coding", payload: codingPayload },
+    commandId: id, kind: "run_coding", payloadDigest: id === null ? null : digest,
   };
 }
 
 
 function command(status: CommandStatus["status"], result: CommandStatus["result"] = null) {
-  return { id: commandId, status, kind: "run_demo", payload_digest: digest, result };
+  return { id: commandId, status, kind: "run_coding", payload_digest: digest, result };
 }
 
 function snapshot<T>(data: T, asOfSequence = 0): api.SnapshotRead<T> {
@@ -74,10 +85,10 @@ beforeEach(() => {
   mocked.listMissions.mockResolvedValue(snapshot([]));
   mocked.fetchOutbox.mockResolvedValue(snapshot({ items: [] }));
   mocked.fetchHealth.mockResolvedValue({ status: "ok" });
-  mocked.newRunDemoEnvelope.mockReturnValue({
+  mocked.newRunCodingEnvelope.mockReturnValue({
     idempotency_key: "portal_fixture",
-    kind: "run_demo",
-    payload: {},
+    kind: "run_coding",
+    payload: codingPayload,
   });
   mocked.submitCommand.mockResolvedValue(command("PENDING"));
   mocked.getCommand.mockResolvedValue(command("UNKNOWN"));
@@ -102,7 +113,7 @@ describe("ControlTower command honesty", () => {
   it("exchanges the one-time token before enabling command submission", async () => {
     mocked.hasSessionMaterial.mockReturnValue(false);
     render(<ControlTower />);
-    const submit = screen.getByRole("button", { name: "Submit durable demo command" });
+    const submit = screen.getByRole("button", { name: "Submit durable coding command" });
     expect(submit).toBeDisabled();
     await userEvent.type(screen.getByLabelText("One-time bootstrap token"), "boot_fixture");
     await userEvent.click(screen.getByRole("button", { name: "Authenticate local session" }));
@@ -116,7 +127,7 @@ describe("ControlTower command honesty", () => {
       .mockResolvedValueOnce(command("APPLIED", { applied: true }))
       .mockResolvedValueOnce(command("VERIFIED", { evidence: "PASS" }));
     render(<ControlTower />);
-    await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+    await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("APPLIED"));
     expect(screen.getByTestId("phase")).toHaveClass("pending");
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
@@ -129,7 +140,7 @@ describe("ControlTower command honesty", () => {
     );
     const card = screen.getByTestId("command");
     expect(card).toHaveTextContent(commandId);
-    expect(card).toHaveTextContent("run_demo");
+    expect(card).toHaveTextContent("run_coding");
     expect(card).toHaveTextContent(digest);
     expect(card).toHaveTextContent("VERIFIED (receipt unavailable)");
     expect(card).toHaveTextContent("unverified generic result suppressed");
@@ -140,7 +151,7 @@ describe("ControlTower command honesty", () => {
   it("keeps a durable FAILED result red", async () => {
     mocked.getCommand.mockResolvedValue(command("FAILED", { error: "gate" }));
     render(<ControlTower />);
-    await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+    await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("FAILED"));
     expect(screen.getByTestId("phase")).toHaveClass("failed");
     expect(screen.getByTestId("mutation-error")).toHaveTextContent(
@@ -153,17 +164,17 @@ describe("ControlTower command honesty", () => {
       new api.ApiError("POST", "/api/v1/commands", 401, "SESSION_INVALID"),
     );
     render(<ControlTower />);
-    await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+    await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("FAILED"));
     expect(mocked.forgetBrowserSession).toHaveBeenCalledTimes(1);
     expect(screen.getByLabelText("One-time bootstrap token")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Submit durable demo command" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Submit durable coding command" })).toBeDisabled();
   });
 
   it("keeps a durable UNKNOWN result unknown", async () => {
     mocked.getCommand.mockResolvedValue(command("UNKNOWN"));
     render(<ControlTower />);
-    await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+    await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
     expect(screen.getByTestId("phase")).toHaveClass("unknown");
     expect(screen.getByTestId("mutation-error")).toHaveTextContent(
@@ -176,7 +187,7 @@ describe("ControlTower command honesty", () => {
       new api.ApiError("GET", `/api/v1/commands/${commandId}`, null, "timeout after 10000ms"),
     );
     render(<ControlTower />);
-    await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+    await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
     expect(screen.getByTestId("phase")).toHaveClass("unknown");
     expect(screen.getByTestId("mutation-error")).toHaveTextContent(
@@ -190,7 +201,7 @@ describe("ControlTower command honesty", () => {
       .mockResolvedValueOnce(command("PENDING"))
       .mockRejectedValueOnce(new api.ApiError("POST", "/api/v1/commands", 500, "HTTP 500"));
     render(<ControlTower />);
-    const button = screen.getByRole("button", { name: "Submit durable demo command" });
+    const button = screen.getByRole("button", { name: "Submit durable coding command" });
     await userEvent.click(button);
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
     expect(screen.getByTestId("command")).toBeInTheDocument();
@@ -206,7 +217,7 @@ describe("ControlTower command honesty", () => {
         new api.ApiError("POST", "/api/v1/commands", null, "timeout after 10000ms"),
       );
     render(<ControlTower />);
-    const button = screen.getByRole("button", { name: "Submit durable demo command" });
+    const button = screen.getByRole("button", { name: "Submit durable coding command" });
     await userEvent.click(button);
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
     await userEvent.click(button);
@@ -223,7 +234,7 @@ describe("ControlTower command honesty", () => {
       payload_digest: "c".repeat(64),
     });
     render(<ControlTower />);
-    await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+    await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
     expect(screen.getByTestId("mutation-error")).toHaveTextContent(
       "reconciliation returned conflicting durable truth",
@@ -236,7 +247,7 @@ describe("ControlTower command honesty", () => {
       .mockResolvedValueOnce(command("APPLIED", { applied: true }))
       .mockResolvedValueOnce(command("PENDING"));
     render(<ControlTower />);
-    await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+    await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
     expect(screen.getByTestId("mutation-error")).toHaveTextContent(
       "reconciliation returned conflicting durable truth",
@@ -261,22 +272,22 @@ describe("ControlTower command honesty", () => {
       new api.ApiError("POST", "/api/v1/commands", null, "timeout after 10000ms"),
     );
     render(<ControlTower />);
-    const button = screen.getByRole("button", { name: "Submit durable demo command" });
+    const button = screen.getByRole("button", { name: "Submit durable coding command" });
     await userEvent.click(button);
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
     await userEvent.click(button);
     await waitFor(() => expect(mocked.submitCommand).toHaveBeenCalledTimes(2));
     expect(mocked.submitCommand).toHaveBeenNthCalledWith(1, {
       idempotency_key: "portal_fixture",
-      kind: "run_demo",
-      payload: {},
+      kind: "run_coding",
+      payload: codingPayload,
     });
     expect(mocked.submitCommand).toHaveBeenNthCalledWith(2, {
       idempotency_key: "portal_fixture",
-      kind: "run_demo",
-      payload: {},
+      kind: "run_coding",
+      payload: codingPayload,
     });
-    expect(mocked.newRunDemoEnvelope).toHaveBeenCalledTimes(1);
+    expect(mocked.newRunCodingEnvelope).toHaveBeenCalledTimes(1);
   });
 
   it("resumes an admitted command after reload instead of minting a new key", async () => {
@@ -285,7 +296,7 @@ describe("ControlTower command honesty", () => {
     await waitFor(() => expect(mocked.getCommand).toHaveBeenCalledWith(commandId));
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
     expect(mocked.submitCommand).not.toHaveBeenCalled();
-    expect(mocked.newRunDemoEnvelope).not.toHaveBeenCalled();
+    expect(mocked.newRunCodingEnvelope).not.toHaveBeenCalled();
   });
 
   it("keeps the envelope and stays UNKNOWN when admitted-id persistence fails", async () => {
@@ -295,7 +306,7 @@ describe("ControlTower command honesty", () => {
     });
     try {
       render(<ControlTower />);
-      await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+      await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
       await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
     } finally {
       setItem.mockRestore();
@@ -318,15 +329,15 @@ describe("ControlTower command honesty", () => {
     first.unmount();
     const laterId = `cmd_${"e".repeat(64)}`;
     persistPendingCommand({
-      envelope: { idempotency_key: "portal_later", kind: "run_demo", payload: {} },
+      envelope: { idempotency_key: "portal_later", kind: "run_coding", payload: codingPayload },
       commandId: laterId,
-      kind: "run_demo",
+      kind: "run_coding",
       payloadDigest: "f".repeat(64),
     });
     mocked.getCommand.mockResolvedValueOnce({
       id: laterId,
       status: "PENDING",
-      kind: "run_demo",
+      kind: "run_coding",
       payload_digest: "f".repeat(64),
       result: null,
     });
@@ -340,7 +351,7 @@ describe("ControlTower command honesty", () => {
     persistPendingCommand(pendingRecord("portal_fixture"));
     mocked.getCommand.mockResolvedValue({
       ...command("UNKNOWN"),
-      kind: "run_coding",
+      kind: "run_demo",
     });
     render(<ControlTower />);
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
@@ -356,9 +367,9 @@ describe("ControlTower command honesty", () => {
     sessionStorage.setItem(slot, raw);
     render(<ControlTower />);
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
-    await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+    await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
     expect(mocked.submitCommand).not.toHaveBeenCalled();
-    expect(mocked.newRunDemoEnvelope).not.toHaveBeenCalled();
+    expect(mocked.newRunCodingEnvelope).not.toHaveBeenCalled();
     expect(sessionStorage.getItem(slot)).toBe(raw);
   });
 
@@ -370,24 +381,24 @@ describe("ControlTower command honesty", () => {
     try {
       render(<ControlTower />);
       await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
-      await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+      await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
       expect(mocked.submitCommand).not.toHaveBeenCalled();
-      expect(mocked.newRunDemoEnvelope).not.toHaveBeenCalled();
+      expect(mocked.newRunCodingEnvelope).not.toHaveBeenCalled();
     } finally { getItem.mockRestore(); }
     expect(loadPendingCommand()).toEqual(pendingRecord("portal_fixture", null));
   });
 
   it.each([
-    ["kind", { kind: "run_coding", payload: {} }],
-    ["payload", { kind: "run_demo", payload: { other: true } }],
-  ] as const)("refuses a pending %s that conflicts with the demo action", async (_label, scope) => {
+    ["kind", { kind: "run_demo", payload: {} }],
+    ["payload", { kind: "run_coding", payload: { ...codingPayload, account_id: "acct-other" } }],
+  ] as const)("refuses a pending %s that conflicts with the coding action", async (_label, scope) => {
     const stored = pendingRecord("portal_other", null);
     persistPendingCommand({ ...stored, kind: scope.kind, envelope: { ...stored.envelope, ...scope } });
     render(<ControlTower />);
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
-    await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+    await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
     expect(mocked.submitCommand).not.toHaveBeenCalled();
-    expect(mocked.newRunDemoEnvelope).not.toHaveBeenCalled();
+    expect(mocked.newRunCodingEnvelope).not.toHaveBeenCalled();
     expect(loadPendingCommand()?.envelope).toEqual({ ...stored.envelope, ...scope });
   });
 
@@ -395,24 +406,24 @@ describe("ControlTower command honesty", () => {
     let resolveOld = (_value: ReturnType<typeof command>): void => { throw new Error("old POST not started"); };
     mocked.submitCommand.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
     const first = render(<ControlTower />);
-    await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+    await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
     expect(mocked.submitCommand).toHaveBeenCalledTimes(1);
     first.unmount();
     const current = render(<ControlTower />);
-    await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+    await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
     await waitFor(() => expect(loadPendingCommand()).toBeNull());
     const laterId = `cmd_${"e".repeat(64)}`;
     const later = pendingRecord("portal_later", laterId);
-    mocked.newRunDemoEnvelope.mockReturnValue(later.envelope);
+    mocked.newRunCodingEnvelope.mockReturnValue(later.envelope);
     mocked.submitCommand.mockResolvedValue({ ...command("PENDING"), id: laterId });
     mocked.getCommand.mockResolvedValue({ ...command("PENDING"), id: laterId });
-    await userEvent.click(screen.getByRole("button", { name: "Submit durable demo command" }));
+    await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
     await waitFor(() => expect(loadPendingCommand()).toEqual(later));
     await act(async () => { resolveOld(command("PENDING")); });
     expect(loadPendingCommand()).toEqual(later);
     expect(mocked.submitCommand).toHaveBeenCalledTimes(3);
     expect(mocked.submitCommand.mock.calls[0][0]).toEqual(mocked.submitCommand.mock.calls[1][0]);
-    expect(mocked.newRunDemoEnvelope).toHaveBeenCalledTimes(2);
+    expect(mocked.newRunCodingEnvelope).toHaveBeenCalledTimes(2);
     current.unmount();
   });
 
