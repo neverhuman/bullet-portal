@@ -160,16 +160,16 @@ test("content, membership, name, lock, and tool mutations invalidate the exact m
 });
 
 async function npmLinkPairs(t: test.TestContext, input: ManifestInput): Promise<void> {
-  async function linked(): Promise<{ root: string; link: string; target: string; manifest: string }> {
+  async function linked(modules = "node_modules"): Promise<{ root: string; link: string; target: string; manifest: string }> {
     const root = await mkdtemp(path.join(os.tmpdir(), "bullet-npm-links-"));
     t.after(() => rm(root, { recursive: true, force: true }));
-    await mkdir(path.join(root, "node_modules/.bin"), { recursive: true });
-    await mkdir(path.join(root, "node_modules/@npmcli/arborist/bin"), { recursive: true });
-    const manifest = path.join(root, "node_modules/@npmcli/arborist/package.json");
+    await mkdir(path.join(root, modules, ".bin"), { recursive: true });
+    await mkdir(path.join(root, modules, "@npmcli/arborist/bin"), { recursive: true });
+    const manifest = path.join(root, modules, "@npmcli/arborist/package.json");
     await writeFile(manifest, JSON.stringify({ name: "@npmcli/arborist", bin: { arborist: "bin/index.js" } }));
-    const target = path.join(root, "node_modules/@npmcli/arborist/bin/index.js");
+    const target = path.join(root, modules, "@npmcli/arborist/bin/index.js");
     await writeFile(target, "#!/usr/bin/env node\n");
-    const link = path.join(root, "node_modules/.bin/arborist");
+    const link = path.join(root, modules, ".bin/arborist");
     await symlink("../@npmcli/arborist/bin/index.js", link);
     return { root, link, target, manifest };
   }
@@ -255,6 +255,23 @@ async function npmLinkPairs(t: test.TestContext, input: ManifestInput): Promise<
   await writeFile(path.join(stringBin.root, "node_modules/node-gyp/bin/node-gyp.js"), "safe\n");
   await symlink("../node-gyp/bin/node-gyp.js", path.join(stringBin.root, "node_modules/.bin/node-gyp"));
   assert.equal((await hashToolDirectory(stringBin.root)).file_count, 5);
+  for (const modules of ["node_modules/@npmcli/metavuln-calculator/node_modules",
+    "node_modules/outer/node_modules/@scope/inner/node_modules"]) {
+    const nested = await linked(modules);
+    const before = await hashToolDirectory(nested.root);
+    assert.equal(before.file_count, 3);
+    assert.deepEqual(await hashToolDirectory(nested.root), before);
+    await writeFile(nested.target, "#!/usr/bin/env nodE\n");
+    assert.notEqual((await hashToolDirectory(nested.root)).blake3, before.blake3);
+    await unlink(nested.link);
+    await symlink("../../../../outside.js", nested.link);
+    await expectBundleRejection(() => hashToolDirectory(nested.root), "TOOL_SUBJECT_INVALID");
+  }
+  for (const modules of ["other/node_modules", "node_modules/node_modules",
+    "node_modules/outer/lib/node_modules"]) {
+    const invalidNamespace = await linked(modules);
+    await expectBundleRejection(() => hashToolDirectory(invalidNamespace.root), "TOOL_SUBJECT_INVALID");
+  }
 }
 
 test("hostile paths, duplicates, portable collisions, symlinks, and unexpected files fail closed", async (t) => {

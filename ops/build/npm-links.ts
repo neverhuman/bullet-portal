@@ -59,13 +59,15 @@ async function declaration(root: string, relative: string, reject: Reject): Prom
   }
 }
 
-// Only npm's direct dependency .bin links are qualified. No link is followed.
+// Only npm dependency .bin links are qualified, including nested dependencies.
 // Both the literal link and declared regular target remain part of the tree hash.
 export async function readNpmBinLink(root: string, relative: string, reject: Reject): Promise<string> {
-  const match = /^node_modules\/\.bin\/([A-Za-z0-9][A-Za-z0-9._-]{0,63})$/u.exec(relative);
+  const match = /^(node_modules\/(?:(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*\/node_modules\/)*)\.bin\/([A-Za-z0-9][A-Za-z0-9._-]{0,63})$/u.exec(relative);
   if (match === null) reject(`npm package link is outside the qualified .bin layout: ${relative}`);
+  const modules = match[1].slice(0, -1);
+  const binDirectory = `${modules}/.bin`;
   if (await realpath(root) !== path.resolve(root)) reject("npm package root traverses a symlink");
-  await realEntry(root, "node_modules/.bin", false, reject);
+  await realEntry(root, binDirectory, false, reject);
   const absolute = path.join(root, relative);
   const before = await lstat(absolute);
   if (!before.isSymbolicLink() || before.size <= 0 || before.size > MAX_LINK_BYTES) {
@@ -81,11 +83,11 @@ export async function readNpmBinLink(root: string, relative: string, reject: Rej
     reject("npm bin link must name a canonical relative sibling-package target");
   }
   const packageName = destination[1];
-  const packageRoot = `node_modules/${packageName}`;
+  const packageRoot = `${modules}/${packageName}`;
   const manifest = await declaration(root, `${packageRoot}/package.json`, reject);
   if (manifest.name !== packageName) reject("npm bin package name does not match its directory");
   const bins = manifest.bin;
-  const command = match[1];
+  const command = match[2];
   const selected = typeof bins === "string" && command === packageName.split("/").at(-1)
     ? bins : bins !== null && typeof bins === "object" && !Array.isArray(bins) && Object.hasOwn(bins, command)
       ? (bins as Record<string, unknown>)[command] : undefined;
@@ -97,7 +99,7 @@ export async function readNpmBinLink(root: string, relative: string, reject: Rej
     declared.split("/").some((part) => part === "" || part === "." || part === "..")) {
     reject("npm bin declaration has an unsafe target");
   }
-  const expected = path.posix.relative("node_modules/.bin", `${packageRoot}/${declared}`);
+  const expected = path.posix.relative(binDirectory, `${packageRoot}/${declared}`);
   if (target !== expected) reject("npm bin link differs from its declared target");
   const targetMetadata = await realEntry(root, `${packageRoot}/${declared}`, true, reject);
   if (targetMetadata.nlink !== 1) reject("npm bin target has ambiguous hardlink custody");
