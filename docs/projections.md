@@ -2,14 +2,18 @@
 
 Status: component contract; current sources require independent release admission
 Owner: Bullet Farm maintainers
-Last reviewed: 2026-09-09
+Last reviewed: 2026-09-10
 Applies to: bullet-portal
 
 This document states what the browser reads, how each read is validated, and
 what each of the fifteen spec §25 surfaces shows or refuses to show. Every
 statement names its source file. `src/generated/api.ts` is the generated
-kernel contract (`agent/generated-zones.toml`); the portal declares no wire
-DTO of its own. The parity checks at the end keep this file honest against
+kernel contract (`agent/generated-zones.toml`); the portal declares no
+hand-edited copy of a generated DTO. Conversation GET/POST consumers in
+`src/features/conversation/talk.ts` validate the Kernel
+`ConversationIndexView` / `ConversationView` /
+`ConversationMessageReceipt` shapes until that generated zone is refreshed
+from Kernel. The parity checks at the end keep this file honest against
 `src/surfaces.ts` and `src/api.ts`.
 
 ## Snapshot contract: one route, one atomic read
@@ -179,6 +183,21 @@ longer in this table; only the exact revision-one slice above is projected.
 | Struggle and Escalation (`struggle-cockpit`, §25.10) | no ledger subject exists for this surface yet: struggle scores, progress signatures, and escalation ladders are not persisted rows; produced by V1-S6 item 1 (persist struggle/escalation) | V1-S6 item 1 |
 | Behavior Center (`behavior-center`, §25.11) | no ledger subject exists for this surface yet: behavior rule events, enforcement, and remediation receipts are not persisted rows (crates/behavior is a non-authoritative detector scaffold); produced by V1-S6 item 1 (persist behavior rules) | V1-S6 item 1 |
 | Workspace and Git Hygiene (`workspace-hygiene`, §25.12) | no ledger subject exists for this surface yet: workspace dirty/untracked state, preservation receipts, and cleanup eligibility are not persisted rows (attempt rows carry only workspace_id, shown on Session Supervisor); produced by V1-S4 item 2 (preserve the workspace, resume from the exact checkpoint) and V1-S3 preservation receipts | V1-S4 item 2, V1-S3 item 5 |
+
+## Conversation GET contract (overlay, not a surface)
+
+`GET /api/v1/conversations` and `GET /api/v1/conversations/{id}` are snapshot
+routes under the same `readSnapshot` envelope (`data`, `as_of_sequence`,
+`observed_at`, `source`, matching `x-bullet-as-of-sequence`). Index order is
+immutable creation order; the message cursor is a thread-local sequence.
+`after`/`limit` pages are separate snapshots and are not merged across
+watermarks. `head_blocker` matches `^HEAD_[A-Z_]+$`; today's durable value is
+`HEAD_RUNTIME_BINDING_REQUIRED`. Assistant rows require a validated native
+outcome and are refused while that blocker holds. Composer uses
+`POST /api/v1/commands` `kind=conversation_message` with required nullable
+`cursor` and 32768-byte LF/TAB-only content, then binds refresh to the
+`APPLIED` `ConversationMessageReceipt` cursor — not `index[0]` and not a
+browser transcript.
 
 ## Where this is exercised
 

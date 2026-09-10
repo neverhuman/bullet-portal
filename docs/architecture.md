@@ -109,9 +109,12 @@ connection state. Endpoints consumed (`src/api.ts` and
 `GET /health`, `GET /api/v1/operator-snapshot`, `GET /api/v1/missions`, `GET /api/v1/missions/{id}`, `GET /api/v1/outbox`,
 `GET /api/v1/ready`, `GET /api/v1/fleet`, `GET /api/v1/sessions`,
 `GET /api/v1/context-lineage`, `GET /api/v1/merge-rail`, `GET /api/v1/quality-lab`,
-`GET /api/v1/audit`, `POST /api/v1/auth/bootstrap`,
+`GET /api/v1/audit`, `GET /api/v1/conversations`,
+`GET /api/v1/conversations/{id}`, `POST /api/v1/auth/bootstrap`,
 `POST /api/v1/commands`, `GET /api/v1/commands/{id}`, and
-`GET /api/v1/events?after=<seq>`. All are mounted by the kernel route catalog
+`GET /api/v1/events?after=<seq>`. Conversation GET validators live in
+`src/features/conversation/talk.ts` until a generated Portal copy of
+`ConversationView` exists; `src/generated/` is not hand-edited. All are mounted by the kernel route catalog
 `apps/bullet-farmd/src/api/routes.rs`; `GET /api/v1/…` reads other than
 `/api/v1/commands/{id}` and `/api/v1/events` are snapshot routes under the contract in
 `projections.md`.
@@ -171,6 +174,22 @@ Tower and Shift Brief through their shared `useOperatorSnapshot` loader.
 Neither a live event connection nor navigation proves provider execution or
 transaction completion. Durable session controls and the full terminal console remain separate
 implementation obligations.
+
+## Head conversation overlay
+
+`src/features/conversation/` is a schema-27 overlay, not a sixteenth spec §25
+surface and not Nightshift Wave 9 / G15 cognition. The closed chip mounts on
+every hash route beside Nav; the drawer subscribes to
+`useOperatorSnapshot` only while open so Shift Brief keeps a single
+`/operator-snapshot` identity when the overlay is closed. Composer journals
+then POSTs `conversation_message` through the existing
+`POST /api/v1/commands` ingress and renders
+`GET /api/v1/conversations` / `GET /api/v1/conversations/{id}`. The thread of
+record is that GET, never `sessionStorage`. A queued head-turn is not an
+assistant row; `HEAD_RUNTIME_BINDING_REQUIRED` stays visible until a native
+Head outcome exists. Slack and Telegram remain typed
+`SLACK_BIND_UNAVAILABLE` / `TELEGRAM_UNAVAILABLE`. HOLD / LIVE n / UNBOUND /
+`STOP_UNIMPLEMENTED` are operating chips, not invented Head speech.
 
 ## Error handling
 
