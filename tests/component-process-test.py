@@ -12,9 +12,12 @@ import time
 import unittest
 
 SUPERVISOR = Path(__file__).with_name("component-process.py").resolve()
+PYTHON = [sys.executable, "-I", "-B", "-S"]
 WORKER = r'''
 import ctypes, os, signal, sys, time
 from pathlib import Path
+assert sys.flags.isolated and sys.flags.no_site and sys.flags.dont_write_bytecode
+assert "site" not in sys.modules
 mode, record = sys.argv[1:3]
 def note():
     stamp = Path(f"/proc/{os.getpid()}/stat").read_text().rpartition(")")[2].split()[19]
@@ -69,6 +72,8 @@ class ComponentProcessTests(unittest.TestCase):
     def setUpClass(cls):
         if sys.platform != "linux" or not hasattr(os, "pidfd_open"):
             raise RuntimeError("COMPONENT_PROCESS_TEST_LINUX_REQUIRED")
+        if not (sys.flags.isolated and sys.flags.no_site and sys.flags.dont_write_bytecode):
+            raise RuntimeError("COMPONENT_PROCESS_TEST_ISOLATED_PYTHON_REQUIRED")
         # Adopt the supervisor when the parent-death fixture kills its launcher.
         if ctypes.CDLL(None).prctl(36, 1, 0, 0, 0) != 0:
             raise RuntimeError("COMPONENT_PROCESS_TEST_SUBREAPER_REQUIRED")
@@ -117,8 +122,8 @@ class ComponentProcessTests(unittest.TestCase):
                 return
 
     def command(self, mode, timeout=3):
-        return [sys.executable, str(SUPERVISOR), "--timeout-seconds", str(timeout), "--",
-                sys.executable, str(self.worker), mode, str(self.record), "literal $(false); `false`"]
+        return [*PYTHON, str(SUPERVISOR), "--timeout-seconds", str(timeout), "--",
+                *PYTHON, str(self.worker), mode, str(self.record), "literal $(false); `false`"]
 
     def start(self, mode, timeout=3):
         process = subprocess.Popen(self.command(mode, timeout), stdout=subprocess.PIPE,
@@ -220,13 +225,15 @@ class ComponentProcessTests(unittest.TestCase):
     def test_parent_death_reaps_escaped_descendants(self):
         launcher = self.root / "launcher.py"
         launcher.write_text("""import pathlib, subprocess, sys, time
+assert sys.flags.isolated and sys.flags.no_site and sys.flags.dont_write_bytecode
+assert "site" not in sys.modules
 root = pathlib.Path(sys.argv[1])
 with (root / 'out').open('wb') as out, (root / 'err').open('wb') as err:
     process = subprocess.Popen(sys.argv[2:], stdout=out, stderr=err)
 (root / 'supervisor.pid').write_text(str(process.pid))
 time.sleep(30)
 """)
-        parent = subprocess.Popen([sys.executable, str(launcher), str(self.root)] + self.command("escaped"))
+        parent = subprocess.Popen([*PYTHON, str(launcher), str(self.root)] + self.command("escaped"))
         self.remember(parent.pid)
         self.ready(parent)
         supervisor = int((self.root / "supervisor.pid").read_text())
