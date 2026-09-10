@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Nav } from "./components/Nav";
+import { TalkDrawer } from "./features/conversation/TalkDrawer";
 import { ControlTower } from "./pages/ControlTower";
 import { isProjected, ProjectedSurface } from "./pages/ProjectedSurface";
 import { ShiftBriefPage } from "./pages/ShiftBriefPage";
@@ -32,6 +33,7 @@ export function App() {
     <ErrorBoundary>
       <Nav current={route} />
       <Page route={route} />
+      <TalkDrawer />
     </ErrorBoundary>
   );
 }

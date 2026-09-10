@@ -28,7 +28,8 @@ button {
   cursor: pointer;
 }
 input,
-select {
+select,
+textarea {
   background: #0b1020;
   color: #f4f7ff;
   border: 2px solid #ffc44d;
@@ -43,6 +44,8 @@ select {
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
 .table-scroll:focus-visible {
   outline: 3px solid #f7c95d;
   outline-offset: 3px;
@@ -166,6 +169,73 @@ dl {
 button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+.talk-root {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 20;
+}
+.talk-launch {
+  border-radius: 999px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.talk-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 76px;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(72vh, 640px);
+  display: flex;
+  flex-direction: column;
+  background: #151c2c;
+  box-shadow: inset 0 0 0 1px #2a3a55;
+  padding: 20px;
+  gap: 16px;
+}
+.talk-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+}
+.talk-tag {
+  margin: 6px 0 0;
+}
+.talk-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.talk-thread {
+  overflow: auto;
+  display: grid;
+  gap: 12px;
+}
+.talk-user,
+.talk-assistant,
+.talk-cite,
+.talk-refuse {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.talk-user {
+  color: #a9c7ff;
+}
+.talk-form {
+  display: grid;
+  gap: 8px;
+}
+.talk-label {
+  font-size: 13px;
+  color: #c5d4ea;
+  display: grid;
+  gap: 6px;
+}
+.talk-input {
+  width: 100%;
+  resize: vertical;
 }
 @media (prefers-reduced-motion: reduce) {
   *,
