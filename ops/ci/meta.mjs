@@ -141,15 +141,15 @@ assert(
 );
 assert(
   read("ops/ci/fast.sh").includes(
-    'assert-report.mjs vitest "$reports/vitest.json" 184',
+    'assert-report.mjs vitest "$reports/vitest.json" 185',
   ),
-  "exact 184-test Vitest count ratchet absent",
+  "exact 185-test Vitest count ratchet absent",
 );
 assert(
   read("ops/ci/fast.sh").includes(
-    "50c1aa4faa0197191fa5625495cc2b612173d4277ff4106c79cadbe32179a6f1",
+    "597ea29408d79df50d9ad29eef7a418051bcd8308f50ad984f876db888cd7afc",
   ) && read("ops/ci/coverage.sh").includes(
-    "50c1aa4faa0197191fa5625495cc2b612173d4277ff4106c79cadbe32179a6f1",
+    "597ea29408d79df50d9ad29eef7a418051bcd8308f50ad984f876db888cd7afc",
   ),
   "exact Vitest identity digest ratchet absent",
 );

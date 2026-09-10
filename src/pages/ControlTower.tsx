@@ -3,7 +3,9 @@ import {
   ApiError,
   errorText,
   exchangeBootstrap,
+  fetchFleet,
   fetchOutbox,
+  fetchSessions,
   forgetBrowserSession,
   getCommand,
   hasSessionMaterial,
@@ -21,10 +23,18 @@ import {
   restoredSubjectConflicts,
 } from "../pendingCommand";
 import { CommandCard } from "../components/CommandCard";
+import { InsightBoard } from "../components/InsightBoard";
 import { MissionsCard } from "../components/MissionsCard";
 import { OutboxCard } from "../components/OutboxCard";
 import { StatusHeader } from "../components/StatusHeader";
-import type { CommandEnvelope, CommandStatus, Mission, OutboxView } from "../generated/api";
+import type {
+  CommandEnvelope,
+  CommandStatus,
+  FleetView,
+  Mission,
+  OutboxView,
+  SessionSupervisorView,
+} from "../generated/api";
 import { useEventStream } from "../hooks/useEventStream";
 import { useHealthProbe } from "../hooks/useHealthProbe";
 import type { Loadable } from "../loadable";
@@ -85,6 +95,8 @@ function pendingCodingConflicts(
 export function ControlTower() {
   const [missions, setMissions] = useState<Loadable<Mission[]>>({ kind: "loading" });
   const [outbox, setOutbox] = useState<Loadable<OutboxView>>({ kind: "loading" });
+  const [fleet, setFleet] = useState<Loadable<FleetView>>({ kind: "loading" });
+  const [sessions, setSessions] = useState<Loadable<SessionSupervisorView>>({ kind: "loading" });
   const [command, setCommand] = useState<CommandStatus | null>(null);
   const [phase, setPhase] = useState<MutationPhase>("IDLE");
   const [error, setError] = useState<string | null>(null);
@@ -121,15 +133,51 @@ export function ControlTower() {
     }
   }, []);
 
+  const refreshFleet = useCallback(async (): Promise<number | null> => {
+    if (!sessionMaterial) {
+      setFleet(toUnknown("session required for fleet projection"));
+      return null;
+    }
+    try {
+      const snapshot = await fetchFleet();
+      setFleet(toSnapshotValue(snapshot.data, snapshot.observedAt, snapshot.source));
+      return snapshot.asOfSequence;
+    } catch (err) {
+      setFleet(toUnknown(`fleet unreachable (${errorText(err)})`));
+      return null;
+    }
+  }, [sessionMaterial]);
+
+  const refreshSessions = useCallback(async (): Promise<number | null> => {
+    if (!sessionMaterial) {
+      setSessions(toUnknown("session required for sessions projection"));
+      return null;
+    }
+    try {
+      const snapshot = await fetchSessions();
+      setSessions(toSnapshotValue(snapshot.data, snapshot.observedAt, snapshot.source));
+      return snapshot.asOfSequence;
+    } catch (err) {
+      setSessions(toUnknown(`sessions unreachable (${errorText(err)})`));
+      return null;
+    }
+  }, [sessionMaterial]);
+
   const refreshSnapshot = useCallback(async (): Promise<number | null> => {
-    const [missionsSequence, outboxSequence] = await Promise.all([
+    const [missionsSequence, outboxSequence, fleetSequence, sessionsSequence] = await Promise.all([
       refreshMissions(),
       refreshOutbox(),
+      refreshFleet(),
+      refreshSessions(),
     ]);
-    return missionsSequence === null || outboxSequence === null
-      ? null
-      : Math.min(missionsSequence, outboxSequence);
-  }, [refreshMissions, refreshOutbox]);
+    if (missionsSequence === null || outboxSequence === null) {
+      return null;
+    }
+    if (fleetSequence !== null && sessionsSequence !== null) {
+      return Math.min(missionsSequence, outboxSequence, fleetSequence, sessionsSequence);
+    }
+    return Math.min(missionsSequence, outboxSequence);
+  }, [refreshMissions, refreshOutbox, refreshFleet, refreshSessions]);
 
   const stream = useEventStream(refreshSnapshot);
 
@@ -318,6 +366,7 @@ export function ControlTower() {
       <h1>Control Tower</h1>
       <p className="tagline">Many minds. One verified line to main.</p>
       <StatusHeader stream={stream} health={health.state} />
+      <InsightBoard fleet={fleet} sessions={sessions} sessionMaterial={sessionMaterial} />
       {sessionMaterial ? (
         <p className="pending" data-testid="auth-state">
           local session material present; farmd revalidates every command

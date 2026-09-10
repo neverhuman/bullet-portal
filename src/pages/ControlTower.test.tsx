@@ -15,8 +15,10 @@ vi.mock("../api", async (importOriginal) => {
   return {
     ...original,
     exchangeBootstrap: vi.fn(),
+    fetchFleet: vi.fn(),
     fetchHealth: vi.fn(),
     fetchOutbox: vi.fn(),
+    fetchSessions: vi.fn(),
     forgetBrowserSession: vi.fn(),
     getCommand: vi.fn(),
     hasSessionMaterial: vi.fn(),
@@ -28,8 +30,10 @@ vi.mock("../api", async (importOriginal) => {
 
 const mocked = {
   exchangeBootstrap: vi.mocked(api.exchangeBootstrap),
+  fetchFleet: vi.mocked(api.fetchFleet),
   fetchHealth: vi.mocked(api.fetchHealth),
   fetchOutbox: vi.mocked(api.fetchOutbox),
+  fetchSessions: vi.mocked(api.fetchSessions),
   forgetBrowserSession: vi.mocked(api.forgetBrowserSession),
   getCommand: vi.mocked(api.getCommand),
   hasSessionMaterial: vi.mocked(api.hasSessionMaterial),
@@ -84,6 +88,10 @@ beforeEach(() => {
   mocked.hasSessionMaterial.mockReturnValue(true);
   mocked.listMissions.mockResolvedValue(snapshot([]));
   mocked.fetchOutbox.mockResolvedValue(snapshot({ items: [] }));
+  mocked.fetchFleet.mockResolvedValue(
+    snapshot({ authority_time: "2026-09-09T00:00:00.000Z", leases: [], ready_queue: [] }),
+  );
+  mocked.fetchSessions.mockResolvedValue(snapshot({ attempts: [], state_counts: [] }));
   mocked.fetchHealth.mockResolvedValue({ status: "ok" });
   mocked.newRunCodingEnvelope.mockReturnValue({
     idempotency_key: "portal_fixture",
@@ -120,6 +128,7 @@ describe("ControlTower command honesty", () => {
     await screen.findByText("local session material present; farmd revalidates every command");
     expect(mocked.exchangeBootstrap).toHaveBeenCalledWith("boot_fixture");
     expect(submit).toBeEnabled();
+    expect(screen.getByTestId("hold-banner")).toHaveTextContent("STOP_UNIMPLEMENTED");
   });
 
   it("refuses a bare durable VERIFIED status without runtime Evidence and Effect receipts", async () => {
@@ -446,5 +455,20 @@ describe("ControlTower command honesty", () => {
     );
     expect(screen.getByTestId("health-probe")).toHaveClass("idle");
     expect(screen.getByTestId("health-probe")).not.toHaveClass("verified");
+  });
+
+  it("projects an empty fleet as labeled zero rows, never a green multi-agent process", async () => {
+    render(<ControlTower />);
+    await waitFor(() =>
+      expect(screen.getByTestId("insight-fleet")).toHaveTextContent(
+        "fleet LIVE 0 · EXPIRED 0 · UNKNOWN 0 · ready 0",
+      ),
+    );
+    expect(screen.getByTestId("hold-banner")).toHaveTextContent("HOLD");
+    expect(screen.getByTestId("hold-banner")).toHaveTextContent("STOP_UNIMPLEMENTED");
+    expect(screen.getByTestId("insight-sessions")).toHaveTextContent("sessions attempts 0 · HELD 0");
+    expect(screen.getByTestId("insight-honesty")).toHaveTextContent("Empty is zero rows");
+    expect(screen.getByTestId("insight-fleet")).toHaveClass("chip-idle");
+    expect(screen.getByTestId("insight-fleet")).not.toHaveClass("chip-live");
   });
 });
