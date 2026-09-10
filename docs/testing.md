@@ -50,6 +50,28 @@ contain every expected passing identity with zero skipped, pending or failed
 cases. Browser fixtures and local HTTP tests remain component proofs; they do
 not establish the installed provider workflow or release acceptance.
 
+## Authenticated connected browser proof
+
+The family and packaged lanes share the three real-daemon cases in
+[`real-farmd.spec.ts`](../e2e/real-farmd.spec.ts). One admitted browser context
+survives ordinary reloads. Anonymous projections, command discovery and SSE
+must refuse with `SESSION_REQUIRED`; an authenticated component submission is
+rediscovered from command history without a local submission journal.
+[`real-worker.ts`](../e2e/real-worker.ts) retains the exact sealed claim,
+binary manifest, preservation receipt, durable `UNKNOWN` result and restart
+assertions. Fixture execution is Node-side and cannot establish provider work.
+
+Both modes build in a fresh private target and require an explicitly selected,
+canonical, protected `BULLET_GITD_BIN` with matching `BULLET_GITD_SHA256`.
+Packaged mode also verifies the clean-source bundle, embeds it in farmd and
+checks the served bundle root and entry point. It uses the same component
+worker, peer registry and private receipt custody as the forwarded lane.
+Thirty build-admission fixtures exercise both modes. Credential files are
+removed on exit; daemon failure logs and ambiguous worker state remain private.
+Browser tracing, screenshots and video are disabled for these credential-bearing
+component tests. The retained fixture is neither an installation nor a recording
+of live provider execution.
+
 ## Never skip-green
 
 A missing tool, a wrong tool version, a skipped case, a flaky rerun, or an

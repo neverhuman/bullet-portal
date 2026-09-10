@@ -1,12 +1,7 @@
 import { expect, test } from "@playwright/test";
-import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { getgid, getuid } from "node:process";
-import { promisify } from "node:util";
-import { blake3 } from "@noble/hashes/blake3.js";
-
+import { reconcileComponent } from "./real-worker";
+import type { BrowserContext, Page } from "@playwright/test";
+import type { CommandStatus } from "../src/generated/api";
 const environment = (
   globalThis as { process?: { env?: Record<string, string | undefined> } }
 ).process?.env;
@@ -15,11 +10,41 @@ const bootstrap = environment?.BULLET_BOOTSTRAP_TOKEN;
 const worker = environment?.BULLET_WORKER_TOKEN;
 
 test.describe("real farmd command authority", () => {
+  test.describe.configure({ mode: "serial", retries: 0 });
+  let context: BrowserContext;
+  let page: Page;
+
+  test.beforeAll(async ({ browser, baseURL }) => {
+    expect(/^boot_[0-9a-f]{64}$/.test(bootstrap ?? ""), "private bootstrap fixture required").toBe(true);
+    context = await browser.newContext({ baseURL });
+    page = await context.newPage();
+    await page.goto("/#/control-tower");
+    await expect(page.getByRole("button", { name: "Submit durable coding command" })).toBeDisabled();
+    await page.getByLabel("One-time bootstrap token").fill(bootstrap ?? "");
+    await page.getByRole("button", { name: "Authenticate local session" }).click();
+    await expect(page.getByTestId("auth-state")).toContainText("session material present");
+    await expect(page.getByTestId("auth-state")).not.toHaveClass("verified");
+    await page.getByRole("button", { name: "Check session", exact: true }).click();
+    await expect(page.getByTestId("operator-session-identity")).toContainText("AUTHENTICATED");
+  });
+
+  test.afterAll(async () => { await context?.close(); });
+
+  const read = (path: string) => page.evaluate(async (url) => {
+    const response = await fetch(url, { credentials: "same-origin" });
+    return { status: response.status, sequence: response.headers.get("x-bullet-as-of-sequence"),
+      body: await response.json() };
+  }, path);
   test("legacy operator routes are typed retired and a valid command remains inert", async () => {
-    const before = await fetch(`${farmd}/api/v1/outbox`);
+    for (const path of ["ready", "outbox", "operator-snapshot", "commands", "events"]) {
+      const denied = await fetch(`${farmd}/api/v1/${path}`);
+      expect(denied.status, `anonymous ${path}`).toBe(401);
+      expect(await denied.json()).toMatchObject({ code: "SESSION_REQUIRED" });
+    }
+    const before = await read("/api/v1/outbox");
     expect(before.status).toBe(200);
-    const beforeBody = await before.json();
-    const beforeSequence = before.headers.get("x-bullet-as-of-sequence");
+    const beforeBody = before.body;
+    const beforeSequence = before.sequence;
 
     for (const [method, path, body] of [
       ["GET", "/v1/missions", undefined],
@@ -48,10 +73,10 @@ test.describe("real farmd command authority", () => {
       });
     }
 
-    const after = await fetch(`${farmd}/api/v1/outbox`);
+    const after = await read("/api/v1/outbox");
     expect(after.status).toBe(200);
-    expect(after.headers.get("x-bullet-as-of-sequence")).toBe(beforeSequence);
-    const afterBody = await after.json();
+    expect(after.sequence).toBe(beforeSequence);
+    const afterBody = after.body;
     expect(afterBody.data).toEqual(beforeBody.data);
     expect(afterBody.source).toBe(beforeBody.source);
     expect(String(beforeBody.as_of_sequence)).toBe(beforeSequence);
@@ -60,16 +85,13 @@ test.describe("real farmd command authority", () => {
     expect(typeof afterBody.observed_at).toBe("string");
   });
 
-  test("browser reconciles the exact command to durable UNKNOWN without green", async ({ page }) => {
+  test("browser reconciles the exact command to durable UNKNOWN without green", async () => {
     test.setTimeout(800_000);
-    expect(bootstrap, "real lane must inject farmd's one-time token").toMatch(/^boot_[0-9a-f]{64}$/);
-    expect(worker, "real lane must inject farmd's independent worker token").toMatch(
-      /^wrk_[0-9a-f]{64}$/,
-    );
+    expect(/^wrk_[0-9a-f]{64}$/.test(worker ?? ""), "independent worker token fixture required").toBe(true);
 
-    const ready = await fetch(`${farmd}/api/v1/ready`);
+    const ready = await read("/api/v1/ready");
     expect(ready.status).toBe(200);
-    const readyBody = (await ready.json()) as {
+    const readyBody = ready.body as {
       data: unknown;
       as_of_sequence: number;
       observed_at: string;
@@ -78,32 +100,44 @@ test.describe("real farmd command authority", () => {
     expect(readyBody.data).toBeNull();
     expect(readyBody.source).toBe("bullet-kernel/sqlite-ledger");
     expect(Number.isNaN(Date.parse(readyBody.observed_at))).toBeFalsy();
-    expect(ready.headers.get("x-bullet-as-of-sequence")).toBe(
+    expect(ready.sequence).toBe(
       String(readyBody.as_of_sequence),
     );
 
+    const initialSequence = readyBody.as_of_sequence;
     await page.goto("/#/control-tower");
     await expect(page.getByRole("heading", { name: "Control Tower" })).toBeVisible();
-    await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 0");
-    await expect(page.getByRole("button", { name: "Submit durable demo command" })).toBeDisabled();
-    await page.getByLabel("One-time bootstrap token").fill(bootstrap ?? "");
-    await page.getByRole("button", { name: "Authenticate local session" }).click();
-    await expect(page.getByTestId("auth-state")).toContainText("session material present");
-    await expect(page.getByTestId("auth-state")).not.toHaveClass("verified");
-
-    await page.getByRole("button", { name: "Submit durable demo command" }).click();
-    await expect(page.getByTestId("phase")).toContainText("command phase: PENDING");
-    await expect(page.getByTestId("phase")).toHaveClass("pending");
-    await expect(page.getByTestId("command-id")).toContainText(/^cmd_[0-9a-f]{64}$/);
-    const commandId = (await page.getByTestId("command-id").textContent())?.trim();
+    // Component fixture submission exercises the real authenticated ingress. This
+    // demo kind is a component fixture, not an operator product button or provider evidence.
+    const admitted = await page.evaluate(async () => {
+      const csrf = sessionStorage.getItem("bullet-farm.csrf.v1");
+      if (!csrf) throw new Error("admitted CSRF fixture missing");
+      const response = await fetch("/api/v1/commands", {
+        method: "POST", credentials: "same-origin",
+        headers: { "content-type": "application/json", "x-bullet-csrf": csrf },
+        body: JSON.stringify({ idempotency_key: "connected-component-command", kind: "run_demo", payload: {} }),
+      });
+      return { status: response.status, body: await response.json() as CommandStatus };
+    });
+    expect(admitted.status).toBe(202);
+    const commandId = admitted.body.id;
     expect(commandId).toMatch(/^cmd_[0-9a-f]{64}$/);
-    await expect(page.getByTestId("command")).toContainText("run_demo");
-    await expect(page.getByTestId("command")).toContainText("not recorded");
+    expect(admitted.body).toMatchObject({ status: "PENDING", result: null });
+    // No local submission journal: recover the same durable command from its owner.
+    await page.reload();
+    await page.getByRole("button", { name: "Show command history" }).click();
+    const history = page.getByRole("region", { name: "Command history", exact: true });
+    await history.getByRole("button", { name: commandId, exact: true }).click();
+    const card = history.getByTestId("command");
+    await expect(card.getByTestId("command-id")).toHaveText(commandId);
+    await expect(card.locator(".pending")).toHaveText("PENDING");
+    await expect(card).toContainText("run_demo");
+    await expect(card).toContainText("not recorded");
     await expect(page.getByTestId("stream-connection")).toContainText("live");
-    await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 1");
+    await expect(page.getByTestId("as-of-sequence")).toHaveText(`as_of_sequence: ${initialSequence + 1}`);
     await page.waitForTimeout(400);
-    await expect(page.getByTestId("phase")).toContainText("PENDING");
-    await expect(page.getByTestId("phase")).not.toHaveClass("verified");
+    await expect(card.locator(".pending")).toHaveText("PENDING");
+    await expect(card.locator(".verified")).toHaveCount(0);
 
     const retired = await fetch(`${farmd}/internal/v1/commands/${commandId}/reconcile`, {
       method: "POST",
@@ -113,104 +147,29 @@ test.describe("real farmd command authority", () => {
     expect(await retired.json()).toMatchObject({ code: "WORKLOAD_API_UDS_REQUIRED" });
     const readCommand = () => page.evaluate(async (id) => {
       const response = await fetch(`/api/v1/commands/${id}`, { credentials: "same-origin" });
-      return { status: response.status, body: await response.json() };
+      return { status: response.status, body: await response.json() as CommandStatus };
     }, commandId);
     const pendingResponse = await readCommand();
     expect(pendingResponse.status).toBe(200);
     const pending = pendingResponse.body;
     expect(pending).toMatchObject({ id: commandId, status: "PENDING", result: null });
-    const inert = await fetch(`${farmd}/api/v1/outbox`);
-    expect(inert.headers.get("x-bullet-as-of-sequence")).toBe("1");
+    const inert = await read("/api/v1/outbox");
+    expect(inert.sequence).toBe(String(initialSequence + 1));
 
-    // Fixture execution stays in Node. The browser never receives workload custody.
-    const binary = environment?.BULLET_COMPONENT_WORKER_BIN;
-    const proof = environment?.BULLET_COMPONENT_PROOF_DIR;
-    const reports = environment?.BULLET_COMPONENT_REPORT_DIR;
-    const supervisor = environment?.BULLET_COMPONENT_SUPERVISOR;
-    expect(binary).toMatch(/^\//);
-    expect(proof).toMatch(/^\//);
-    expect(reports).toMatch(/^\//);
-    expect(supervisor).toMatch(/^\//);
-    if (!binary || !proof || !reports || !supervisor) throw new Error("real component worker fixture required");
-    if (!getuid || !getgid) throw new Error("Linux workload fixture required");
-    const args = [
-      "--lease-socket", join(proof, "socket/lease.sock"),
-      "--farmd-uid", String(getuid()), "--socket-gid", String(getgid()),
-      "--runner-id", `run_${"1".repeat(64)}`, "--runner-epoch", "1",
-      "--state-dir", join(proof, "worker"), "--binary-manifest", join(proof, "binaries.json"),
-      "--deadline-ms", "600000",
-    ];
-    const runWorker = async (label: string, seconds: string) => {
-      try {
-        const output = await promisify(execFile)("/usr/bin/python3",
-          [supervisor, "--timeout-seconds", seconds, "--", binary, ...args],
-          { env: { PATH: "/usr/bin:/bin" }, maxBuffer: 1024 * 1024 });
-        await writeFile(join(reports, `component-worker-${label}.stdout`), output.stdout);
-        await writeFile(join(reports, `component-worker-${label}.stderr`), output.stderr);
-        expect(output.stderr).toBe("");
-        return output.stdout;
-      } catch (error) {
-        await writeFile(join(reports, `component-worker-${label}.failure`), String(error));
-        throw error;
-      }
-    };
-    expect(await runWorker("first", "700")).toBe("COMMAND_UNKNOWN\n");
-    const stateBytes = await readFile(join(proof, "worker/current.json"));
-    const state = JSON.parse(stateBytes.toString());
-    expect(state.stage).toBe("SETTLED_UNKNOWN");
-    expect(state.claim).toMatchObject({ command_id: commandId, request_digest: pending.payload_digest });
-    expect(state.claim.claim_id).toMatch(/^dcl_[0-9a-f]{64}$/);
-    const receiptBytes = await readFile(join(proof, "worker", state.claim.claim_id, "run/COMPONENT_PROOF.receipt.json"));
-    const receiptDigest = Buffer.from(blake3(receiptBytes)).toString("hex");
-    expect(state.receipt_sha256).toBe(createHash("sha256").update(receiptBytes).digest("hex"));
-    expect(state.receipt_digest).toBe(receiptDigest);
-    const manifest = await readFile(join(proof, "binaries.json"));
-    expect(state.binary_manifest_sha256).toBe(createHash("sha256").update(manifest).digest("hex"));
-    const receipt = JSON.parse(receiptBytes.toString());
-    expect(receipt).toMatchObject({
-      evidence_class: "COMPONENT_PROOF", signing_trust: "UNSIGNED_FIXTURE",
-      transaction_gate_eligible: false, independent_evidence_eligible: false,
-      command_dispatch: {
-        source: "SEALED_CLAIM", command_id: commandId, request_digest: pending.payload_digest,
-        binary_manifest_sha256: state.binary_manifest_sha256,
-      },
-    });
-    await writeFile(join(reports, "component-worker-state.json"), stateBytes);
-    await writeFile(join(reports, "component-worker-receipt.json"), receiptBytes);
-    const reconciled = await readCommand();
-    expect(reconciled.status).toBe(200);
-    const settled = reconciled.body;
-    expect(settled.id).toBe(commandId);
-    expect(settled.status).toBe("UNKNOWN");
-    expect(settled.result).toMatchObject({
-      command_id: commandId,
-      request_digest: pending.payload_digest,
-      receipt_digest: receiptDigest,
-      code: "COMPONENT_PROOF_NOT_TRANSACTION_ELIGIBLE",
-      evidence_class: "COMPONENT_PROOF", signing_trust: "UNSIGNED_FIXTURE",
-      transaction_gate_eligible: false, independent_evidence_eligible: false,
-    });
-    expect(settled.payload_digest).toBe(pending.payload_digest);
-    expect(await runWorker("restart", "30")).toBe("NO_COMMAND\n");
-    expect(await readFile(join(proof, "worker/current.json"))).toEqual(stateBytes);
-    const replay = await readCommand();
-    expect(replay.status).toBe(200);
-    expect(replay.body).toEqual(settled);
-    await writeFile(join(reports, "component-command-result.json"), JSON.stringify(settled));
-    await expect(page.getByTestId("phase")).toContainText("UNKNOWN");
-    await expect(page.getByTestId("phase")).toHaveClass("unknown");
-    await expect(page.getByTestId("phase")).not.toHaveClass("verified");
-    await expect(page.getByTestId("command-id")).toHaveText(commandId ?? "");
-    await expect(page.getByTestId("command")).toContainText("COMPONENT_PROOF_NOT_TRANSACTION_ELIGIBLE");
-    await expect(page.getByTestId("command")).toContainText(commandId ?? "");
-    await expect(page.getByTestId("command").locator(".verified")).toHaveCount(0);
-    await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 3");
+    await reconcileComponent(commandId, pending, readCommand);
+    await history.getByRole("button", { name: "Refresh history" }).click();
+    await expect(card.locator(".unknown")).toHaveText("UNKNOWN");
+    await expect(card.getByTestId("command-id")).toHaveText(commandId);
+    await expect(card).toContainText("COMPONENT_PROOF_NOT_TRANSACTION_ELIGIBLE");
+    await expect(card).toContainText(commandId);
+    await expect(card.locator(".verified")).toHaveCount(0);
+    await expect(page.getByTestId("as-of-sequence")).toHaveText(`as_of_sequence: ${initialSequence + 3}`);
 
     const removed = await fetch(`${farmd}/api/v1/demo/run`, { method: "POST" });
     expect(removed.status).toBe(410);
   });
 
-  test("projection routes answer from one atomic read and the browser renders zero rows as verified, not green", async ({ page }) => {
+  test("projection routes answer from one atomic read and the browser renders zero rows as verified, not green", async () => {
     const routes = [
       "/api/v1/fleet",
       "/api/v1/sessions",
@@ -221,9 +180,9 @@ test.describe("real farmd command authority", () => {
     ];
     const watermarks: number[] = [];
     for (const route of routes) {
-      const response = await fetch(`${farmd}${route}`);
+      const response = await read(route);
       expect(response.status, route).toBe(200);
-      const body = (await response.json()) as {
+      const body = response.body as {
         data: Record<string, unknown>;
         as_of_sequence: number;
         observed_at: string;
@@ -231,7 +190,7 @@ test.describe("real farmd command authority", () => {
       };
       expect(body.source).toBe("bullet-kernel/sqlite-ledger");
       expect(Number.isNaN(Date.parse(body.observed_at))).toBeFalsy();
-      expect(response.headers.get("x-bullet-as-of-sequence")).toBe(String(body.as_of_sequence));
+      expect(response.sequence).toBe(String(body.as_of_sequence));
       watermarks.push(body.as_of_sequence);
     }
     expect(new Set(watermarks).size).toBe(1);
