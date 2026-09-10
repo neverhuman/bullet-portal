@@ -5,12 +5,13 @@ import type { Surface } from "../surfaces";
 
 const FRESHNESS_TICK_MS = 5_000;
 
-function ageSeconds(observedAt: string, nowMs: number): string {
+function ageSeconds(observedAt: string, nowMs: number, subscribed: boolean): string {
   const observedMs = Date.parse(observedAt);
   if (Number.isNaN(observedMs)) {
     return "unknown (unparseable observed_at)";
   }
-  return `${Math.max(0, Math.round((nowMs - observedMs) / 1000))}s since observed_at (one-shot snapshot, not live)`;
+  const mode = subscribed ? "event refresh; 10s fallback" : "one-shot snapshot, not live";
+  return `${Math.max(0, Math.round((nowMs - observedMs) / 1000))}s since observed_at (${mode})`;
 }
 
 function Freshness({ load }: { load: ProjectionLoad<unknown> }) {
@@ -22,7 +23,7 @@ function Freshness({ load }: { load: ProjectionLoad<unknown> }) {
     const timer = setInterval(() => setNowMs(Date.now()), FRESHNESS_TICK_MS);
     return () => clearInterval(timer);
   }, [load.kind]);
-  return <>{load.kind === "value" ? ageSeconds(load.observedAt, nowMs) : "unknown"}</>;
+  return <>{load.kind === "value" ? ageSeconds(load.observedAt, nowMs, load.stream !== undefined) : "unknown"}</>;
 }
 
 /**
@@ -39,10 +40,26 @@ export function ProjectionCard<T>({
   load: ProjectionLoad<T>;
   children: (body: T, asOf: number) => ReactNode;
 }) {
-  const status = load.kind === "value" ? "published" : load.kind;
+  const stream = load.stream;
+  const behind = load.kind === "value" && stream?.asOfSequence !== null &&
+    stream?.asOfSequence !== undefined && load.asOf < stream.asOfSequence;
+  const stale = stream !== undefined && (stream.stale || stream.connection !== "live" || behind);
+  const status = load.kind === "value" ? (stale ? "stale" : "published") : load.kind;
   return (
     <section className="card" data-testid={`surface-${surface.id}`}>
       <h1>{surface.title}</h1>
+      {stream !== undefined && (
+        <div className="statusline" aria-label="Projection connection">
+          <span className={load.kind === "unknown" ? "unknown" : stale ? "stale" : "idle"}>
+            {load.kind === "unknown" ? "Snapshot UNKNOWN" : load.kind === "loading" ? "Snapshot loading" :
+              stale ? "STALE" : "Snapshot current through event cursor"}
+          </span>
+          <span>events {stream.connection} · cursor {stream.asOfSequence ?? "unknown"}</span>
+          <span>snapshot {load.kind === "value" ? load.asOf : "unknown"}</span>
+          {stream.detail !== "" && <span>{stream.detail}</span>}
+          {load.refresh !== undefined && <button type="button" onClick={load.refresh}>Refresh snapshot</button>}
+        </div>
+      )}
       <p className="tagline" data-testid={`${surface.id}-tagline`}>
         spec §{surface.spec} · as_of_sequence {load.kind === "value" ? load.asOf : "unknown"} ·
         source {load.kind === "loading" ? "unknown" : load.source} · observed_at{" "}

@@ -1,46 +1,11 @@
-import { useEffect, useState } from "react";
-import {
-  errorText,
-  fetchAudit,
-  fetchContextLineage,
-  fetchFleet,
-  fetchMergeRail,
-  fetchQualityLab,
-  fetchReady,
-  fetchSessions,
-  listMissions,
-  type SnapshotRead,
-} from "../api";
-import { SURFACES, surfaceStatus, type Surface, type SurfaceId } from "../surfaces";
+import { operatorSnapshotStale, useOperatorSnapshot } from "../hooks/useOperatorSnapshot";
+import { SURFACES, surfaceStatus, type Surface } from "../surfaces";
 
-/**
- * Provenance of one durable surface: the same snapshot read its own page
- * performs, reduced to the envelope. Nothing here is a new endpoint.
- */
+/** Provenance shared by all durable rows in one operator snapshot. */
 export type Provenance =
   | { kind: "loading" }
-  | { kind: "value"; asOf: number; observedAt: string; source: string }
+  | { kind: "value"; asOf: number; observedAt: string; source: string; stale?: boolean }
   | { kind: "unknown"; text: string };
-
-export type ProvenanceMap = Partial<Record<SurfaceId, Provenance>>;
-
-type ProvenanceRead = () => Promise<SnapshotRead<unknown>>;
-
-/**
- * Durable surfaces and the read that carries their watermark. Control Tower
- * and Mission Graph share the missions list, which is read exactly once.
- */
-const DURABLE_READS: ReadonlyArray<[SurfaceId, (missions: ProvenanceRead) => Promise<SnapshotRead<unknown>>]> = [
-  ["control-tower", (missions) => missions()],
-  ["mission-graph", (missions) => missions()],
-  ["live-attempt", () => fetchReady()],
-  ["fleet", () => fetchFleet()],
-  ["session-supervisor", () => fetchSessions()],
-  ["context-lineage", () => fetchContextLineage()],
-  ["merge-rail", () => fetchMergeRail()],
-  ["quality-lab", () => fetchQualityLab()],
-  ["incidents-audit", () => fetchAudit()],
-];
 
 /**
  * Evidence classes the brief can name. Only `PROJECTION_SNAPSHOT` is backed by
@@ -86,8 +51,8 @@ function durableRow(surface: Surface, provenance: Provenance): BriefRow {
       claim: `${claim} at as_of_sequence ${provenance.asOf}`,
       subject: `${provenance.source} · as_of_sequence ${provenance.asOf}`,
       evidence: "PROJECTION_SNAPSHOT",
-      freshness: `observed_at ${provenance.observedAt} (one-shot snapshot, not live)`,
-      blocker: "none at this sequence",
+      freshness: `observed_at ${provenance.observedAt} (event refresh; 10s fallback)${provenance.stale ? " · STALE" : ""}`,
+      blocker: provenance.stale ? "snapshot may lag the event cursor; refresh before acting" : "none at this sequence",
       nextAction: `open #/${surface.id} and read it at as_of_sequence ${provenance.asOf}; re-read before acting on anything newer`,
     };
   }
@@ -134,35 +99,6 @@ export function briefRow(surface: Surface, provenance: Provenance): BriefRow {
   };
 }
 
-/** Read every durable surface's provenance once per mount, independently per row. */
-export function useProvenance(): ProvenanceMap {
-  const [reads, setReads] = useState<ProvenanceMap>({});
-  useEffect(() => {
-    let active = true;
-    let shared: Promise<SnapshotRead<unknown>> | undefined;
-    const missions: ProvenanceRead = () => (shared ??= listMissions());
-    for (const [id, read] of DURABLE_READS) {
-      void read(missions)
-        .then((snapshot): Provenance => ({
-          kind: "value",
-          asOf: snapshot.asOfSequence,
-          observedAt: snapshot.observedAt,
-          source: snapshot.source,
-        }))
-        .catch((err: unknown): Provenance => ({ kind: "unknown", text: errorText(err) }))
-        .then((provenance) => {
-          if (active) {
-            setReads((current) => ({ ...current, [id]: provenance }));
-          }
-        });
-    }
-    return () => {
-      active = false;
-    };
-  }, []);
-  return reads;
-}
-
 function summarize(rows: BriefRow[]): string {
   const count = (predicate: (row: BriefRow) => boolean): number => rows.filter(predicate).length;
   const durable = count((row) => row.status === "durable");
@@ -182,25 +118,30 @@ const COLUMNS: ReadonlyArray<[string, (row: BriefRow) => string]> = [
   ["next authorized action", (row) => row.nextAction],
 ];
 
-/**
- * One screen naming, per surface, the exact claim that remains unproved
- * (docs/nightshift.md). Rows come only from the static surface declarations
- * and each durable surface's own snapshot read; nothing is fetched that a
- * surface page does not already fetch, no value is ever rendered as verified,
- * and no browser-side profile choice exists: profile availability is unknown
- * until farmd serves a validated availability subject.
- */
+/** Per-surface obligations projected from one authenticated ledger transaction. */
 export function ShiftBriefPage() {
-  const reads = useProvenance();
-  const rows = SURFACES.map((surface) => briefRow(surface, reads[surface.id] ?? { kind: "loading" }));
+  const snapshot = useOperatorSnapshot();
+  const stale = operatorSnapshotStale(snapshot);
+  const provenance: Provenance = snapshot.kind === "value"
+    ? { ...snapshot, stale }
+    : snapshot;
+  const rows = SURFACES.map((surface) => briefRow(surface, provenance));
   return (
     <section className="card" data-testid="shift-brief">
       <h1 id="shift-brief-title">Shift Brief</h1>
       <p className="tagline" data-testid="shift-brief-tagline">
         profile availability unknown (farmd serves no selected-profile subject, so every absent
         ledger subject is unknown under every profile) · rows from the Portal surface declarations
-        plus each durable surface&apos;s own snapshot read · one-shot snapshots, not live
+        plus one atomic operator snapshot · event refresh; 10s fallback
       </p>
+      <div className="statusline" data-testid="shift-brief-snapshot">
+        <span className={snapshot.kind === "unknown" ? "unknown" : stale ? "stale" : "idle"}>
+          {snapshot.kind === "value" ? (stale ? "STALE" : "Snapshot current through event cursor") : `Snapshot ${snapshot.kind}`}
+        </span>
+        <span>snapshot {snapshot.kind === "value" ? snapshot.asOf : "unknown"}</span>
+        <span>events {snapshot.stream?.connection ?? "unknown"} · cursor {snapshot.stream?.asOfSequence ?? "unknown"}</span>
+        <button type="button" onClick={snapshot.refresh}>Refresh snapshot</button>
+      </div>
       <p className="unknown" data-testid="shift-brief-decision">
         RELEASE DECISION: unknown — no release-truth subject is projected to the Portal; the Portal
         mints no authority

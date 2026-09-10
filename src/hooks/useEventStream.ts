@@ -161,9 +161,13 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
 type StreamCallbacks = {
   patch: (next: Partial<EventStreamState>) => void;
   onGap: (requiredSequence: number) => Promise<number | null>;
+  onEvent: (sequence: number) => void;
 };
 
-function createStream(cb: StreamCallbacks): () => void {
+function createStream(cb: StreamCallbacks): {
+  dispose: () => void;
+  observeSnapshot: (watermark: number) => void;
+} {
   const tracker = createTracker(SEEN_ID_CAP);
   const controller = new AbortController();
   let disposed = false;
@@ -181,6 +185,18 @@ function createStream(cb: StreamCallbacks): () => void {
     });
   };
 
+  const adoptSnapshot = (watermark: number | null): boolean => {
+    if (disposed || !tracker.applySnapshot(watermark)) return false;
+    patchCursor();
+    const connection = activeConnection;
+    if (connection !== null && !connection.signal.aborted) {
+      rebaseRequested = true;
+      cb.patch({ connection: "reconnecting", detail: "snapshot reconciled, reconnecting" });
+      connection.abort(new Error("snapshot recovery rebased event stream"));
+    }
+    return true;
+  };
+
   const recover = (): Promise<void> => {
     if (recovery !== null) {
       return recovery;
@@ -188,18 +204,7 @@ function createStream(cb: StreamCallbacks): () => void {
     const required = tracker.requiredThrough() ?? tracker.lastSeq();
     recovery = cb.onGap(required).then(
       (watermark) => {
-        if (!disposed && tracker.applySnapshot(watermark)) {
-          patchCursor();
-          const connection = activeConnection;
-          if (connection !== null && !connection.signal.aborted) {
-            rebaseRequested = true;
-            cb.patch({
-              connection: "reconnecting",
-              detail: "snapshot reconciled, reconnecting",
-            });
-            connection.abort(new Error("snapshot recovery rebased event stream"));
-          }
-        } else if (!disposed) {
+        if (!adoptSnapshot(watermark) && !disposed) {
           cb.patch({ stale: tracker.stale() });
         }
       },
@@ -232,6 +237,7 @@ function createStream(cb: StreamCallbacks): () => void {
       return;
     }
     patchCursor(event.at);
+    cb.onEvent(event.seq);
   };
 
   const markDown = (): void => {
@@ -303,35 +309,52 @@ function createStream(cb: StreamCallbacks): () => void {
   };
 
   void loop();
-  return () => {
-    disposed = true;
-    controller.abort();
-    activeConnection?.abort();
+  return {
+    dispose: () => {
+      disposed = true;
+      controller.abort();
+      activeConnection?.abort();
+    },
+    observeSnapshot: (watermark) => {
+      if (tracker.stale()) adoptSnapshot(watermark);
+    },
   };
 }
 
 export function useEventStream(
   onGap: (requiredSequence: number) => Promise<number | null>,
+  onEvent?: (sequence: number) => void,
+  publishedSnapshot?: number,
 ): EventStreamState {
   const [state, setState] = useState<EventStreamState>(INITIAL);
   const onGapRef = useRef(onGap);
   onGapRef.current = onGap;
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
+  const observer = useRef<((watermark: number) => void) | null>(null);
 
   useEffect(() => {
     let disposed = false;
-    const dispose = createStream({
+    const stream = createStream({
       patch: (next) => {
         if (!disposed) {
           setState((prev) => ({ ...prev, ...next }));
         }
       },
       onGap: (requiredSequence) => onGapRef.current(requiredSequence),
+      onEvent: (sequence) => onEventRef.current?.(sequence),
     });
+    observer.current = stream.observeSnapshot;
     return () => {
       disposed = true;
-      dispose();
+      observer.current = null;
+      stream.dispose();
     };
   }, []);
+
+  useEffect(() => {
+    if (publishedSnapshot !== undefined) observer.current?.(publishedSnapshot);
+  }, [publishedSnapshot]);
 
   return state;
 }

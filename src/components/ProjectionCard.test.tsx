@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import type { ProjectionLoad } from "../hooks/useProjection";
 import { surfaceById, type Surface } from "../surfaces";
 import { ProjectionCard, RowsTable } from "./ProjectionCard";
@@ -13,6 +13,42 @@ function fleet(): Surface {
 }
 
 describe("ProjectionCard", () => {
+  it("never claims a current snapshot when only the event stream is healthy", () => {
+    const stream = { connection: "live" as const, detail: "", asOfSequence: 8, lastEventAt: null, stale: false };
+    const { rerender } = render(
+      <ProjectionCard surface={fleet()} load={{ kind: "loading", stream }}>{() => <p>never</p>}</ProjectionCard>,
+    );
+    expect(screen.getByText("Snapshot loading")).toBeInTheDocument();
+    expect(screen.queryByText("Snapshot current through event cursor")).toBeNull();
+    rerender(
+      <ProjectionCard surface={fleet()} load={{ kind: "unknown", text: "read failed", source: "portal/local", observedAt: "2026-09-09T23:00:00Z", stream }}>
+        {() => <p>never</p>}
+      </ProjectionCard>,
+    );
+    expect(screen.getByText("Snapshot UNKNOWN")).toHaveClass("unknown");
+    expect(screen.queryByText("Snapshot current through event cursor")).toBeNull();
+    expect(screen.getByTestId("fleet-tagline")).toHaveTextContent("projection unknown");
+  });
+
+  it("keeps an event cursor ahead of displayed rows visibly stale until a covering snapshot arrives", () => {
+    const refresh = vi.fn();
+    const load: ProjectionLoad<string> = {
+      kind: "value", body: "rows", asOf: 7, observedAt: "2026-09-09T23:00:00Z",
+      source: "bullet-kernel/sqlite-ledger", refresh,
+      stream: { connection: "live", detail: "", asOfSequence: 8, lastEventAt: null, stale: false },
+    };
+    const { rerender } = render(<ProjectionCard surface={fleet()} load={load}>{(body) => <p>{body}</p>}</ProjectionCard>);
+    expect(screen.getByText("STALE")).toBeInTheDocument();
+    expect(screen.getByText("snapshot 7")).toBeInTheDocument();
+    expect(screen.getByTestId("fleet-tagline")).toHaveTextContent("projection stale");
+    fireEvent.click(screen.getByRole("button", { name: "Refresh snapshot" }));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    rerender(<ProjectionCard surface={fleet()} load={{ ...load, asOf: 8 }}>{(body) => <p>{body}</p>}</ProjectionCard>);
+    expect(screen.queryByText("STALE")).toBeNull();
+    expect(screen.getByTestId("fleet-tagline")).toHaveTextContent("projection published");
+    expect(screen.getByTestId("surface-fleet").querySelector(".verified")).toBeNull();
+  });
+
   it("shows loading as an explicit state with every header field unknown", () => {
     const load: ProjectionLoad<number> = { kind: "loading" };
     render(

@@ -42,7 +42,10 @@ test("an empty fleet renders zero rows verified at the watermark, never green", 
   await expect(page.getByTestId("fleet-tagline")).toContainText("source bullet-kernel/sqlite-ledger");
   await expect(page.getByTestId("fleet-tagline")).toContainText(`observed_at ${observedAt}`);
   await expect(page.getByTestId("fleet-tagline")).toContainText(/freshness \d+s since observed_at/);
-  await expect(page.getByTestId("fleet-tagline")).toContainText("projection published");
+  // The snapshot is valid, but the deliberately unavailable event stream
+  // cannot establish that it remains current.
+  await expect(page.getByTestId("fleet-tagline")).toContainText("projection stale");
+  await expect(page.getByText("STALE", { exact: true })).toBeVisible();
   await expect(page.getByTestId("surface-fleet").locator(".verified")).toHaveCount(0);
 });
 

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import type { EventStreamState, StreamConnection } from "../hooks/useEventStream";
+import { operatorSnapshotStale } from "../hooks/useOperatorSnapshot";
+import type { ProjectionLoad } from "../hooks/useProjection";
 import type { Loadable } from "../loadable";
 import { renderObservation } from "../observation";
 
@@ -23,9 +25,11 @@ function formatLag(lastEventAt: string | null, nowMs: number): string {
 export function StatusHeader({
   stream,
   health,
+  snapshot,
 }: {
   stream: EventStreamState;
   health: Loadable<string>;
+  snapshot?: ProjectionLoad<unknown>;
 }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
@@ -37,9 +41,13 @@ export function StatusHeader({
     return () => clearInterval(timer);
   }, [stream.lastEventAt]);
 
+  const sequence = snapshot === undefined ? stream.asOfSequence : snapshot.kind === "value" ? snapshot.asOf : null;
+  const stale = snapshot === undefined ? stream.stale : operatorSnapshotStale(snapshot);
   return (
     <section className="statusline" data-testid="status-header">
-      <span data-testid="as-of-sequence">as_of_sequence: {stream.asOfSequence ?? "unknown"}</span>
+      <span data-testid="as-of-sequence">as_of_sequence: {sequence ?? "unknown"}</span>
+      <span data-testid="event-cursor">event cursor: {stream.asOfSequence ?? "unknown"}</span>
+      <span data-testid="event-continuity">event continuity: {stream.stale ? "unresolved" : "no known gap"}</span>
       <span data-testid="projection-lag">
         projection lag: {formatLag(stream.lastEventAt, nowMs)}
       </span>
@@ -47,7 +55,7 @@ export function StatusHeader({
         events: {stream.connection}
         {stream.detail !== "" ? ` (${stream.detail})` : ""}
       </span>
-      {stream.stale ? (
+      {stale ? (
         <span className="stale" data-testid="stale-badge">
           STALE
         </span>

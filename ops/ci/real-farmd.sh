@@ -16,6 +16,7 @@ browser_pid=""
 reports=""
 worker_token="wrk_2222222222222222222222222222222222222222222222222222222222222222"
 worker_token_file="$proof_dir/worker.token"
+bootstrap_token_file="$proof_dir/bootstrap.token"
 umask 077
 printf '%s\n' "$worker_token" >"$worker_token_file"
 
@@ -33,7 +34,7 @@ finish() {
     kill "$farmd_pid" 2>/dev/null || true
     wait "$farmd_pid" 2>/dev/null || true
   fi
-  rm -f -- "$worker_token_file" "$proof_dir/custody/lease.key"
+  rm -f -- "$worker_token_file" "$bootstrap_token_file" "$proof_dir/custody/lease.key"
   if [[ -f "$proof_dir/farmd.log" ]]; then
     sed -i -E 's/boot_[0-9a-f]{64}/[REDACTED_BOOTSTRAP]/g' "$proof_dir/farmd.log"
   fi
@@ -120,7 +121,8 @@ jq -cS -j -n \
     farmd:{path:$farmd,sha256:$farmd_sha},transaction_offline:{path:$transaction,sha256:$transaction_sha},
     runner:{path:$runner,sha256:$runner_sha},verifier:{path:$verifier,sha256:$verifier_sha},
     gitd:{path:$gitd,sha256:$gitd_sha}}' >"$manifest"
-"$farmd_bin" --data-dir "$proof_dir/data" --bind 127.0.0.1:0 \
+"$farmd_bin" --provision-bootstrap-token "$bootstrap_token_file" >"$proof_dir/bootstrap.stdout" 2>"$proof_dir/bootstrap.stderr"
+"$farmd_bin" --bootstrap-token-file "$bootstrap_token_file" --data-dir "$proof_dir/data" --bind 127.0.0.1:0 \
   --portal-origin http://127.0.0.1:5173 \
   --worker-token-file "$worker_token_file" \
   --lease-transport-socket "$socket" --lease-peer-registry "$registry" \
@@ -149,9 +151,9 @@ if [[ ! "$farmd_origin" =~ ^http://127\.0\.0\.1:[0-9]+$ ]] || \
   exit 1
 fi
 
-bootstrap_token="$(sed -n 's/^Bullet Farm one-time bootstrap: //p' "$proof_dir/farmd.log" | head -n 1)"
+bootstrap_token="$(<"$bootstrap_token_file")"
 if [[ ! "$bootstrap_token" =~ ^boot_[0-9a-f]{64}$ ]]; then
-  echo "[ci] farmd did not emit one valid bootstrap token" >&2
+  echo "[ci] private bootstrap file does not contain one valid token" >&2
   exit 1
 fi
 

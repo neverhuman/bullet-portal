@@ -9,6 +9,7 @@ import type {
   MergeRailView,
   Mission,
   MissionView,
+  OperatorSnapshotView,
   OutboxView,
   QualityLabView,
   ReadyView,
@@ -26,6 +27,7 @@ import {
   isMissionList,
   isMissionView,
   isNullableReadyView,
+  isOperatorSnapshotView,
   isOutboxView,
   isQualityLabView,
   isSessionSupervisorView,
@@ -188,4 +190,14 @@ export function fetchQualityLab(): Promise<SnapshotRead<QualityLabView>> {
 
 export function fetchAudit(): Promise<SnapshotRead<AuditView>> {
   return readSnapshot(`${API_PREFIX}/audit`, isAuditView);
+}
+
+/** All composed operator subjects come from one server transaction. */
+export async function fetchOperatorSnapshot(): Promise<SnapshotRead<OperatorSnapshotView>> {
+  const path = `${API_PREFIX}/operator-snapshot`;
+  const snapshot = await readSnapshot(path, isOperatorSnapshotView);
+  if (snapshot.data.audit.latest_sequence !== snapshot.asOfSequence) {
+    throw new ApiError("GET", path, 200, "snapshot audit watermark mismatch");
+  }
+  return snapshot;
 }

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { operatorSnapshotFixture } from "../src/testing/operatorSnapshot";
 
 const observedAt = "2026-08-24T22:00:00.000Z";
 
@@ -20,15 +21,12 @@ function snapshot(data: unknown, sequence = 0) {
 }
 
 async function mockSnapshot(page: Page): Promise<void> {
-  await page.route("**/api/v1/missions", async (route) => {
+  await page.route("**/api/v1/operator-snapshot", async (route) => {
     if (route.request().method() === "GET") {
-      await route.fulfill(snapshot([]));
+      await route.fulfill(snapshot(operatorSnapshotFixture()));
       return;
     }
     await route.fallback();
-  });
-  await page.route("**/api/v1/outbox", async (route) => {
-    await route.fulfill(snapshot({ items: [] }));
   });
   await page.route("**/api/v1/events**", async (route) => {
     await route.fulfill({ status: 404, contentType: "text/plain", body: "no stream" });
@@ -41,7 +39,7 @@ async function mockHealthOk(page: Page): Promise<void> {
   );
 }
 
-test("the health probe reports unknown when /health fails", async ({ page }) => {
+test("the health probe reports unknown when /health fails", async ({ page }, testInfo) => {
   await mockSnapshot(page);
   await page.route("**/health", (route) => route.abort("connectionrefused"));
 
@@ -56,14 +54,11 @@ test("the health probe reports unknown when /health fails", async ({ page }) => 
   await expect(header).toBeVisible();
   const rect = await header.evaluate((node) => node.getBoundingClientRect());
   expect(rect.width).toBeGreaterThan(0);
-  await page.screenshot({ path: "test-results/control-tower-health-unknown.png" });
+  await page.screenshot({ path: testInfo.outputPath("control-tower-health-unknown.png") });
 });
 
 test("a failed missions read renders unknown, not an empty list", async ({ page }) => {
-  await page.route("**/api/v1/missions", (route) =>
-    route.fulfill({ status: 500, contentType: "text/plain", body: "down" }),
-  );
-  await page.route("**/api/v1/outbox", (route) =>
+  await page.route("**/api/v1/operator-snapshot", (route) =>
     route.fulfill({ status: 500, contentType: "text/plain", body: "down" }),
   );
   await page.route("**/api/v1/events**", (route) =>
@@ -73,18 +68,15 @@ test("a failed missions read renders unknown, not an empty list", async ({ page 
 
   await page.goto("/#/control-tower");
   await expect(page.getByTestId("missions-unknown")).toContainText(
-    "unknown: control plane unreachable (GET /api/v1/missions failed: HTTP 500)",
+    "unknown: Operator snapshot: control plane unreachable (GET /api/v1/operator-snapshot failed: HTTP 500)",
   );
   await expect(page.locator("text=No missions yet.")).toHaveCount(0);
   await expect(page.getByTestId("outbox-unknown")).toContainText("unknown");
 });
 
-test("the event stream advances as_of_sequence from default EventEnvelopes", async ({ page }) => {
-  await page.route("**/api/v1/missions", (route) =>
-    route.fulfill(snapshot([])),
-  );
-  await page.route("**/api/v1/outbox", (route) =>
-    route.fulfill(snapshot({ items: [] })),
+test("events advance the cursor without inventing a newer snapshot watermark", async ({ page }) => {
+  await page.route("**/api/v1/operator-snapshot", (route) =>
+    route.fulfill(snapshot(operatorSnapshotFixture())),
   );
   await page.route("**/health", (route) =>
     route.fulfill({ json: { status: "ok" }, contentType: "application/json" }),
@@ -100,7 +92,8 @@ test("the event stream advances as_of_sequence from default EventEnvelopes", asy
   );
 
   await page.goto("/#/control-tower");
-  await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 2");
+  await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 0");
+  await expect(page.getByTestId("event-cursor")).toContainText("event cursor: 2");
   await expect(page.getByTestId("projection-lag")).toContainText(/projection lag: \d+s/);
   await expect(page.getByTestId("stream-connection")).toContainText("reconnecting");
 });
@@ -108,27 +101,16 @@ test("the event stream advances as_of_sequence from default EventEnvelopes", asy
 test("a 1,2,4 gap survives malformed snapshot recovery until watermark 4", async ({ page }) => {
   await page.clock.install();
   let gapEmitted = false;
-  let missionRecoveries = 0;
-  let outboxRecoveries = 0;
-  await page.route("**/api/v1/missions", (route) => {
+  let snapshotRecoveries = 0;
+  await page.route("**/api/v1/operator-snapshot", (route) => {
     if (!gapEmitted) {
-      return route.fulfill(snapshot([]));
+      return route.fulfill(snapshot(operatorSnapshotFixture()));
     }
-    missionRecoveries += 1;
-    if (missionRecoveries === 1) {
+    snapshotRecoveries += 1;
+    if (snapshotRecoveries === 1) {
       return route.fulfill({ status: 200, contentType: "application/json", body: "[" });
     }
-    return route.fulfill(snapshot([], 4));
-  });
-  await page.route("**/api/v1/outbox", (route) => {
-    if (!gapEmitted) {
-      return route.fulfill(snapshot({ items: [] }));
-    }
-    outboxRecoveries += 1;
-    if (outboxRecoveries === 1) {
-      return route.fulfill({ status: 200, contentType: "application/json", body: "{" });
-    }
-    return route.fulfill(snapshot({ items: [] }, 4));
+    return route.fulfill(snapshot(operatorSnapshotFixture(4), 4));
   });
   await mockHealthOk(page);
 
@@ -157,7 +139,8 @@ test("a 1,2,4 gap survives malformed snapshot recovery until watermark 4", async
   });
 
   await page.goto("/#/control-tower");
-  await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 2");
+  await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: unknown");
+  await expect(page.getByTestId("event-cursor")).toContainText("event cursor: 2");
   await expect(page.getByTestId("stale-badge")).toHaveText("STALE");
   await expect(page.getByTestId("missions-unknown")).toContainText("invalid JSON body");
   await expect(page.getByTestId("outbox-unknown")).toContainText("invalid JSON body");
@@ -167,7 +150,9 @@ test("a 1,2,4 gap survives malformed snapshot recovery until watermark 4", async
   await page.clock.fastForward(10_001);
   await sawReconnect;
   await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 4");
-  await expect(page.getByTestId("stale-badge")).toHaveCount(0);
+  await expect(page.getByTestId("event-continuity")).toContainText("no known gap");
+  // The deliberately pending reconnect has not confirmed transport recovery.
+  await expect(page.getByTestId("stale-badge")).toHaveText("STALE");
   expect(requests[1]?.url).toMatch(/\/api\/v1\/events$/);
   expect(requests[1]?.lastEventId).toBe("4");
 });
@@ -178,11 +163,8 @@ test("an event-retention 410 rebases from a covering snapshot before reconnect",
   await page.clock.install();
   let retentionGap = false;
   const snapshotSequence = (): number => (retentionGap ? 8 : 0);
-  await page.route("**/api/v1/missions", (route) =>
-    route.fulfill(snapshot([], snapshotSequence())),
-  );
-  await page.route("**/api/v1/outbox", (route) =>
-    route.fulfill(snapshot({ items: [] }, snapshotSequence())),
+  await page.route("**/api/v1/operator-snapshot", (route) =>
+    route.fulfill(snapshot(operatorSnapshotFixture(snapshotSequence()), snapshotSequence())),
   );
   await mockHealthOk(page);
 
@@ -216,7 +198,9 @@ test("an event-retention 410 rebases from a covering snapshot before reconnect",
   await page.clock.fastForward(10_001);
   await sawReconnect;
   await expect(page.getByTestId("as-of-sequence")).toContainText("as_of_sequence: 8");
-  await expect(page.getByTestId("stale-badge")).toHaveCount(0);
+  await expect(page.getByTestId("event-continuity")).toContainText("no known gap");
+  // The deliberately pending reconnect has not confirmed transport recovery.
+  await expect(page.getByTestId("stale-badge")).toHaveText("STALE");
   expect(requests[1]?.url).toMatch(/\/api\/v1\/events$/);
   expect(requests[1]?.lastEventId).toBe("8");
 });

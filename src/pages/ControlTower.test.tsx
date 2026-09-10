@@ -8,6 +8,7 @@ import {
   loadPendingCommand,
   persistPendingCommand,
 } from "../pendingCommand";
+import { operatorSnapshotFixture } from "../testing/operatorSnapshot";
 import { ControlTower } from "./ControlTower";
 
 vi.mock("../api", async (importOriginal) => {
@@ -16,6 +17,7 @@ vi.mock("../api", async (importOriginal) => {
     ...original,
     exchangeBootstrap: vi.fn(),
     fetchFleet: vi.fn(),
+    fetchOperatorSnapshot: vi.fn(),
     fetchHealth: vi.fn(),
     fetchOutbox: vi.fn(),
     fetchSessions: vi.fn(),
@@ -31,6 +33,7 @@ vi.mock("../api", async (importOriginal) => {
 const mocked = {
   exchangeBootstrap: vi.mocked(api.exchangeBootstrap),
   fetchFleet: vi.mocked(api.fetchFleet),
+  fetchOperatorSnapshot: vi.mocked(api.fetchOperatorSnapshot),
   fetchHealth: vi.mocked(api.fetchHealth),
   fetchOutbox: vi.mocked(api.fetchOutbox),
   fetchSessions: vi.mocked(api.fetchSessions),
@@ -79,7 +82,7 @@ function snapshot<T>(data: T, asOfSequence = 0): api.SnapshotRead<T> {
 }
 
 function missionsError(): api.ApiError {
-  return new api.ApiError("GET", "/api/v1/missions", 500, "HTTP 500");
+  return new api.ApiError("GET", "/api/v1/operator-snapshot", 500, "HTTP 500");
 }
 
 beforeEach(() => {
@@ -87,6 +90,7 @@ beforeEach(() => {
   clearPendingCommand();
   mocked.hasSessionMaterial.mockReturnValue(true);
   mocked.listMissions.mockResolvedValue(snapshot([]));
+  mocked.fetchOperatorSnapshot.mockResolvedValue(snapshot(operatorSnapshotFixture()));
   mocked.fetchOutbox.mockResolvedValue(snapshot({ items: [] }));
   mocked.fetchFleet.mockResolvedValue(
     snapshot({ authority_time: "2026-09-09T00:00:00.000Z", leases: [], ready_queue: [] }),
@@ -108,14 +112,33 @@ beforeEach(() => {
 });
 
 describe("ControlTower command honesty", () => {
+  it("publishes only the aggregate snapshot and preserves operator input during refresh", async () => {
+    mocked.fetchOperatorSnapshot.mockResolvedValue(snapshot(operatorSnapshotFixture(7), 7));
+    render(<ControlTower />);
+    await screen.findByText("No missions yet.");
+    expect(screen.getByTestId("as-of-sequence")).toHaveTextContent("as_of_sequence: 7");
+    for (const read of [mocked.listMissions, mocked.fetchOutbox, mocked.fetchFleet, mocked.fetchSessions]) {
+      expect(read).not.toHaveBeenCalled();
+    }
+    await userEvent.clear(screen.getByLabelText("Account"));
+    await userEvent.type(screen.getByLabelText("Account"), "acct-selected");
+    mocked.fetchOperatorSnapshot.mockResolvedValue(snapshot(operatorSnapshotFixture(8), 8));
+    await userEvent.click(screen.getByRole("button", { name: "Refresh snapshot" }));
+    await waitFor(() => expect(screen.getByTestId("as-of-sequence")).toHaveTextContent("as_of_sequence: 8"));
+    expect(screen.getByLabelText("Account")).toHaveValue("acct-selected");
+    expect(mocked.submitCommand).not.toHaveBeenCalled();
+  });
+
   it("renders a failed missions read as unknown, never as an empty list", async () => {
-    mocked.listMissions.mockRejectedValue(missionsError());
+    mocked.fetchOperatorSnapshot.mockRejectedValue(missionsError());
     render(<ControlTower />);
     const unknown = await screen.findByTestId("missions-unknown");
     expect(unknown).toHaveTextContent(
-      "unknown: control plane unreachable (GET /api/v1/missions failed: HTTP 500)",
+      "unknown: Operator snapshot: control plane unreachable (GET /api/v1/operator-snapshot failed: HTTP 500)",
     );
     expect(screen.queryByText("No missions yet.")).not.toBeInTheDocument();
+    expect(screen.getByTestId("outbox-unknown")).toHaveTextContent("operator-snapshot");
+    expect(screen.getByTestId("as-of-sequence")).toHaveTextContent("as_of_sequence: unknown");
   });
 
   it("exchanges the one-time token before enabling command submission", async () => {
