@@ -53,7 +53,7 @@ function durableRow(surface: Surface, provenance: Provenance): BriefRow {
       evidence: "PROJECTION_SNAPSHOT",
       freshness: `observed_at ${provenance.observedAt} (event refresh; 10s fallback)${provenance.stale ? " · STALE" : ""}`,
       blocker: provenance.stale ? "snapshot may lag the event cursor; refresh before acting" : "none at this sequence",
-      nextAction: `open #/${surface.id} and read it at as_of_sequence ${provenance.asOf}; re-read before acting on anything newer`,
+      nextAction: `open #/${surface.id} and read it at as_of_sequence ${provenance.asOf}; Head overlay is not a sixteenth surface; re-read before acting on anything newer`,
     };
   }
   if (provenance.kind === "loading") {
