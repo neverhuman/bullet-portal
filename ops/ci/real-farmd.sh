@@ -41,6 +41,7 @@ proof_dir="$(cd "$proof_dir" && pwd -P)"
 farmd_pid=""
 browser_pid=""
 reports=""
+public_reports=""
 worker_token="wrk_2222222222222222222222222222222222222222222222222222222222222222"
 worker_token_file="$proof_dir/worker.token"
 bootstrap_token_file="$proof_dir/bootstrap.token"
@@ -48,6 +49,7 @@ umask 077
 printf '%s\n' "$worker_token" >"$worker_token_file"
 
 finish() {
+  local proof_status=$?
   if [[ -n "$browser_pid" ]]; then
     kill -TERM -- "-$browser_pid" 2>/dev/null || true
     for _ in $(seq 1 240); do
@@ -70,11 +72,11 @@ finish() {
     # Keep the full receipt closure, exact binaries and ambiguous worker state.
     # This private fixture is never a release packet; do not export custody keys.
     printf '[ci] retained private component proof: %s\n' "$proof_dir" >&2
-    if [[ -n "$reports" ]]; then
-      jq -n --arg path "$proof_dir" \
-        '{path:$path,evidence_class:"COMPONENT_PROOF",signing_trust:"UNSIGNED_FIXTURE",
+    if [[ -n "$public_reports" ]]; then
+      jq -n --arg path "$proof_dir" --argjson status "$proof_status" \
+        '{path:$path,exit_status:$status,evidence_class:"COMPONENT_PROOF",signing_trust:"UNSIGNED_FIXTURE",
           transaction_gate_eligible:false,independent_evidence_eligible:false,release_gate_eligible:false}' \
-        >"$reports/component-proof-location.json"
+        >"$public_reports/$report-component-proof-location.json"
     fi
   else
     rm -rf "$proof_dir"
@@ -212,7 +214,11 @@ if [[ ! "$bootstrap_token" =~ ^boot_[0-9a-f]{64}$ ]]; then
 fi
 
 cd "$REPO_ROOT"
-reports="$(artifact_dir reports)"
+public_reports="$(artifact_dir reports)"
+# Raw failures can contain credential-bearing subprocess or browser diagnostics.
+# Keep them with the private fixture, never in an uploadable repository report.
+reports="$proof_dir/reports"
+mkdir -m 0700 "$reports"
 setsid env BULLET_FARMD_TEST_PROXY="$farmd_origin" \
 BULLET_FARMD_URL="$farmd_origin" \
   BULLET_PACKAGED_URL="$portal_origin" \
@@ -224,7 +230,7 @@ BULLET_FARMD_URL="$farmd_origin" \
   BULLET_WORKER_TOKEN="$worker_token" \
   PLAYWRIGHT_JUNIT_OUTPUT_NAME="$reports/$report.xml" \
   PLAYWRIGHT_JUNIT_STRIP_ANSI=1 \
-  ./node_modules/.bin/playwright test --config "$config" --reporter=line,junit &
+  ./node_modules/.bin/playwright test --config "$config" --output "$proof_dir/browser-results" --reporter=line,junit &
 browser_pid=$!
 wait "$browser_pid"
 node ops/ci/assert-report.mjs junit "$reports/$report.xml" "$expected_tests"

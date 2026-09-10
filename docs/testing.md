@@ -66,8 +66,12 @@ canonical, protected `BULLET_GITD_BIN` with matching `BULLET_GITD_SHA256`.
 Packaged mode also verifies the clean-source bundle, embeds it in farmd and
 checks the served bundle root and entry point. It uses the same component
 worker, peer registry and private receipt custody as the forwarded lane.
-Thirty build-admission fixtures exercise both modes. Credential files are
-removed on exit; daemon failure logs and ambiguous worker state remain private.
+Thirty build-admission fixtures exercise both modes. The launcher's bootstrap,
+worker-token and lease-key files are removed on exit. Raw worker output, JUnit,
+browser diagnostics, daemon logs and ambiguous worker state remain in the
+private proof directory. Repository reports contain only its location, exit
+status and explicit component eligibility limits, never replacement success
+results. The lane validates the original private JUnit report.
 Browser tracing, screenshots and video are disabled for these credential-bearing
 component tests. The retained fixture is neither an installation nor a recording
 of live provider execution.
