@@ -34,6 +34,7 @@ import {
 } from "./apiValidation";
 import { CSRF_HEADER, csrfToken, rememberCsrfToken } from "./apiSession";
 import { ApiError, apiBase, readJson, readSnapshot, type SnapshotRead } from "./apiTransport";
+import { prepareCommand } from "./commandIdentity";
 
 export { apiBase, ApiError, errorText, type SnapshotRead } from "./apiTransport";
 export { forgetBrowserSession, hasSessionMaterial } from "./apiSession";
@@ -114,6 +115,13 @@ export async function submitCommand(envelope: CommandEnvelope): Promise<CommandS
       false,
     );
   }
+  let prepared: ReturnType<typeof prepareCommand>;
+  try {
+    prepared = prepareCommand(envelope);
+  } catch (err) {
+    throw new ApiError("POST", `${apiBase}${API_PREFIX}/commands`, null,
+      err instanceof Error ? err.message : "command encoding failed", false);
+  }
   const status = await readJson(
     `${API_PREFIX}/commands`,
     isCommandStatus,
@@ -123,16 +131,17 @@ export async function submitCommand(envelope: CommandEnvelope): Promise<CommandS
         "content-type": "application/json",
         [CSRF_HEADER]: csrf,
       },
-      body: JSON.stringify(envelope),
+      body: prepared.body,
     },
     202,
   );
-  if (status.status !== "PENDING" || status.kind !== envelope.kind || status.result !== null) {
+  if (status.id !== prepared.subject.id || status.kind !== prepared.subject.kind ||
+      status.payload_digest !== prepared.subject.payload_digest) {
     throw new ApiError(
       "POST",
       `${apiBase}${API_PREFIX}/commands`,
       202,
-      "admission response was not the exact PENDING command subject",
+      "command response did not match the submitted id, kind and payload digest",
       true,
     );
   }
@@ -140,7 +149,7 @@ export async function submitCommand(envelope: CommandEnvelope): Promise<CommandS
 }
 
 export async function getCommand(id: string): Promise<CommandStatus> {
-  const status = await readJson(`${API_PREFIX}/commands/${encodeURIComponent(id)}`, isCommandStatus);
+  const status = await readJson(`${API_PREFIX}/commands/${encodeURIComponent(id)}`, isCommandStatus, undefined, 200);
   if (status.id !== id) {
     throw new ApiError(
       "GET",

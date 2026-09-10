@@ -18,6 +18,7 @@ import {
   restoredSubjectConflicts,
 } from "../pendingCommand";
 import { CommandCard } from "../components/CommandCard";
+import { CommandHistory } from "../components/CommandHistory";
 import { InsightBoard } from "../components/InsightBoard";
 import { MissionsCard } from "../components/MissionsCard";
 import { OutboxCard } from "../components/OutboxCard";
@@ -95,6 +96,7 @@ export function ControlTower() {
   const [model, setModel] = useState("claude-opus-4-6");
   const [provider, setProvider] = useState<CodingProviderName>("claude");
   const [sessionMaterial, setSessionMaterial] = useState(hasSessionMaterial);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const runningRef = useRef(false);
   const commandGeneration = useRef(0);
   const health = useHealthProbe();
@@ -177,8 +179,16 @@ export function ControlTower() {
     try {
       const pending = loadPendingCommand();
       if (pending === null) return;
-      if (pendingCodingConflicts(accountId, provider, model)) {
-        throw new PendingCommandError("pending command conflicts with the coding action; reconcile it first");
+      const payload = pending.envelope.payload as Record<string, unknown>;
+      if (pending.kind === "run_coding" && typeof payload.account_id === "string" &&
+          typeof payload.model === "string" &&
+          typeof payload.provider === "string" &&
+          ["claude", "codex", "cursor", "antigravity"].includes(payload.provider)) {
+        setAccountId(payload.account_id);
+        setModel(payload.model);
+        setProvider(payload.provider as CodingProviderName);
+      } else if (pending.commandId === null) {
+        throw new PendingCommandError("pending command cannot be retried as a coding action; reconcile its original envelope");
       }
       if (pending.commandId === null) return;
       runningRef.current = true;
@@ -195,6 +205,9 @@ export function ControlTower() {
       await reconcile(admitted, generation, pending.envelope);
     } catch (err) {
       if (commandGeneration.current !== generation) return;
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        forgetBrowserSession(); setSessionMaterial(false); setHistoryOpen(false);
+      }
       setPhase("UNKNOWN");
       setError(`command reconciliation unknown (${errorText(err)})`);
       runningRef.current = false;
@@ -214,12 +227,12 @@ export function ControlTower() {
     let generation = commandGeneration.current;
     try {
       const pending = loadPendingCommand();
-      if (pendingCodingConflicts(accountId, provider, model)) {
-        throw new PendingCommandError("pending command conflicts with the coding action; reconcile it first");
-      }
       if (pending?.commandId !== null && pending?.commandId !== undefined) {
         await resumePending();
         return;
+      }
+      if (pendingCodingConflicts(accountId, provider, model)) {
+        throw new PendingCommandError("pending command conflicts with the coding action; reconcile it first");
       }
       const fields = codingFields(accountId, provider, model);
       const envelope = envelopeForRetryOrCreate(() => newRunCodingEnvelope(fields));
@@ -274,9 +287,17 @@ export function ControlTower() {
       <InsightBoard fleet={fleet} sessions={sessions} sessionMaterial={sessionMaterial} />
       <OperatorSession material={sessionMaterial} onChange={(material) => {
         setSessionMaterial(material);
+        setHistoryOpen(false);
         if (!material) { commandGeneration.current += 1; runningRef.current = false; }
         snapshot.refresh?.();
       }} />
+      <button type="button" aria-expanded={historyOpen} onClick={() => setHistoryOpen(!historyOpen)}>
+        {historyOpen ? "Hide command history" : "Show command history"}
+      </button>
+      {historyOpen && <CommandHistory onUnauthorized={() => {
+        forgetBrowserSession(); setSessionMaterial(false); setHistoryOpen(false);
+        commandGeneration.current += 1; runningRef.current = false;
+      }} />}
       <label htmlFor="coding-account">Account</label>{" "}
       <input
         id="coding-account"

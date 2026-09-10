@@ -2,13 +2,13 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
-import type { CommandStatus } from "../generated/api";
 import {
   clearPendingCommand,
   loadPendingCommand,
   persistPendingCommand,
 } from "../pendingCommand";
 import { operatorSnapshotFixture } from "../testing/operatorSnapshot";
+import { command, commandId, codingPayload, digest, pendingRecord } from "../testing/commands";
 import { ControlTower } from "./ControlTower";
 
 vi.mock("../api", async (importOriginal) => {
@@ -45,32 +45,7 @@ const mocked = {
   submitCommand: vi.mocked(api.submitCommand),
 };
 
-const commandId = `cmd_${"a".repeat(64)}`;
-const digest = "b".repeat(64);
 const slot = "bullet-farm.pending-command.v1";
-
-const codingPayload = {
-  account_id: "acct-local",
-  provider: "claude",
-  model: "claude-opus-4-6",
-  expected_revision: 1,
-  launch_nonce: "aa".repeat(32),
-  quota_reservation: `rsv_${"bb".repeat(32)}`,
-  quota_units: 1,
-  allocated_run: `run_${"cc".repeat(32)}`,
-};
-
-function pendingRecord(key = "portal_fixture", id: string | null = commandId) {
-  return {
-    envelope: { idempotency_key: key, kind: "run_coding", payload: codingPayload },
-    commandId: id, kind: "run_coding", payloadDigest: id === null ? null : digest,
-  };
-}
-
-
-function command(status: CommandStatus["status"], result: CommandStatus["result"] = null) {
-  return { id: commandId, status, kind: "run_coding", payload_digest: digest, result };
-}
 
 function snapshot<T>(data: T, asOfSequence = 0): api.SnapshotRead<T> {
   return {
@@ -357,24 +332,20 @@ describe("ControlTower command honesty", () => {
     );
     persistPendingCommand(pendingRecord("portal_old"));
     const first = render(<ControlTower />);
-    await waitFor(() => expect(mocked.getCommand).toHaveBeenCalledWith(commandId));
+    await waitFor(() => expect(mocked.getCommand).toHaveBeenCalledWith(pendingRecord("portal_old").commandId));
     first.unmount();
-    const laterId = `cmd_${"e".repeat(64)}`;
-    persistPendingCommand({
-      envelope: { idempotency_key: "portal_later", kind: "run_coding", payload: codingPayload },
-      commandId: laterId,
-      kind: "run_coding",
-      payloadDigest: "f".repeat(64),
-    });
+    const later = pendingRecord("portal_later");
+    const laterId = later.commandId!;
+    persistPendingCommand(later);
     mocked.getCommand.mockResolvedValueOnce({
       id: laterId,
       status: "PENDING",
       kind: "run_coding",
-      payload_digest: "f".repeat(64),
+      payload_digest: later.payloadDigest!,
       result: null,
     });
     render(<ControlTower />);
-    await act(async () => { resolveOld(command("UNKNOWN")); });
+    await act(async () => { resolveOld({ ...command("UNKNOWN"), id: pendingRecord("portal_old").commandId! }); });
     await waitFor(() => expect(loadPendingCommand()?.commandId).toBe(laterId));
     expect(loadPendingCommand()?.envelope.idempotency_key).toBe("portal_later");
   });
@@ -427,8 +398,11 @@ describe("ControlTower command honesty", () => {
     const stored = pendingRecord("portal_other", null);
     persistPendingCommand({ ...stored, kind: scope.kind, envelope: { ...stored.envelope, ...scope } });
     render(<ControlTower />);
-    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
+    await screen.findByText("No missions yet.");
+    await userEvent.clear(screen.getByLabelText("Account"));
+    await userEvent.type(screen.getByLabelText("Account"), "acct-new-intent");
     await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
+    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
     expect(mocked.submitCommand).not.toHaveBeenCalled();
     expect(mocked.newRunCodingEnvelope).not.toHaveBeenCalled();
     expect(loadPendingCommand()?.envelope).toEqual({ ...stored.envelope, ...scope });
@@ -444,8 +418,8 @@ describe("ControlTower command honesty", () => {
     const current = render(<ControlTower />);
     await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
     await waitFor(() => expect(loadPendingCommand()).toBeNull());
-    const laterId = `cmd_${"e".repeat(64)}`;
-    const later = pendingRecord("portal_later", laterId);
+    const later = pendingRecord("portal_later");
+    const laterId = later.commandId!;
     mocked.newRunCodingEnvelope.mockReturnValue(later.envelope);
     mocked.submitCommand.mockResolvedValue({ ...command("PENDING"), id: laterId });
     mocked.getCommand.mockResolvedValue({ ...command("PENDING"), id: laterId });
