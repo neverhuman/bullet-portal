@@ -1,4 +1,4 @@
-// Actual admitted npm execution; the only synthetic authority is for the
+// Actual admitted Git/npm execution; the only synthetic authority is for the
 // disposable fixture. This cannot qualify a canonical proof or hosted runner.
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -45,6 +45,10 @@ mkdir -p .ci-artifacts/reports .ci-artifacts/npm-init
 [[ "$(npm config get globalconfig)" == "$PWD/ops/ci/npm-globalconfig.npmrc" ]]
 [[ "$(npm config get registry)" == https://registry.npmjs.org/ ]]
 [[ "$(npm config get init-author-name)" == "" ]]
+[[ "$GIT_CONFIG_GLOBAL" == "$PWD/ops/ci/gitconfig" && -f "$GIT_CONFIG_GLOBAL" && ! -L "$GIT_CONFIG_GLOBAL" ]]
+[[ "$GIT_CONFIG_NOSYSTEM" == 1 && "$GIT_OPTIONAL_LOCKS" == 0 ]]
+if git config --get proof.fixture; then exit 92; fi
+[[ "$(git rev-parse --show-toplevel)" == "$PWD" ]]
 cd .ci-artifacts/npm-init
 npm init --yes --ignore-scripts >../reports/npm-init.log
 cd ../..
@@ -58,12 +62,20 @@ for name in vitest.json vite-api-override.log farmd-test-proxy-override.log; do 
   const admission = admit(repo, ["fast"], ["npm"]);
   const poison = join(temporary, "ambient.npmrc");
   writeFileSync(poison, "registry=https://hostile.invalid/\ninit-author-name=ambient-poison\n");
+  const gitPoison = join(temporary, "ambient.gitconfig");
+  writeFileSync(gitPoison, "[proof]\nfixture = ambient-poison\n");
   const outcome = spawnSync("bash", ["scripts/ci-local.sh", "fast"], { cwd: repo,
     encoding: "utf8", timeout: 60_000, env: { ...process.env,
       PATH: admission.tool_path, BULLET_CI_SOURCE_ADMISSION: admission.path,
       BULLET_CI_SOURCE_ADMISSION_SHA256: admission.sha256,
       NPM_CONFIG_USERCONFIG: poison, NPM_CONFIG_GLOBALCONFIG: poison,
       npm_config_userconfig: poison, npm_config_globalconfig: poison,
+      GIT_CONFIG: gitPoison, GIT_CONFIG_GLOBAL: gitPoison,
+      GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "proof.fixture", GIT_CONFIG_VALUE_0: "injected",
+      GIT_CONFIG_PARAMETERS: "'proof.fixture=parameter-poison'",
+      GIT_DIR: join(temporary, "wrong-git"), GIT_COMMON_DIR: join(temporary, "wrong-common"),
+      GIT_WORK_TREE: temporary, GIT_INDEX_FILE: join(temporary, "wrong-index"),
+      GIT_OBJECT_DIRECTORY: join(temporary, "wrong-objects"), GIT_ALTERNATE_OBJECT_DIRECTORIES: temporary,
       NPM_CONFIG_CACHE: join(repo, ".ci-artifacts/npm-cache"),
     } });
   writeFileSync(join(temporary, "wrapper.log"), outcome.stdout + outcome.stderr);
@@ -73,12 +85,12 @@ for name in vitest.json vite-api-override.log farmd-test-proxy-override.log; do 
   assert.equal(observation.outcomes[0].status, "PASS");
   const configured = JSON.parse(readFileSync(admission.path));
   assert.equal(configured.tools.find((tool) => tool.name === "npm").path, npm);
-  results.push("wrapper ignores uppercase and lowercase ambient config selectors");
+  results.push("wrapper isolates Git configuration/repository and uppercase/lowercase npm selectors");
   results.push("real npm version config queries and offline init complete under live monitor");
   succeeded = true;
 } finally {
   if (succeeded) {
     rmSync(temporary, { recursive: true });
-    console.log(`[ci] npm config isolation passed (${results.length} cases)`);
+    console.log(`[ci] Git and npm config isolation passed (${results.length} cases)`);
   } else console.error(`[ci] retained failed npm config fixture ${temporary}`);
 }

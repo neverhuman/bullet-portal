@@ -16,7 +16,10 @@ CI_SOURCE_RESPONSE_SECONDS=60
 
 # Observational Git and npm use explicit configuration; ambient executable
 # injection is rejected by source admission before any proof lane runs.
-export GIT_OPTIONAL_LOCKS=0 GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+unset GIT_CONFIG GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_DIR GIT_COMMON_DIR
+unset GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
+export GIT_OPTIONAL_LOCKS=0 GIT_CONFIG_NOSYSTEM=1
+export GIT_CONFIG_GLOBAL="$PWD/ops/ci/gitconfig"
 # npm refuses loading the same path as both user and global configuration.
 # These distinct, tracked inputs are bound by the source monitor.
 unset npm_config_userconfig npm_config_globalconfig

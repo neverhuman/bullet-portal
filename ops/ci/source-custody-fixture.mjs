@@ -17,7 +17,7 @@ export function selected(name) {
 }
 export function copySources(origin, repo) {
   for (const relative of ["scripts/ci-local.sh", "ops/ci/observation.mjs", "ops/ci/source-custody.mjs", "ops/ci/required.sh", "ops/ci/lib.sh",
-    "ops/ci/npm-userconfig.npmrc", "ops/ci/npm-globalconfig.npmrc",
+    "ops/ci/npm-userconfig.npmrc", "ops/ci/npm-globalconfig.npmrc", "ops/ci/gitconfig",
     "ops/ci/source-policy.json", "ops/ci/source-policy.mjs", "ops/ci/source-bootstrap.mjs",
     ...monitorSources.map((p) => `ops/proof/source-monitor/${p}`)]) {
     mkdirSync(dirname(join(repo, relative)), { recursive: true });
