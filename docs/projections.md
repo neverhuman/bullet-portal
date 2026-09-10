@@ -19,7 +19,7 @@ projection enters the browser. A response is accepted only when all of the
 following hold (`src/apiValidation.ts`: `isSnapshotEnvelope`; `src/apiTransport.ts`:
 `fetchJson`, `readSnapshotSequence`):
 
-- HTTP 2xx within the 10 s `AbortController` timeout, media type
+- HTTP 200 within the 10 s `AbortController` timeout, media type
   `application/json`, and a parseable JSON body. Any other status becomes an
   `ApiError` (an `application/problem+json` body whose `status` matches is
   parsed into `code`, `request_id`, and `repair`); a 404 is a failed read,
@@ -193,7 +193,10 @@ longer in this table; only the exact revision-one slice above is projected.
   including "an unprojected surface names its missing ledger subject, not an
   empty success list").
 - Real farmd (`bash ops/ci/real-farmd.sh`): `e2e/real-farmd.spec.ts` (3
-  tests) checks against the built sibling `bullet-farmd` that legacy GET and a
+  tests) uses one admitted browser session, rejects anonymous reads and SSE,
+  and discovers a component command through history after a normal reload.
+  The Node-side worker helper retains sealed claim, receipt and restart checks.
+  It checks against the built sibling `bullet-farmd` that legacy GET and a
   valid command POST under `/v1` return typed `API_VERSION_RETIRED` while the
   outbox body and watermark remain unchanged; that `/api/v1/fleet`,
   `/api/v1/sessions`, `/api/v1/context-lineage`, `/api/v1/merge-rail`, `/api/v1/quality-lab`,
@@ -205,7 +208,7 @@ longer in this table; only the exact revision-one slice above is projected.
   that watermark; that the real reconciled `UNKNOWN` command card has no green
   status; and that Quota and Capacity names its missing subject.
 - Packaged farmd (`bash ops/ci/packaged-farmd.sh`): the three
-  `e2e/real-farmd.spec.ts` live-farmd tests plus four mocked
+  `e2e/real-farmd.spec.ts` real-daemon component tests plus four mocked
   `e2e/shift-brief.spec.ts` routing/no-green tests, run against a
   `bullet-farmd` built with `--features embedded-portal` that serves this
   Portal's manifest-verified `dist` bytes at its own origin
@@ -213,8 +216,8 @@ longer in this table; only the exact revision-one slice above is projected.
   requires `GET /health` to carry
   `portal: "<framed BLAKE3 bundle root>"` equal to this build's
   `.bullet-portal-bundle-v1.json` root, and `GET /` to serve the entry point.
-  This is the projection contract proved under packaged serving; it is not a
-  transaction, live-provider, or release proof.
+  A passing lane verifies these component assertions under packaged serving;
+  it does not establish transaction, live-provider, installation, or release acceptance.
 
 ## Packaged same-origin serving
 

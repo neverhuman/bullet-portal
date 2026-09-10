@@ -8,6 +8,8 @@ const packaged =
 
 export default defineConfig({
   testDir: "e2e",
+  retries: 0,
+  workers: 1,
   testMatch: ["real-farmd.spec.ts", "shift-brief.spec.ts"],
-  use: { baseURL: packaged },
+  use: { baseURL: packaged, trace: "off", screenshot: "off", video: "off" },
 });

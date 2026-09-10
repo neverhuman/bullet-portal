@@ -2,11 +2,38 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_node_floor
+cd "$REPO_ROOT"
+
+mode="${1:-forwarded}"
+if (( $# > 1 )) || [[ "$mode" != forwarded && "$mode" != --packaged ]]; then
+  echo '[ci] FARMD_PROOF_MODE_INVALID' >&2
+  exit 1
+fi
+portal_origin="http://127.0.0.1:5173"
+bind="127.0.0.1:0"
+config="playwright.real.config.ts"
+report="real-farmd"
+expected_tests=3
+features="bullet-verifier/fixture-executor"
+if [[ "$mode" == --packaged ]]; then
+  port="${BULLET_PACKAGED_PORT:-7421}"
+  if [[ ! "$port" =~ ^[1-9][0-9]{0,4}$ ]] || (( 10#$port > 65535 )); then
+    echo '[ci] FARMD_PROOF_PORT_INVALID' >&2
+    exit 1
+  fi
+  portal_origin="http://127.0.0.1:$port"
+  bind="127.0.0.1:$port"
+  config="playwright.packaged.config.ts"
+  report="packaged-farmd"
+  expected_tests=7
+  features+=",bullet-farmd/embedded-portal"
+fi
 
 family_root="$(cd "$REPO_ROOT/.." && pwd)"
 kernel_root="$family_root/bullet-kernel"
 if [[ ! -f "$kernel_root/Cargo.toml" ]]; then
   echo "[ci] sibling bullet-kernel checkout required at $kernel_root" >&2
+  [[ "$mode" != --packaged ]] || exit 78
   exit 1
 fi
 proof_dir="$(mktemp -d)"
@@ -14,6 +41,7 @@ proof_dir="$(cd "$proof_dir" && pwd -P)"
 farmd_pid=""
 browser_pid=""
 reports=""
+public_reports=""
 worker_token="wrk_2222222222222222222222222222222222222222222222222222222222222222"
 worker_token_file="$proof_dir/worker.token"
 bootstrap_token_file="$proof_dir/bootstrap.token"
@@ -21,6 +49,7 @@ umask 077
 printf '%s\n' "$worker_token" >"$worker_token_file"
 
 finish() {
+  local proof_status=$?
   if [[ -n "$browser_pid" ]]; then
     kill -TERM -- "-$browser_pid" 2>/dev/null || true
     for _ in $(seq 1 240); do
@@ -38,16 +67,16 @@ finish() {
   if [[ -f "$proof_dir/farmd.log" ]]; then
     sed -i -E 's/boot_[0-9a-f]{64}/[REDACTED_BOOTSTRAP]/g' "$proof_dir/farmd.log"
   fi
-  if [[ -d "$proof_dir/worker" \
+  if [[ -f "$proof_dir/farmd.log" ]] || [[ -d "$proof_dir/worker" \
     && -n "$(find "$proof_dir/worker" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
     # Keep the full receipt closure, exact binaries and ambiguous worker state.
     # This private fixture is never a release packet; do not export custody keys.
     printf '[ci] retained private component proof: %s\n' "$proof_dir" >&2
-    if [[ -n "$reports" ]]; then
-      jq -n --arg path "$proof_dir" \
-        '{path:$path,evidence_class:"COMPONENT_PROOF",signing_trust:"UNSIGNED_FIXTURE",
+    if [[ -n "$public_reports" ]]; then
+      jq -n --arg path "$proof_dir" --argjson status "$proof_status" \
+        '{path:$path,exit_status:$status,evidence_class:"COMPONENT_PROOF",signing_trust:"UNSIGNED_FIXTURE",
           transaction_gate_eligible:false,independent_evidence_eligible:false,release_gate_eligible:false}' \
-        >"$reports/component-proof-location.json"
+        >"$public_reports/$report-component-proof-location.json"
     fi
   else
     rm -rf "$proof_dir"
@@ -60,12 +89,28 @@ trap 'exit 143' TERM
 log "build production Portal bundle"
 npm run build
 
+bundle_root=""
+if [[ "$mode" == --packaged ]]; then
+  log "bind the exact clean-source Portal bundle"
+  npm run bundle:generate
+  npm run bundle:check
+  bundle_root="$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).root)' "$REPO_ROOT/dist/.bullet-portal-bundle-v1.json")"
+  [[ "$bundle_root" =~ ^blake3:[0-9a-f]{64}$ ]] \
+    || { echo '[ci] FARMD_BUNDLE_ROOT_INVALID' >&2; exit 1; }
+fi
+
 log "build local farmd and component command worker"
 farmd_target="$proof_dir/cargo-target"
 mkdir "$farmd_target"
-(cd "$kernel_root" && CARGO_TARGET_DIR="$farmd_target" cargo build --locked \
+(cd "$kernel_root"
+  if [[ "$mode" == --packaged ]]; then
+    export BULLET_PORTAL_DIST="$REPO_ROOT/dist"
+  else
+    unset BULLET_PORTAL_DIST
+  fi
+  CARGO_TARGET_DIR="$farmd_target" cargo build --locked \
   -p bullet-farmd -p bullet-runner -p bullet -p bullet-verifier \
-  --features bullet-verifier/fixture-executor \
+  --features "$features" \
   --bin bullet-farmd --bin bullet-command-worker --bin transaction_offline \
   --bin bullet-runner --bin bullet-verifier-fixture)
 farmd_bin="$farmd_target/debug/bullet-farmd"
@@ -122,8 +167,8 @@ jq -cS -j -n \
     runner:{path:$runner,sha256:$runner_sha},verifier:{path:$verifier,sha256:$verifier_sha},
     gitd:{path:$gitd,sha256:$gitd_sha}}' >"$manifest"
 "$farmd_bin" --provision-bootstrap-token "$bootstrap_token_file" >"$proof_dir/bootstrap.stdout" 2>"$proof_dir/bootstrap.stderr"
-"$farmd_bin" --bootstrap-token-file "$bootstrap_token_file" --data-dir "$proof_dir/data" --bind 127.0.0.1:0 \
-  --portal-origin http://127.0.0.1:5173 \
+"$farmd_bin" --bootstrap-token-file "$bootstrap_token_file" --data-dir "$proof_dir/data" --bind "$bind" \
+  --portal-origin "$portal_origin" \
   --worker-token-file "$worker_token_file" \
   --lease-transport-socket "$socket" --lease-peer-registry "$registry" \
   --lease-transport-key "$key" \
@@ -151,6 +196,17 @@ if [[ ! "$farmd_origin" =~ ^http://127\.0\.0\.1:[0-9]+$ ]] || \
   exit 1
 fi
 
+if [[ "$mode" == --packaged ]]; then
+  [[ "$farmd_origin" == "$portal_origin" ]] \
+    || { echo '[ci] FARMD_PACKAGED_ORIGIN_MISMATCH' >&2; exit 1; }
+  curl --fail --silent "$farmd_origin/health" | jq -e --arg root "$bundle_root" '.portal == $root' >/dev/null \
+    || { echo '[ci] FARMD_PACKAGED_BUNDLE_MISMATCH' >&2; exit 1; }
+  index="$(curl --fail --silent "$farmd_origin/")"
+  [[ "$index" == *'<div id="root">'* ]] \
+    || { echo '[ci] FARMD_PACKAGED_ENTRYPOINT_MISSING' >&2; exit 1; }
+  log "packaged farmd serves exact bundle $bundle_root at $farmd_origin"
+fi
+
 bootstrap_token="$(<"$bootstrap_token_file")"
 if [[ ! "$bootstrap_token" =~ ^boot_[0-9a-f]{64}$ ]]; then
   echo "[ci] private bootstrap file does not contain one valid token" >&2
@@ -158,21 +214,26 @@ if [[ ! "$bootstrap_token" =~ ^boot_[0-9a-f]{64}$ ]]; then
 fi
 
 cd "$REPO_ROOT"
-reports="$(artifact_dir reports)"
+public_reports="$(artifact_dir reports)"
+# Raw failures can contain credential-bearing subprocess or browser diagnostics.
+# Keep them with the private fixture, never in an uploadable repository report.
+reports="$proof_dir/reports"
+mkdir -m 0700 "$reports"
 setsid env BULLET_FARMD_TEST_PROXY="$farmd_origin" \
 BULLET_FARMD_URL="$farmd_origin" \
+  BULLET_PACKAGED_URL="$portal_origin" \
   BULLET_COMPONENT_WORKER_BIN="${binaries[bullet-command-worker]}" \
   BULLET_COMPONENT_PROOF_DIR="$proof_dir" \
   BULLET_COMPONENT_REPORT_DIR="$reports" \
   BULLET_COMPONENT_SUPERVISOR="$REPO_ROOT/tests/component-process.py" \
   BULLET_BOOTSTRAP_TOKEN="$bootstrap_token" \
   BULLET_WORKER_TOKEN="$worker_token" \
-  PLAYWRIGHT_JUNIT_OUTPUT_NAME="$reports/real-farmd.xml" \
+  PLAYWRIGHT_JUNIT_OUTPUT_NAME="$reports/$report.xml" \
   PLAYWRIGHT_JUNIT_STRIP_ANSI=1 \
-  ./node_modules/.bin/playwright test --config playwright.real.config.ts --reporter=line,junit &
+  ./node_modules/.bin/playwright test --config "$config" --output "$proof_dir/browser-results" --reporter=line,junit &
 browser_pid=$!
 wait "$browser_pid"
-node ops/ci/assert-report.mjs junit "$reports/real-farmd.xml" 3
+node ops/ci/assert-report.mjs junit "$reports/$report.xml" "$expected_tests"
 for name in "${!binaries[@]}"; do
   [[ "$(sha256sum "${binaries[$name]}" | awk '{print $1}')" == "${digests[$name]}" ]] \
     || { echo "[ci] FARMD_BUILD_SUBJECT_CHANGED: $name" >&2; exit 1; }

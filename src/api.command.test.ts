@@ -3,6 +3,7 @@ import {
   exchangeBootstrap, forgetBrowserSession, getCommand, newRunCodingEnvelope, newRunDemoEnvelope,
   submitCommand,
 } from "./api";
+import { codingTaskFixture } from "./testing/codingTask";
 
 const id = "cmd_4cc654254d22617b71cea4ec67a82d93063c1002ff9ffc549feda21659da1e96";
 const csrf = `csrf_${"b".repeat(64)}`;
@@ -65,21 +66,17 @@ describe("command admission boundaries", () => {
     });
     vi.stubGlobal("crypto", { getRandomValues });
     expect(newRunCodingEnvelope({
+      task: codingTaskFixture(),
       accountId: "acct-local",
       provider: "antigravity",
       model: "gemini-2.5",
+      effort: null,
     })).toEqual({
       idempotency_key: `portal_${"01".repeat(16)}`,
       kind: "run_coding",
       payload: {
-        account_id: "acct-local",
-        provider: "antigravity",
-        model: "gemini-2.5",
-        expected_revision: 1,
-        launch_nonce: "01".repeat(32),
-        quota_reservation: `rsv_${"01".repeat(32)}`,
-        quota_units: 1,
-        allocated_run: `run_${"01".repeat(32)}`,
+        schema_version: "bullet.run-coding.v2", task: codingTaskFixture(),
+        selection: { account_id: "acct-local", provider: "antigravity", model: "gemini-2.5", effort: null },
       },
     });
   });

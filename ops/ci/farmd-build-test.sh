@@ -26,12 +26,31 @@ cp "$scratch/poison" "$scratch/gitd"
 gitd_sha="$(sha256sum "$scratch/gitd" | awk '{print $1}')"
 cp "$scratch/poison" "$fixture/bullet-kernel/target/debug/bullet-farmd"
 cp "$scratch/poison" "$scratch/caller/debug/bullet-farmd"
-printf '#!/usr/bin/env bash\nexit 0\n' >"$scratch/bin/npm"
+cat >"$scratch/bin/npm" <<'FIXTURE'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == 'run bundle:generate' ]]; then
+  mkdir -p dist
+  printf '{"root":"blake3:%064d"}\n' 0 >dist/.bullet-portal-bundle-v1.json
+fi
+if [[ "$*" == 'run bundle:check' ]]; then
+  [[ -f dist/.bullet-portal-bundle-v1.json ]]
+  : >"$FIXTURE_ROOT/bundle-checked"
+fi
+FIXTURE
 cat >"$scratch/bin/cargo" <<'FIXTURE'
 #!/usr/bin/env bash
 set -euo pipefail
 [[ "$PWD" == "$FIXTURE_ROOT/family/bullet-kernel" ]]
-[[ "$*" == 'build --locked -p bullet-farmd -p bullet-runner -p bullet -p bullet-verifier --features bullet-verifier/fixture-executor --bin bullet-farmd --bin bullet-command-worker --bin transaction_offline --bin bullet-runner --bin bullet-verifier-fixture' ]]
+features="bullet-verifier/fixture-executor"
+if [[ "$FIXTURE_PACKAGED" == 1 ]]; then
+  features+=",bullet-farmd/embedded-portal"
+  [[ "$BULLET_PORTAL_DIST" == "$FIXTURE_ROOT/family/bullet-portal/dist" ]]
+  [[ -f "$FIXTURE_ROOT/bundle-checked" ]]
+else
+  [[ -z "${BULLET_PORTAL_DIST+x}" ]]
+fi
+[[ "$*" == "build --locked -p bullet-farmd -p bullet-runner -p bullet -p bullet-verifier --features $features --bin bullet-farmd --bin bullet-command-worker --bin transaction_offline --bin bullet-runner --bin bullet-verifier-fixture" ]]
 [[ "$CARGO_TARGET_DIR" == "$FIXTURE_ROOT"/tmp/*/cargo-target ]]
 [[ "$(realpath -e "$CARGO_TARGET_DIR")" == "$CARGO_TARGET_DIR" ]]
 printf '%s\n' "$CARGO_TARGET_DIR" >"$FIXTURE_ROOT/selected-target"
@@ -61,10 +80,13 @@ FIXTURE
 chmod +x "$scratch/bin/npm" "$scratch/bin/cargo"
 ln -s "$scratch/tmp" "$scratch/tmp-link"
 passed=0
+for packaged in 0 1; do
+proof_args=()
+[[ "$packaged" != 1 ]] || proof_args+=(--packaged)
 for mode in valid relative-caller temporary-link fail missing link parent-link nonexecutable directory writable \
   missing-bullet-command-worker missing-transaction_offline missing-bullet-runner \
   missing-bullet-verifier-fixture gitd-drift; do
-  rm -f "$scratch/selected-target" "$scratch/fresh-launched" "$scratch/poison-launched"
+  rm -f "$scratch/selected-target" "$scratch/fresh-launched" "$scratch/poison-launched" "$scratch/bundle-checked"
   caller="$scratch/caller"
   temporary="$scratch/tmp"
   [[ "$mode" != relative-caller ]] || caller=relative-caller
@@ -74,8 +96,9 @@ for mode in valid relative-caller temporary-link fail missing link parent-link n
   status=0
   env PATH="$scratch/bin:$PATH" TMPDIR="$temporary" CARGO_TARGET_DIR="$caller" \
     BULLET_GITD_BIN="$scratch/gitd" BULLET_GITD_SHA256="$expected_gitd" \
-    FIXTURE_ROOT="$scratch" FIXTURE_MODE="$mode" \
-    bash "$fixture/bullet-portal/ops/ci/real-farmd.sh" >"$scratch/output" 2>&1 || status=$?
+    FIXTURE_ROOT="$scratch" FIXTURE_MODE="$mode" FIXTURE_PACKAGED="$packaged" \
+    BULLET_PORTAL_DIST="/must-not-inherit-from-caller" \
+    bash "$fixture/bullet-portal/ops/ci/real-farmd.sh" "${proof_args[@]}" >"$scratch/output" 2>&1 || status=$?
   [[ "$status" -ne 0 && -f "$scratch/selected-target" && ! -e "$scratch/poison-launched" ]] \
     || { printf '[ci] farmd target fixture failed: %s\n' "$mode" >&2; exit 1; }
   selected="$(<"$scratch/selected-target")"
@@ -94,5 +117,6 @@ for mode in valid relative-caller temporary-link fail missing link parent-link n
       grep -Fq FARMD_BUILD_SUBJECT_INVALID "$scratch/output" ;;
   esac
   passed=$((passed + 1))
+done
 done
 printf '[ci] farmd private build target fixtures: %s passed\n' "$passed"
