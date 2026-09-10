@@ -66,6 +66,41 @@ export function newRunDemoEnvelope(): CommandEnvelope {
   };
 }
 
+export type CodingProviderName = "claude" | "codex" | "cursor" | "antigravity";
+
+export type RunCodingFields = {
+  accountId: string;
+  provider: CodingProviderName;
+  model: string;
+  expectedRevision?: number;
+};
+
+function randomHex(bytes: number): string {
+  const buffer = new Uint8Array(bytes);
+  globalThis.crypto.getRandomValues(buffer);
+  return Array.from(buffer, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export function newRunCodingEnvelope(fields: RunCodingFields): CommandEnvelope {
+  if (fields.accountId.trim() === "" || fields.model.trim() === "") {
+    throw new Error("run_coding requires an explicit account id and model");
+  }
+  return {
+    idempotency_key: `portal_${randomHex(16)}`,
+    kind: "run_coding",
+    payload: {
+      account_id: fields.accountId.trim(),
+      provider: fields.provider,
+      model: fields.model.trim(),
+      expected_revision: fields.expectedRevision ?? 1,
+      launch_nonce: randomHex(32),
+      quota_reservation: `rsv_${randomHex(32)}`,
+      quota_units: 1,
+      allocated_run: `run_${randomHex(32)}`,
+    },
+  };
+}
+
 export async function submitCommand(envelope: CommandEnvelope): Promise<CommandStatus> {
   const csrf = csrfToken();
   if (csrf === null) {
