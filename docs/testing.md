@@ -115,3 +115,11 @@ step.
 - The Jankurai audit runs locally only. The pinned auditor is a machine-local
   build, so no workflow may claim it ran; adding a hosted job that silently
   skipped would be a false green.
+- Authenticated Head Playwright and Tuiwright are not hosted and are not the
+  14-identity mocked contract suite. A future `playwright.head.config.ts` is
+  invoked only by Hub `just xbabe2-head` on xbabe2; off-node and CI exit 78
+  with `XBABE2_PROVIDER_PROOF_UNAVAILABLE`. Family and packaged farmd
+  Playwright remain fixture/`UNKNOWN` proofs, not a provider-authenticated
+  Head. Kernel `vt100` child-process TUI tests are the cheap default and are
+  not Tuiwright. Do not add Head Playwright or Tuiwright to
+  `.github/workflows`.
