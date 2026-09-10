@@ -165,7 +165,7 @@ assert(
 );
 assert(
   read("ops/ci/contract.sh").includes(
-    "8a95898f88efe2d2f8c7a2f2883868041ec96cb60a20d31af6761300a94983ad",
+    "ab971010688d4c8a422a452eea2278845d17ae4b6914bd0bba5f136b3e3fe899",
   ),
   "exact mocked Playwright identity digest ratchet absent",
 );
