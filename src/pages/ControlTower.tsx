@@ -18,6 +18,7 @@ import {
   restoredSubjectConflicts,
 } from "../pendingCommand";
 import { CommandCard } from "../components/CommandCard";
+import { CommandHistory } from "../components/CommandHistory";
 import { InsightBoard } from "../components/InsightBoard";
 import { MissionsCard } from "../components/MissionsCard";
 import { OutboxCard } from "../components/OutboxCard";
@@ -95,6 +96,7 @@ export function ControlTower() {
   const [model, setModel] = useState("claude-opus-4-6");
   const [provider, setProvider] = useState<CodingProviderName>("claude");
   const [sessionMaterial, setSessionMaterial] = useState(hasSessionMaterial);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const runningRef = useRef(false);
   const commandGeneration = useRef(0);
   const health = useHealthProbe();
@@ -274,9 +276,17 @@ export function ControlTower() {
       <InsightBoard fleet={fleet} sessions={sessions} sessionMaterial={sessionMaterial} />
       <OperatorSession material={sessionMaterial} onChange={(material) => {
         setSessionMaterial(material);
+        setHistoryOpen(false);
         if (!material) { commandGeneration.current += 1; runningRef.current = false; }
         snapshot.refresh?.();
       }} />
+      <button type="button" aria-expanded={historyOpen} onClick={() => setHistoryOpen(!historyOpen)}>
+        {historyOpen ? "Hide command history" : "Show command history"}
+      </button>
+      {historyOpen && <CommandHistory onUnauthorized={() => {
+        forgetBrowserSession(); setSessionMaterial(false); setHistoryOpen(false);
+        commandGeneration.current += 1; runningRef.current = false;
+      }} />}
       <label htmlFor="coding-account">Account</label>{" "}
       <input
         id="coding-account"

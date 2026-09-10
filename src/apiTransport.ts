@@ -168,7 +168,7 @@ export async function readSnapshot<T>(
   path: string,
   validateData: ResponseValidator<T>,
 ): Promise<SnapshotRead<T>> {
-  const read = await fetchJson(path);
+  const read = await fetchJson(path, undefined, 200);
   if (!isSnapshotEnvelope(read.body, validateData)) {
     throw schemaError(read, "snapshot body failed schema validation");
   }
