@@ -7,6 +7,7 @@ import {
   hasSessionMaterial,
   newRunCodingEnvelope,
   type CodingProviderName,
+  type RunCodingFields,
   submitCommand,
 } from "../api";
 import {
@@ -24,6 +25,10 @@ import { MissionsCard } from "../components/MissionsCard";
 import { OutboxCard } from "../components/OutboxCard";
 import { StatusHeader } from "../components/StatusHeader";
 import { OperatorSession } from "../components/OperatorSession";
+import { CodingTaskFields, emptyCodingTask } from "../components/CodingTaskFields";
+import { CodingTaskCard } from "../components/CodingTaskCard";
+import { codingTaskPayload, isCodingTaskPayload } from "../codingTasks";
+import { canonicalCommandPayload } from "../commandIdentity";
 import type {
   CommandEnvelope,
   CommandStatus,
@@ -59,27 +64,21 @@ function unverifiableSuccess(commandId: string): string {
   return `command ${commandId} reported durable VERIFIED, but no generated runtime Evidence and Effect receipt contract is available; displayed outcome is UNKNOWN`;
 }
 
-function codingFields(
-  accountId: string,
-  provider: CodingProviderName,
-  model: string,
-): { accountId: string; provider: CodingProviderName; model: string } {
-  return { accountId, provider, model };
-}
-
-function pendingCodingConflicts(
-  accountId: string,
-  provider: CodingProviderName,
-  model: string,
-): boolean {
+function pendingCodingConflicts(fields: RunCodingFields): boolean {
   const pending = loadPendingCommand();
   if (pending === null) return false;
   if (pending.envelope.kind !== "run_coding") return true;
   const payload = pending.envelope.payload as Record<string, unknown>;
+  if (isCodingTaskPayload(payload)) {
+    return canonicalCommandPayload(payload) !== canonicalCommandPayload(codingTaskPayload(fields));
+  }
+  if ("schema_version" in payload) return true;
+  // Historical exact retries retain their original authority-bearing bytes.
+  // This branch never constructs a new legacy submission.
   return (
-    payload.account_id !== accountId ||
-    payload.provider !== provider ||
-    payload.model !== model
+    payload.account_id !== fields.accountId ||
+    payload.provider !== fields.provider ||
+    payload.model !== fields.model
   );
 }
 
@@ -95,6 +94,10 @@ export function ControlTower() {
   const [accountId, setAccountId] = useState("acct-local");
   const [model, setModel] = useState("claude-opus-4-6");
   const [provider, setProvider] = useState<CodingProviderName>("claude");
+  const [task, setTask] = useState(emptyCodingTask);
+  const [effort, setEffort] = useState("");
+  const [taskCommand, setTaskCommand] = useState(false);
+  const [legacyRetry, setLegacyRetry] = useState(false);
   const [sessionMaterial, setSessionMaterial] = useState(hasSessionMaterial);
   const [historyOpen, setHistoryOpen] = useState(false);
   const runningRef = useRef(false);
@@ -141,11 +144,11 @@ export function ControlTower() {
         setError(unverifiableSuccess(next.id));
         runningRef.current = false;
         if (commandGeneration.current === generation) {
-          clearPendingCommandIf({
+          if (clearPendingCommandIf({
             commandId: next.id,
             kind: next.kind,
             payloadDigest: next.payload_digest,
-          }, envelope);
+          }, envelope)) setLegacyRetry(false);
         }
         return;
       }
@@ -155,11 +158,11 @@ export function ControlTower() {
     }
     runningRef.current = false;
     if (commandGeneration.current === generation) {
-      clearPendingCommandIf({
+      if (clearPendingCommandIf({
         commandId: last.id,
         kind: last.kind,
         payloadDigest: last.payload_digest,
-      }, envelope);
+      }, envelope)) setLegacyRetry(false);
     }
     if (last.status === "FAILED" || last.status === "UNKNOWN") {
       setCommand(last);
@@ -180,13 +183,23 @@ export function ControlTower() {
       const pending = loadPendingCommand();
       if (pending === null) return;
       const payload = pending.envelope.payload as Record<string, unknown>;
-      if (pending.kind === "run_coding" && typeof payload.account_id === "string" &&
+      if (pending.kind === "run_coding" && isCodingTaskPayload(payload)) {
+        setTask(payload.task);
+        setAccountId(payload.selection.account_id);
+        setModel(payload.selection.model);
+        setProvider(payload.selection.provider);
+        setEffort(payload.selection.effort ?? "");
+        setTaskCommand(true);
+        setLegacyRetry(false);
+      } else if (pending.kind === "run_coding" && !("schema_version" in payload) && typeof payload.account_id === "string" &&
           typeof payload.model === "string" &&
           typeof payload.provider === "string" &&
           ["claude", "codex", "cursor", "antigravity"].includes(payload.provider)) {
         setAccountId(payload.account_id);
         setModel(payload.model);
         setProvider(payload.provider as CodingProviderName);
+        setTaskCommand(false);
+        setLegacyRetry(true);
       } else if (pending.commandId === null) {
         throw new PendingCommandError("pending command cannot be retried as a coding action; reconcile its original envelope");
       }
@@ -231,11 +244,12 @@ export function ControlTower() {
         await resumePending();
         return;
       }
-      if (pendingCodingConflicts(accountId, provider, model)) {
+      const fields: RunCodingFields = { task, accountId, provider, model, effort: effort === "" ? null : effort };
+      if (pendingCodingConflicts(fields)) {
         throw new PendingCommandError("pending command conflicts with the coding action; reconcile it first");
       }
-      const fields = codingFields(accountId, provider, model);
       const envelope = envelopeForRetryOrCreate(() => newRunCodingEnvelope(fields));
+      setTaskCommand(isCodingTaskPayload(envelope.payload));
       runningRef.current = true;
       generation = commandGeneration.current + 1;
       commandGeneration.current = generation;
@@ -298,6 +312,10 @@ export function ControlTower() {
         forgetBrowserSession(); setSessionMaterial(false); setHistoryOpen(false);
         commandGeneration.current += 1; runningRef.current = false;
       }} />}
+      <details open>
+      <summary>Advanced coding task</summary>
+      {legacyRetry ? <p>Saved historical request: retry uses its exact original contents.</p> :
+        <CodingTaskFields value={task} onChange={setTask} disabled={runningRef.current} />}
       <label htmlFor="coding-account">Account</label>{" "}
       <input
         id="coding-account"
@@ -324,6 +342,9 @@ export function ControlTower() {
         <option value="cursor">cursor</option>
         <option value="antigravity">antigravity</option>
       </select>{" "}
+      <label htmlFor="coding-effort">Effort (optional)</label>{" "}
+      <input id="coding-effort" value={effort} disabled={legacyRetry}
+        onChange={(event) => setEffort(event.target.value)} />{" "}
       <button
         type="button"
         disabled={!sessionMaterial || runningRef.current}
@@ -331,6 +352,7 @@ export function ControlTower() {
       >
         Submit durable coding command
       </button>
+      </details>
       <p className={PHASE_CLASS[phase]} data-testid="phase">
         command phase: {phase}
       </p>
@@ -342,6 +364,7 @@ export function ControlTower() {
       <MissionsCard missions={missions} />
       <OutboxCard outbox={outbox} />
       {command !== null ? <CommandCard command={command} /> : null}
+      {command !== null && taskCommand ? <CodingTaskCard commandId={command.id} /> : null}
     </main>
   );
 }
