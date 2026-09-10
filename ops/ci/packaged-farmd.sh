@@ -28,6 +28,7 @@ proof_dir="$(mktemp -d)"
 farmd_pid=""
 worker_token="wrk_2222222222222222222222222222222222222222222222222222222222222222"
 worker_token_file="$proof_dir/worker.token"
+bootstrap_token_file="$proof_dir/bootstrap.token"
 umask 077
 printf '%s\n' "$worker_token" >"$worker_token_file"
 
@@ -54,11 +55,14 @@ fi
 log "bundle root ${bundle_root}"
 
 log "build packaged farmd with the embedded Portal"
-(cd "$kernel_root" && BULLET_PORTAL_DIST="$REPO_ROOT/dist" \
+farmd_target="$proof_dir/cargo-target"
+mkdir "$farmd_target"
+(cd "$kernel_root" && CARGO_TARGET_DIR="$farmd_target" BULLET_PORTAL_DIST="$REPO_ROOT/dist" \
   cargo build --locked -p bullet-farmd --features embedded-portal)
-farmd_bin="$kernel_root/target/debug/bullet-farmd"
+farmd_bin="$farmd_target/debug/bullet-farmd"
 
-"$farmd_bin" --data-dir "$proof_dir/data" --bind "127.0.0.1:${port}" \
+"$farmd_bin" --provision-bootstrap-token "$bootstrap_token_file" >"$proof_dir/bootstrap.stdout" 2>"$proof_dir/bootstrap.stderr"
+"$farmd_bin" --bootstrap-token-file "$bootstrap_token_file" --data-dir "$proof_dir/data" --bind "127.0.0.1:${port}" \
   --portal-origin "$origin" \
   --worker-token-file "$worker_token_file" \
   >"$proof_dir/farmd.log" 2>&1 &
@@ -90,9 +94,9 @@ if [[ "$index" != *"<div id=\"root\">"* ]]; then
   exit 1
 fi
 
-bootstrap_token="$(sed -n 's/^Bullet Farm one-time bootstrap: //p' "$proof_dir/farmd.log" | head -n 1)"
+bootstrap_token="$(<"$bootstrap_token_file")"
 if [[ ! "$bootstrap_token" =~ ^boot_[0-9a-f]{64}$ ]]; then
-  echo "[ci] farmd did not emit one valid bootstrap token" >&2
+  echo "[ci] private bootstrap file does not contain one valid token" >&2
   exit 1
 fi
 

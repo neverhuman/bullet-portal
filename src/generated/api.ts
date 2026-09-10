@@ -60,6 +60,18 @@ export type SessionRevocationView = {
 export type RevokeSessionRequest = {
 };
 
+export type CommandDiscoveryView = {
+  commands: CommandStatus[];
+  next_after: number | null;
+};
+
+export type CommandDiscoverySnapshot = {
+  data: CommandDiscoveryView;
+  as_of_sequence: number;
+  observed_at: string;
+  source: string;
+};
+
 export type CommandEnvelope = {
   idempotency_key: string;
   kind: string;
@@ -695,6 +707,31 @@ export const PUBLIC_API_RUNTIME_SCHEMA = {
         "head_sha",
         "tree_sha",
         "patch_digest"
+      ],
+      "type": "object"
+    },
+    "CommandDiscoveryView": {
+      "additionalProperties": false,
+      "properties": {
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/CommandStatus"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "next_after": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "commands",
+        "next_after"
       ],
       "type": "object"
     },
@@ -1868,6 +1905,7 @@ export const PUBLIC_API_RUNTIME_SCHEMA = {
 export const PUBLIC_API_RUNTIME_REFS = {
   AuditView: "https://bullet.farm/schemas/public-api-runtime-v1#/$defs/AuditView",
   BootstrapResponse: "https://bullet.farm/schemas/public-api-runtime-v1#/$defs/BootstrapResponse",
+  CommandDiscoveryView: "https://bullet.farm/schemas/public-api-runtime-v1#/$defs/CommandDiscoveryView",
   CommandStatus: "https://bullet.farm/schemas/public-api-runtime-v1#/$defs/CommandStatus",
   ContextLineageView: "https://bullet.farm/schemas/public-api-runtime-v1#/$defs/ContextLineageView",
   EventEnvelope: "https://bullet.farm/schemas/public-api-runtime-v1#/$defs/EventEnvelope",
