@@ -15,12 +15,12 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@noble/hashes": "2.3.0",
     "ajv": "^8.20.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
-    "@noble/hashes": "2.3.0",
     "@playwright/test": "^1.54.1",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",

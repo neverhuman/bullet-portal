@@ -179,8 +179,16 @@ export function ControlTower() {
     try {
       const pending = loadPendingCommand();
       if (pending === null) return;
-      if (pendingCodingConflicts(accountId, provider, model)) {
-        throw new PendingCommandError("pending command conflicts with the coding action; reconcile it first");
+      const payload = pending.envelope.payload as Record<string, unknown>;
+      if (pending.kind === "run_coding" && typeof payload.account_id === "string" &&
+          typeof payload.model === "string" &&
+          typeof payload.provider === "string" &&
+          ["claude", "codex", "cursor", "antigravity"].includes(payload.provider)) {
+        setAccountId(payload.account_id);
+        setModel(payload.model);
+        setProvider(payload.provider as CodingProviderName);
+      } else if (pending.commandId === null) {
+        throw new PendingCommandError("pending command cannot be retried as a coding action; reconcile its original envelope");
       }
       if (pending.commandId === null) return;
       runningRef.current = true;
@@ -197,6 +205,9 @@ export function ControlTower() {
       await reconcile(admitted, generation, pending.envelope);
     } catch (err) {
       if (commandGeneration.current !== generation) return;
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        forgetBrowserSession(); setSessionMaterial(false); setHistoryOpen(false);
+      }
       setPhase("UNKNOWN");
       setError(`command reconciliation unknown (${errorText(err)})`);
       runningRef.current = false;
@@ -216,12 +227,12 @@ export function ControlTower() {
     let generation = commandGeneration.current;
     try {
       const pending = loadPendingCommand();
-      if (pendingCodingConflicts(accountId, provider, model)) {
-        throw new PendingCommandError("pending command conflicts with the coding action; reconcile it first");
-      }
       if (pending?.commandId !== null && pending?.commandId !== undefined) {
         await resumePending();
         return;
+      }
+      if (pendingCodingConflicts(accountId, provider, model)) {
+        throw new PendingCommandError("pending command conflicts with the coding action; reconcile it first");
       }
       const fields = codingFields(accountId, provider, model);
       const envelope = envelopeForRetryOrCreate(() => newRunCodingEnvelope(fields));

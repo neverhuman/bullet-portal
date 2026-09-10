@@ -37,11 +37,14 @@ repair landed. `agent/test-map.json` routes an owned path to its lane, and
 purpose, the kernel's stable reason code, the common fixes for each, the repair
 hint, and where each one is documented.
 
-The current unit partition contains 227 distinct passing identities, pinned by
+The current unit partition contains 245 distinct passing identities, pinned by
 count and SHA-256 in both fast and coverage lanes. This includes navigation,
 atomic operator snapshots, ordinary event refresh and durable session consumers.
 Thirteen command-history tests cover owned discovery after local cache loss,
 pagination, stale responses, phase regression and exact HTTP status validation.
+Retry coverage also checks Rust-compatible request digests, exact settled-command
+responses, journal serialization and subject substitution, and browser reloads
+that retain the original envelope without an automatic POST.
 A count is never inferred from prior runs: the JSON report must
 contain every expected passing identity with zero skipped, pending or failed
 cases. Browser fixtures and local HTTP tests remain component proofs; they do

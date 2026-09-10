@@ -1,4 +1,5 @@
 import type { CommandEnvelope } from "./generated/api";
+import { canonicalCommandPayload, prepareCommand } from "./commandIdentity";
 
 const PENDING_SLOT = "bullet-farm.pending-command.v1";
 type CommandScope = Pick<CommandEnvelope, "kind" | "payload">;
@@ -28,7 +29,7 @@ function browserStorage(): Storage {
 }
 
 function envelopeScope(envelope: CommandScope): string {
-  return `${envelope.kind}:${JSON.stringify(envelope.payload)}`;
+  return `${envelope.kind}:${canonicalCommandPayload(envelope.payload)}`;
 }
 
 function sameEnvelope(left: CommandEnvelope, right: CommandEnvelope): boolean {
@@ -46,6 +47,7 @@ function text(value: unknown): value is string {
 function asEnvelope(value: unknown): CommandEnvelope | null {
   if (
     !isRecord(value) ||
+    Object.keys(value).some((key) => !["idempotency_key", "kind", "payload"].includes(key)) ||
     !text(value.idempotency_key) ||
     !text(value.kind) ||
     !isRecord(value.payload)
@@ -61,6 +63,7 @@ export function loadPendingCommand(): PendingCommand | null {
     if (!isRecord(record)) throw new Error("invalid record");
     const envelope = asEnvelope(record.envelope);
     if (envelope === null) throw new Error("invalid envelope");
+    const expected = prepareCommand(envelope).subject;
     if (record.commandId === null) {
       // The original envelope-only format is a safe same-key retry, not an admission.
       if (
@@ -72,7 +75,8 @@ export function loadPendingCommand(): PendingCommand | null {
     if (
       !text(record.commandId) ||
       record.kind !== envelope.kind ||
-      !text(record.payloadDigest)
+      !text(record.payloadDigest) ||
+      record.commandId !== expected.id || record.payloadDigest !== expected.payload_digest
     ) throw new Error("incomplete admitted subject");
     return { envelope, commandId: record.commandId, kind: envelope.kind, payloadDigest: record.payloadDigest };
   } catch (err) {
@@ -81,10 +85,23 @@ export function loadPendingCommand(): PendingCommand | null {
   }
 }
 
-export function persistPendingCommand(record: PendingCommand): void {
+export function persistPendingCommand(record: PendingCommand): PendingCommand {
   try {
-    browserStorage().setItem(PENDING_SLOT, JSON.stringify(record));
-  } catch {
+    const envelope = asEnvelope(record.envelope);
+    if (envelope === null) throw new PendingCommandError("pending command envelope is invalid");
+    const prepared = prepareCommand(envelope);
+    const expected = prepared.subject;
+    const { kind, commandId, payloadDigest } = record;
+    if (kind !== expected.kind || (commandId === null
+      ? payloadDigest !== null
+      : commandId !== expected.id || payloadDigest !== expected.payload_digest)) {
+      throw new PendingCommandError("pending command subject does not match its envelope");
+    }
+    const snapshot: PendingCommand = { envelope: JSON.parse(prepared.body), kind, commandId, payloadDigest };
+    browserStorage().setItem(PENDING_SLOT, JSON.stringify(snapshot));
+    return snapshot;
+  } catch (err) {
+    if (err instanceof PendingCommandError) throw err;
     throw new PendingCommandError("pending command storage write failed; reconciliation required");
   }
 }
@@ -127,16 +144,17 @@ export function envelopeForRetryOrCreate(create: () => CommandEnvelope): Command
   const pending = loadPendingCommand();
   if (pending !== null) return pending.envelope;
   const envelope = create();
-  persistPendingCommand({ envelope, commandId: null, kind: envelope.kind, payloadDigest: null });
-  return envelope;
+  return persistPendingCommand({ envelope, commandId: null, kind: envelope.kind, payloadDigest: null }).envelope;
 }
 
 export function rememberAdmittedCommand(subject: AdmittedSubject, expected: CommandEnvelope): boolean {
   const pending = loadPendingCommand();
+  const derived = prepareCommand(expected).subject;
   if (
     pending === null ||
     !sameEnvelope(pending.envelope, expected) ||
     subject.kind !== expected.kind ||
+    subject.commandId !== derived.id || subject.payloadDigest !== derived.payload_digest ||
     (pending.commandId !== null && restoredSubjectConflicts(pending, {
       id: subject.commandId, kind: subject.kind, payload_digest: subject.payloadDigest,
     }))

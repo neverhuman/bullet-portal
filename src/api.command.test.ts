@@ -4,10 +4,11 @@ import {
   submitCommand,
 } from "./api";
 
-const id = `cmd_${"a".repeat(64)}`;
+const id = "cmd_4cc654254d22617b71cea4ec67a82d93063c1002ff9ffc549feda21659da1e96";
 const csrf = `csrf_${"b".repeat(64)}`;
 const envelope = { idempotency_key: "portal_command_boundary", kind: "run_demo", payload: {} };
-const pending = { id, status: "PENDING", kind: "run_demo", payload_digest: "c".repeat(64), result: null };
+const pending = { id, status: "PENDING", kind: "run_demo",
+  payload_digest: "8255376a5ef33424238fe4163eb1ac32f139e1b7b5477f8d9eca54676b90ebb0", result: null };
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -84,8 +85,9 @@ describe("command admission boundaries", () => {
   });
 
   it.each([
-    ["completed status", { ...pending, status: "APPLIED", result: {} }],
+    ["different id", { ...pending, id: `cmd_${"a".repeat(64)}` }],
     ["different kind", { ...pending, kind: "different_command" }],
+    ["different digest", { ...pending, payload_digest: "c".repeat(64) }],
     ["premature result", { ...pending, result: {} }],
   ])("keeps a successful HTTP admission with %s unknown", async (_label, response) => {
     await session(response);
@@ -107,5 +109,45 @@ describe("command admission boundaries", () => {
     expect(fetch).toHaveBeenNthCalledWith(3, `/api/v1/commands/${id}`, expect.objectContaining({
       credentials: "same-origin",
     }));
+    for (const status of [201, 206]) {
+      fetch.mockResolvedValueOnce(json(verified, status));
+      await expect(getCommand(id)).rejects.toMatchObject({ status, outcomeUnknown: false });
+    }
+  });
+
+  it("accepts the original command's current phase on exact retry after settlement", async () => {
+    for (const status of ["PENDING", "APPLIED", "VERIFIED", "FAILED", "UNKNOWN"]) {
+      const current = { ...pending, status, result: status === "PENDING" ? null : {} };
+      const fetch = await session(current);
+      await expect(submitCommand(envelope)).resolves.toEqual(current);
+      expect(fetch).toHaveBeenCalledTimes(2);
+    }
+  });
+
+  it("correlates against the frozen bytes even if the caller changes its object while awaiting POST", async () => {
+    const fetch = await session(pending);
+    let reply!: (value: Response) => void;
+    fetch.mockReset().mockImplementationOnce(() => new Promise((resolve) => { reply = resolve; }));
+    const changed = { ...envelope, payload: {} };
+    const result = submitCommand(changed);
+    changed.kind = "changed_kind";
+    changed.idempotency_key = "changed_key";
+    changed.payload = { altered: true };
+    reply(json(pending, 202));
+    await expect(result).resolves.toEqual(pending);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/v1/commands", expect.objectContaining({
+      body: JSON.stringify(envelope),
+    }));
+  });
+
+  it("refuses ambiguous local payloads before any mutation request", async () => {
+    const fetch = await session(pending);
+    fetch.mockClear();
+    for (const payload of [{ value: undefined }, { value: 1.5 }, { value: "\ud800" }]) {
+      await expect(submitCommand({ ...envelope, payload })).rejects.toMatchObject({
+        method: "POST", status: null, outcomeUnknown: false,
+      });
+    }
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

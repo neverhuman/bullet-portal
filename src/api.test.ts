@@ -33,8 +33,8 @@ function jsonResponse(
   return new Response(JSON.stringify(body), { status, headers });
 }
 
-const commandId = `cmd_${"a".repeat(64)}`;
-const commandDigest = "b".repeat(64);
+const commandId = "cmd_7f17e3847e0e585b4f86bf695a110d43e4ca777a8e8f69018fc7d4aabe476c5e";
+const commandDigest = "8255376a5ef33424238fe4163eb1ac32f139e1b7b5477f8d9eca54676b90ebb0";
 const csrfToken = `csrf_${"c".repeat(64)}`;
 
 function command(status: string, result: unknown = null): Record<string, unknown> {
