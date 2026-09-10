@@ -140,8 +140,6 @@ jobs:
           test "$(npm --version)" = "10.9.8"
       - name: Install locked dependencies without lifecycle scripts
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Install reviewed Playwright browser lifecycle
-        run: ./node_modules/.bin/playwright install --with-deps chromium
       - name: Contract lane
         id: lane
         run: |

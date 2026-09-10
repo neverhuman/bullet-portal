@@ -1,5 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import { mockOwner, sessionHeaders } from "./owner-fixture";
 import { operatorSnapshotFixture } from "../src/testing/operatorSnapshot";
+
+test.beforeEach(mockOwner);
 
 const observedAt = "2026-08-24T22:00:00.000Z";
 
@@ -16,7 +19,7 @@ function snapshot(data: unknown, sequence = 0) {
       source: "bullet-kernel/sqlite-ledger",
     },
     contentType: "application/json",
-    headers: { "x-bullet-as-of-sequence": String(sequence) },
+    headers: { ...sessionHeaders, "x-bullet-as-of-sequence": String(sequence) },
   };
 }
 
@@ -29,7 +32,7 @@ async function mockSnapshot(page: Page): Promise<void> {
     await route.fallback();
   });
   await page.route("**/api/v1/events**", async (route) => {
-    await route.fulfill({ status: 404, contentType: "text/plain", body: "no stream" });
+    await route.fulfill({ status: 404, headers: sessionHeaders, contentType: "text/plain", body: "no stream" });
   });
 }
 
@@ -59,10 +62,10 @@ test("the health probe reports unknown when /health fails", async ({ page }, tes
 
 test("a failed missions read renders unknown, not an empty list", async ({ page }) => {
   await page.route("**/api/v1/operator-snapshot", (route) =>
-    route.fulfill({ status: 500, contentType: "text/plain", body: "down" }),
+    route.fulfill({ status: 500, headers: sessionHeaders, contentType: "text/plain", body: "down" }),
   );
   await page.route("**/api/v1/events**", (route) =>
-    route.fulfill({ status: 404, contentType: "text/plain", body: "no stream" }),
+    route.fulfill({ status: 404, headers: sessionHeaders, contentType: "text/plain", body: "no stream" }),
   );
   await page.route("**/health", (route) => route.abort("connectionrefused"));
 
@@ -88,7 +91,7 @@ test("events advance the cursor without inventing a newer snapshot watermark", a
     `id: 2\ndata: ${JSON.stringify({ id: eventId(2), seq: 2, at, kind: "effect_receipt", body: "{}" })}\n\n`,
   ].join("");
   await page.route("**/api/v1/events**", (route) =>
-    route.fulfill({ status: 200, contentType: "text/event-stream", body: frames }),
+    route.fulfill({ status: 200, headers: sessionHeaders, contentType: "text/event-stream", body: frames }),
   );
 
   await page.goto("/#/control-tower");
@@ -108,7 +111,7 @@ test("a 1,2,4 gap survives malformed snapshot recovery until watermark 4", async
     }
     snapshotRecoveries += 1;
     if (snapshotRecoveries === 1) {
-      return route.fulfill({ status: 200, contentType: "application/json", body: "[" });
+      return route.fulfill({ status: 200, headers: sessionHeaders, contentType: "application/json", body: "[" });
     }
     return route.fulfill(snapshot(operatorSnapshotFixture(4), 4));
   });
@@ -131,7 +134,7 @@ test("a 1,2,4 gap survives malformed snapshot recovery until watermark 4", async
             `id: ${seq}\ndata: ${JSON.stringify({ id: eventId(seq), seq, at, kind: "test", body: "{}" })}\n\n`,
         )
         .join("");
-      await route.fulfill({ status: 200, contentType: "text/event-stream", body: frames });
+      await route.fulfill({ status: 200, headers: sessionHeaders, contentType: "text/event-stream", body: frames });
       return;
     }
     reconnectSeen?.();
@@ -180,6 +183,7 @@ test("an event-retention 410 rebases from a covering snapshot before reconnect",
       retentionGap = true;
       await route.fulfill({
         status: 410,
+        headers: sessionHeaders,
         contentType: "application/problem+json",
         body: '{"code":"REPLAY_UNAVAILABLE"}',
       });

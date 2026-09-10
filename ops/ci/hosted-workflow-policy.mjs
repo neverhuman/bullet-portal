@@ -21,6 +21,11 @@ export function validateHostedWorkflows(workflow, scheduled) {
   validateWorkflowFileInventory(inventory);
   validateHostedWorkflow(workflow, false);
   validateHostedWorkflow(scheduled, true);
+  for (const command of ["npx playwright test", "tuiwright record",
+    ...["rendered", "family", "nightly", "packaged-farmd"].map((lane) => "bash scripts/ci-local.sh " + lane)]) {
+    assertThrows(() => refuseHostedRenderedTools(workflow + "\n# " + command),
+      "hosted rendered tool or local lane accepted", "HOSTED_RENDERED_LANE_FORBIDDEN");
+  }
   runRequiredHostiles(workflow);
   runUploadEncodingHostiles(workflow, false);
   runUploadEncodingHostiles(scheduled, true);
@@ -37,7 +42,13 @@ function validateWorkflowFileInventory(inventory) {
   );
 }
 
+export function refuseHostedRenderedTools(definition) {
+  assert(!/\b(?:playwright|tuiwright)\b|scripts\/ci-local\.sh\s+(?:rendered|family|nightly|packaged-farmd)\b/i.test(definition),
+    "HOSTED_RENDERED_LANE_FORBIDDEN");
+}
+
 function validateHostedWorkflow(definition, isScheduled) {
+  refuseHostedRenderedTools(definition);
   const beforeJobs = definition.split(/^jobs:$/m, 1)[0].trimEnd();
   const defaultsIndex = beforeJobs.lastIndexOf("\ndefaults:");
   if (isScheduled) {
@@ -163,7 +174,7 @@ function validateHostedWorkflow(definition, isScheduled) {
   if (!isScheduled) validateRequiredConvergence(definition);
   const expectedHash = isScheduled
     ? "83e80d3f981ef39d4f7a84fbf06b6ffb9d05254c491525eed6c8941bb697da22"
-    : "60931e893c27c8b91a0beada139469074f2802c1488409acbb8f79d1bd7411b9";
+    : "6637ec9e3d1ba4d971c229ca0aa04dd022d8ec86b67188680a355ff81b595dc1";
   assert(
     createHash("sha256").update(definition).digest("hex") === expectedHash,
     "hosted workflow source digest drifted",

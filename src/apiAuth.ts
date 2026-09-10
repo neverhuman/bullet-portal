@@ -6,9 +6,9 @@ import { ApiError, readJson } from "./apiTransport";
 const sessionShape = compileGeneratedValidator<OperatorSessionView>(PUBLIC_API_RUNTIME_REFS.OperatorSessionView);
 const revocationShape = compileGeneratedValidator<SessionRevocationView>(PUBLIC_API_RUNTIME_REFS.SessionRevocationView);
 
-export async function getOperatorSession(): Promise<OperatorSessionView> {
+export async function getOperatorSession(signal?: AbortSignal): Promise<OperatorSessionView> {
   const path = `${API_PREFIX}/auth/session`;
-  const session = await readJson(path, sessionShape, { cache: "no-store" }, 200);
+  const session = await readJson(path, sessionShape, { cache: "no-store", signal }, 200);
   const lifetime = Date.parse(session.expires_at) - Date.parse(session.issued_at);
   if (!Number.isFinite(lifetime) || lifetime <= 0 || lifetime > 28_800_000) {
     throw new ApiError("GET", path, 200, "session lifetime is contradictory");

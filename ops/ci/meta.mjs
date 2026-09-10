@@ -106,6 +106,10 @@ const reportIdentityTest = spawnSync(
   ["ops/ci/assert-report-test.mjs"],
   { encoding: "utf8" },
 );
+const routingTest = spawnSync(process.execPath, ["ops/ci/rendered-routing-test.mjs"], { encoding: "utf8" });
+assert(routingTest.status === 0, "rendered host/contract propagation regressions failed: " + routingTest.stderr);
+const bundleReportTest = spawnSync(process.execPath, ["ops/ci/bundle-report-test.mjs"], { encoding: "utf8" });
+assert(bundleReportTest.status === 0, `bundle report hostiles failed: ${bundleReportTest.stderr}`);
 assert(
   reportIdentityTest.status === 0,
   `Vitest identity hostiles failed: ${reportIdentityTest.stderr}`,
@@ -134,6 +138,13 @@ assert(
   !required.includes("real-farmd.sh"),
   "standalone required resolves real farmd",
 );
+const contract = read("ops/ci/contract.sh");
+assert(contract.includes("npm run bundle:typecheck") && contract.includes("npm run bundle:test") &&
+  contract.includes('tee "$reports/bundle-tests.log"') && contract.includes("set -euo pipefail") &&
+  contract.includes('node ops/ci/bundle-report.mjs "$reports/bundle-tests.log"'),
+  "portable bundle execution or recorded failure propagation absent");
+assert(!/playwright|tuiwright|real-farmd\.sh|packaged-farmd\.sh/i.test(contract),
+  "portable contract invokes a rendered tool");
 const family = read("ops/ci/family.sh");
 assert(
   family.includes("ops/ci/real-farmd.sh"),
@@ -141,15 +152,15 @@ assert(
 );
 assert(
   read("ops/ci/fast.sh").includes(
-    'assert-report.mjs vitest "$reports/vitest.json" 258',
+    'assert-report.mjs vitest "$reports/vitest.json" 360',
   ),
-  "exact 258-test Vitest count ratchet absent",
+  "exact 360-test Vitest count ratchet absent",
 );
 assert(
   read("ops/ci/fast.sh").includes(
-    "c66945d0ad6497b92b44da55c2a507f815a62c261c674a15538283ab8d550f40",
+    "bfdf9a13dc210141b8c5cc0d1d0ecd86e0618393504f2ecd6e8e6756a555b4d1",
   ) && read("ops/ci/coverage.sh").includes(
-    "c66945d0ad6497b92b44da55c2a507f815a62c261c674a15538283ab8d550f40",
+    "bfdf9a13dc210141b8c5cc0d1d0ecd86e0618393504f2ecd6e8e6756a555b4d1",
   ),
   "exact Vitest identity digest ratchet absent",
 );
@@ -158,14 +169,14 @@ assert(
   "hostile farmd test-proxy refusal absent",
 );
 assert(
-  read("ops/ci/contract.sh").includes(
-    'assert-report.mjs junit "$reports/playwright.xml" 14',
+  read("ops/ci/rendered.sh").includes(
+    'assert-report.mjs junit "$reports/playwright.xml" 24',
   ),
-  "exact 14-test mocked Playwright count ratchet absent",
+  "exact 24-test mocked Playwright count ratchet absent",
 );
 assert(
-  read("ops/ci/contract.sh").includes(
-    "ab971010688d4c8a422a452eea2278845d17ae4b6914bd0bba5f136b3e3fe899",
+  read("ops/ci/rendered.sh").includes(
+    "bdc2efe35deb43edba551683069ba0901fd8eb5ec882aadf50d46c7e6498cd3c",
   ),
   "exact mocked Playwright identity digest ratchet absent",
 );
@@ -177,7 +188,7 @@ assert(
   ["e2e/control-tower.spec.ts", "e2e/fleet.spec.ts", "e2e/shift-brief.spec.ts"]
     .map((path) => (read(path).match(/^test\(/gm) ?? []).length)
     .reduce((total, count) => total + count, 0) === 14,
-  "standalone Playwright inventory drifted",
+  "retained original rendered Playwright inventory drifted",
 );
 assert(
   (read("e2e/real-farmd.spec.ts").match(/^\s*test\(/gm) ?? []).length === 3,
@@ -455,7 +466,7 @@ function assertThrows(callback, message) {
 function validatePreparedJeryu(configuration, adapter) {
   assert(
     createHash("sha256").update(configuration).digest("hex") ===
-      "2d0ff5769c25b76242d9e6e451f6295f2b6560bccc3896998864d220d51d3342",
+      "27046814a52adf0b137faaa7ecfbc5c354492b25c4f797b260e2a1ff1003d8e4",
     "prepared Jeryu configuration source drifted",
   );
   assert(

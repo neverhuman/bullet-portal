@@ -4,7 +4,8 @@ import {
   clearPendingCommand, clearPendingCommandIf, envelopeForRetryOrCreate,
   loadPendingCommand, pendingConflicts, persistPendingCommand,
   rememberAdmittedCommand, restoredSubjectConflicts,
-} from "./pendingCommand";
+} from "./testing/pendingOwner";
+import { pendingSlot } from "./testing/pendingOwner";
 
 const first = { idempotency_key: "portal_first", kind: "run_demo", payload: {} };
 const second = { ...first, idempotency_key: "portal_second" };
@@ -12,7 +13,7 @@ const derived = prepareCommand(first).subject;
 const digest = derived.payload_digest;
 const subject = { commandId: derived.id, kind: "run_demo", payloadDigest: digest };
 const pending = { envelope: first, commandId: null, kind: "run_demo", payloadDigest: null };
-const slot = "bullet-farm.pending-command.v1";
+const slot = pendingSlot();
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -103,10 +104,12 @@ describe("pending command envelope custody", () => {
     expect(loadPendingCommand()).toEqual(pending);
   });
 
-  it("preserves a legacy envelope-only retry and creates only when absent", () => {
-    sessionStorage.setItem(slot, JSON.stringify({ envelope: first, commandId: null }));
+  it("quarantines a legacy envelope-only request and creates only when all slots are absent", () => {
+    const raw = JSON.stringify({ envelope: first, commandId: null });
+    sessionStorage.setItem("bullet-farm.pending-command.v1", raw);
     const create = vi.fn(() => second);
-    expect(envelopeForRetryOrCreate(create)).toEqual(first);
+    expect(() => envelopeForRetryOrCreate(create)).toThrow("ownership unresolved");
+    expect(sessionStorage.getItem("bullet-farm.pending-command.v1")).toBe(raw);
     expect(create).not.toHaveBeenCalled();
     clearPendingCommand();
     expect(envelopeForRetryOrCreate(create)).toEqual(second);

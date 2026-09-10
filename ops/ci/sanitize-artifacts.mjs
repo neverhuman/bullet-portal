@@ -11,6 +11,7 @@ import {
   rmSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { sourceProofPath, validateSourceProof } from "./source-proof.mjs";
 
 const lane = process.argv[2];
 const policies = {
@@ -20,7 +21,8 @@ const policies = {
     ".ci-artifacts/reports/vitest.json",
   ],
   lint: [],
-  contract: [
+  contract: [".ci-artifacts/reports/bundle-tests.log"],
+  rendered: [
     ".ci-artifacts/playwright/.last-run.json",
     ".ci-artifacts/reports/playwright.xml",
   ],
@@ -41,6 +43,7 @@ const policies = {
 if (!Object.hasOwn(policies, lane)) {
   throw new Error("CI_STAGE_LANE_INVALID: " + String(lane));
 }
+policies[lane].push(sourceProofPath(lane));
 
 const artifactsRoot = ".ci-artifacts";
 const observationPath = join(artifactsRoot, "observations", lane + ".json");
@@ -96,6 +99,13 @@ for (const artifact of observation.artifact_hashes) {
   if (actual !== artifact.sha256) {
     throw new Error("CI_ARTIFACT_HASH_MISMATCH: " + artifact.path);
   }
+  if (artifact.path === sourceProofPath(lane)) {
+    validateSourceProof(JSON.parse(readFileSync(artifact.path, "utf8")), lane, observation);
+  }
+}
+
+if (!artifactPaths.has(sourceProofPath(lane))) {
+  throw new Error("CI_SOURCE_PROOF_MISSING: " + lane);
 }
 
 if (observation.outcomes[0].status === "PASS") {
@@ -137,7 +147,7 @@ console.log("[ci] artifact redaction and exact " + lane + " staging passed");
 function allowedArtifactPath(selectedLane, path) {
   if (policies[selectedLane].includes(path)) return true;
   return (
-    selectedLane === "contract" &&
+    selectedLane === "rendered" &&
     /^\.ci-artifacts\/playwright\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\/trace\.zip$/.test(
       path,
     )

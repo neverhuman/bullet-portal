@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorText, type SnapshotRead } from "../api";
 import { useEventStream, type EventStreamState } from "./useEventStream";
+import { browserSessionEpoch, onBrowserSessionChange } from "../apiSession";
 
 /** One surface's read: a set of snapshot reads and the body derived from them. */
 export type ProjectionRead<T> = { reads: SnapshotRead<unknown>[]; body: T };
@@ -59,8 +60,14 @@ export function useProjection<T>(
   load: () => Promise<ProjectionRead<T>>,
 ): ProjectionLoad<T> {
   const [state, setState] = useState<ProjectionLoad<T>>({ kind: "loading" });
-  const requestRef = useRef<(sequence: number) => Promise<number | null>>(async () => null);
-  const invalidateRef = useRef<(sequence: number) => void>(() => {});
+  const requestRef = useRef<((sequence: number) => Promise<number | null>) | null>(null);
+  const refreshRef = useRef<(() => Promise<number | null>) | null>(null);
+  const invalidateRef = useRef<((sequence: number) => void) | null>(null);
+  const [epoch, setEpoch] = useState(browserSessionEpoch);
+  useEffect(() => onBrowserSessionChange(() => {
+    setState({ kind: "loading" });
+    setEpoch(browserSessionEpoch());
+  }), []);
   useEffect(() => {
     let disposed = false;
     let inFlight: Promise<number | null> | null = null;
@@ -88,14 +95,14 @@ export function useProjection<T>(
       inFlight = (async () => {
         try {
           const { reads, body } = await load();
-          if (disposed) return null;
+          if (disposed || epoch !== browserSessionEpoch()) return null;
           const snapshot = atomicSnapshot(reads);
           if (snapshot.asOf < published) throw new Error("SNAPSHOT_SEQUENCE_REGRESSION");
           published = snapshot.asOf;
           setState({ kind: "value", ...snapshot, body });
           return snapshot.asOf;
         } catch (err) {
-          if (!disposed) setState(localUnknown(`${title}: control plane unreachable (${errorText(err)})`));
+          if (!disposed && epoch === browserSessionEpoch()) setState(localUnknown(`${title}: control plane unreachable (${errorText(err)})`));
           return null;
         }
       })().finally(() => {
@@ -105,7 +112,9 @@ export function useProjection<T>(
       });
       return inFlight;
     };
-    requestRef.current = request;
+    requestRef.current = (sequence) => inFlight === null && published >= sequence
+      ? Promise.resolve(published) : request(sequence);
+    refreshRef.current = () => request(0);
     invalidateRef.current = invalidate;
     void request(0);
     const refreshVisible = () => {
@@ -121,10 +130,10 @@ export function useProjection<T>(
       window.removeEventListener("focus", refreshVisible);
       document.removeEventListener("visibilitychange", refreshVisible);
     };
-  }, [title, load]);
-  const reconcile = useCallback((sequence: number) => requestRef.current(sequence), []);
-  const onEvent = useCallback((sequence: number) => invalidateRef.current(sequence), []);
-  const refresh = useCallback(() => { void requestRef.current(0); }, []);
+  }, [title, load, epoch]);
+  const reconcile = useCallback((sequence: number) => requestRef.current?.(sequence) ?? Promise.resolve(null), []);
+  const onEvent = useCallback((sequence: number) => invalidateRef.current?.(sequence), []);
+  const refresh = useCallback(() => { void refreshRef.current?.(); }, []);
   const stream = useEventStream(reconcile, onEvent, state.kind === "value" ? state.asOf : undefined);
   return { ...state, stream, refresh };
 }

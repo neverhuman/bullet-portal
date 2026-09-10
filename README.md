@@ -103,8 +103,10 @@ proof, and is not part of standalone `required`.
 
 ## Lanes
 
-`just setup` installs dependencies and the Playwright Chromium build the
-browser lanes need. Every recipe delegates to `bash scripts/ci-local.sh <lane>`,
+`just setup` installs portable dependencies. On Linux `xbabe2`, outside CI,
+`just setup-rendered` also provisions the Chromium build the browser lanes need.
+All Tuiwright and Playwright execution, including mocked cases, is local to that
+host; `CI` and `GITHUB_ACTIONS` must be absent. Each test-lane recipe delegates to `bash scripts/ci-local.sh <lane>`,
 which runs `ops/ci/<lane>.sh`; the rules for editing those scripts are in
 [`ops/AGENTS.md`](ops/AGENTS.md).
 
@@ -112,11 +114,12 @@ which runs `ops/ci/<lane>.sh`; the rules for editing those scripts are in
 | --- | --- | --- |
 | fast | `just fast` | Vitest unit/component tests with a nonzero/all-pass report, then the typed production build |
 | lint | `just lint` | actionlint 1.7.8, ShellCheck 0.10.0, and whitespace checks |
-| contract | `just contract` | bundle generator type/tests plus 14 mocked Playwright projection/SSE tests; `real-farmd.spec.ts` is excluded and a nonzero/all-pass JUnit report is required |
+| contract | `just contract` | portable bundle generator typecheck and all five exact passing test identities, checked against their actual Node TAP output |
+| rendered | `just rendered` | all 24 mocked Playwright projection/SSE cases with exact identities and a nonzero/all-pass JUnit report; locally on xbabe2 outside CI |
 | security | `just security` | gitleaks 8.21.2 current-tree scan and must-fail canary, the full npm audit, and zizmor 1.25.2 |
 | docs | `just docs` | relative links, workflow structure, test-partition inventory, and negative aggregator meta-tests |
 | required | `just check` | fast → lint → contract → security → docs, sequentially and exactly once; no sibling repository |
-| family | `just family` | explicit Linux-only real-farmd browser proof against the sibling Kernel; missing provisioning fails closed |
+| family | `just family` | three real-farmd browser cases against the sibling Kernel, locally on xbabe2 outside CI; missing provisioning fails closed |
 | audit | `bash ops/ci/audit.sh` | Jankurai audit against the committed ratchet floor (`AUDIT_FLOOR=59`, may only rise); artifacts under `.jankurai/` |
 | nightly | `bash ops/ci/nightly.sh` | compatibility alias for the explicit family lane |
 | packaged-farmd | `just packaged-farmd` | `ops/ci/packaged-farmd.sh`: builds `dist`, runs `npm run bundle:generate`/`bundle:check` (refuses on a dirty source tree), builds the sibling Kernel's `bullet-farmd` with `--features embedded-portal` and `BULLET_PORTAL_DIST=$PWD/dist`, starts it on `127.0.0.1:7421` with `--portal-origin http://127.0.0.1:7421`, requires `/health` to name that exact bundle root and `/` to serve the entry point, then runs `e2e/real-farmd.spec.ts` (3 live-farmd tests) and `e2e/shift-brief.spec.ts` (4 mocked routing/no-green tests) through `playwright.packaged.config.ts` against the daemon's own origin with no preview server. Exits neutral 78 only when the sibling Kernel checkout is absent; every other failure is fatal |
@@ -125,7 +128,9 @@ The prepared mirror workflow runs the five atomic jobs in parallel on
 `ubuntu-24.04` and converges them at the exact `CI / required` context with an
 `if: always()` fail-closed aggregator. It uses Node 22.23.2, npm 10.9.8,
 secretless checkouts, full-SHA action pins, no caches, and
-`npm ci --ignore-scripts`; Playwright's browser install is separate. Scheduled
+`npm ci --ignore-scripts`; browser installation and execution stay outside hosted CI. Scheduled
 definitions add history/link/audit/coverage and macOS/Windows typed-refusal
-proofs. No hosted run or protection read-back exists yet, so these definitions
-are diagnostics, not release evidence. See [`docs/ci.md`](docs/ci.md).
+proofs. Hosted checks and branch protection qualify exact accepted commits;
+each new change also needs fresh local rendered, family and packaged proof.
+These component results remain diagnostics, not native-provider or release
+evidence. See [`docs/ci.md`](docs/ci.md).

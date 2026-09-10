@@ -12,6 +12,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { validateRequiredRun } from "./aggregate.mjs";
+import { syntheticSourceProof } from "./source-proof-fixture.mjs";
+import { sourceProofPath } from "./source-proof.mjs";
 
 const lanes = ["fast", "lint", "contract", "security", "docs"];
 const commit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
@@ -22,7 +24,7 @@ const successfulNeeds = Object.fromEntries(
 const artifactsByLane = {
   fast: { ".ci-artifacts/reports/vitest.json": '{"numTotalTests":131}\n' },
   lint: {},
-  contract: { ".ci-artifacts/reports/playwright.xml": '<testsuites tests="14"/>\n' },
+  contract: { ".ci-artifacts/reports/bundle-tests.log": 'synthetic bundle output\n' },
   security: {},
   docs: {},
 };
@@ -87,7 +89,7 @@ scenario("missing artifact", "CI_ARTIFACT_MISSING", (root) => {
   rmSync(join(root, "reports/vitest.json"));
 });
 scenario("tampered artifact", "CI_ARTIFACT_HASH_MISMATCH", (root) => {
-  writeFileSync(join(root, "reports/playwright.xml"), "tampered\n");
+  writeFileSync(join(root, "reports/bundle-tests.log"), "tampered\n");
 });
 scenario("unbound extra artifact", "CI_ARTIFACT_INVENTORY_INVALID", (root) => {
   writeFile(root, "reports/unbound.txt", "not in any observation\n");
@@ -106,7 +108,23 @@ scenario("symlinked artifact", "CI_ARTIFACT_SYMLINK_REJECTED", (root) => {
   });
 });
 
-console.log("[ci] required aggregation hostile matrix passed (18 refusals)");
+scenario("missing monitored proof", "CI_SOURCE_PROOF_MISSING", (root) => {
+  mutateObservation(root, "lint", (value) => { value.artifact_hashes = []; });
+});
+for (const [name, mutate] of [
+  ["monitor failed", (p) => { p.monitor_exit = 72; }],
+  ["rebound READY hash", (p) => { p.binding.ready_sha256 = "f".repeat(64); }],
+  ["required child failed", (p) => { p.proof_child_exit = 19; }],
+  ["wrong proof source", (p) => { p.source.commit_oid = "f".repeat(40); }],
+  ["missing final acknowledgement", (p) => { p.acknowledgements.pop(); }],
+  ["restored final subject", (p) => { p.acknowledgements[1].subject = "f".repeat(64); }],
+  ["replaced monitor", (p) => { p.acknowledgements[1].monitor_start = "999"; }],
+  ["duplicate sequence", (p) => { p.acknowledgements[2].sequence = 1; }],
+  ["wrong stage lane", (p) => { p.stages[0].lane = "fast"; }],
+  ["duplicate stage", (p) => { p.stages.push({...p.stages[0]}); }],
+  ["extra refusal", (p) => { p.refused = true; }],
+]) scenario(name, "CI_SOURCE_PROOF_INVALID", (root) => mutateProof(root, "lint", mutate));
+console.log("[ci] required aggregation hostile matrix passed (30 refusals; all prior 18 retained)");
 
 function scenario(name, expectedCode, mutate) {
   const root = makeFixture();
@@ -125,7 +143,8 @@ function scenario(name, expectedCode, mutate) {
 
 function makeFixture() {
   const root = mkdtempSync(join(tmpdir(), "bullet-portal-aggregate-"));
-  for (const [lane, artifacts] of Object.entries(artifactsByLane)) {
+  for (const [lane, original] of Object.entries(artifactsByLane)) {
+    const artifacts = { ...original, [sourceProofPath(lane)]: JSON.stringify(syntheticSourceProof(lane, { commit_oid: commit, tree_oid: tree })) };
     for (const [path, body] of Object.entries(artifacts)) {
       writeFile(root, path.slice(".ci-artifacts/".length), body);
     }
@@ -169,4 +188,10 @@ function writeFile(root, relative, contents) {
 
 function hash(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function mutateProof(root, lane, mutate) {
+  const path = join(root, sourceProofPath(lane).slice(".ci-artifacts/".length));
+  const proof = JSON.parse(readFileSync(path)); mutate(proof); writeFileSync(path, JSON.stringify(proof));
+  mutateObservation(root, lane, (value) => { value.artifact_hashes.find((a) => a.path === sourceProofPath(lane)).sha256 = hash(path); });
 }

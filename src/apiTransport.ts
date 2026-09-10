@@ -1,5 +1,7 @@
 import { isProblem, isSnapshotEnvelope, SNAPSHOT_SOURCE, type ResponseValidator } from "./apiValidation";
 import type { Problem } from "./generated/api";
+import { assertOwner, discoverOwner, forgetRefusedOwner, ownerHeaders } from "./apiOwner";
+import { browserSessionEpoch, onBrowserSessionChange } from "./apiSession";
 
 export const apiBase = "";
 
@@ -21,6 +23,7 @@ export class ApiError extends Error {
   readonly code: string | null;
   readonly requestId: string | null;
   readonly repair: string | null;
+  readonly acknowledgedSession: string | null;
 
   constructor(
     method: string,
@@ -29,6 +32,7 @@ export class ApiError extends Error {
     detail: string,
     outcomeUnknown = method !== "GET" && method !== "HEAD" && status === null,
     problem?: Problem,
+    acknowledgedSession: string | null = null,
   ) {
     super(`${method} ${url} failed: ${detail}`);
     this.name = "ApiError";
@@ -39,6 +43,7 @@ export class ApiError extends Error {
     this.code = problem?.code ?? null;
     this.requestId = problem?.request_id ?? null;
     this.repair = problem?.repair ?? null;
+    this.acknowledgedSession = acknowledgedSession;
   }
 }
 
@@ -65,8 +70,22 @@ export async function fetchJson(
 ): Promise<JsonRead> {
   const method = init?.method ?? "GET";
   const url = `${apiBase}${path}`;
+  const external = init?.signal;
+  if (external?.aborted) {
+    throw new ApiError(method, url, null, "request canceled before dispatch", false);
+  }
   const controller = new AbortController();
+  const epoch = browserSessionEpoch();
+  const unsubscribe = onBrowserSessionChange(() => controller.abort());
+  const cancel = (): void => controller.abort();
+  external?.addEventListener("abort", cancel, { once: true });
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const cancellation = (): string => browserSessionEpoch() !== epoch ? "SESSION_CHANGED: authentication changed during request" : external?.aborted
+    ? "request canceled"
+    : `timeout after ${REQUEST_TIMEOUT_MS}ms`;
+  const checkCanceled = (): void => {
+    if (controller.signal.aborted) throw new ApiError(method, url, null, cancellation());
+  };
   let response: Response;
   try {
     try {
@@ -77,9 +96,21 @@ export async function fetchJson(
       });
     } catch (err) {
       const detail = controller.signal.aborted
-        ? `timeout after ${REQUEST_TIMEOUT_MS}ms`
+        ? cancellation()
         : errorText(err);
       throw new ApiError(method, url, null, detail);
+    }
+    checkCanceled();
+    const expectedSession = new Headers(init?.headers).get("x-bullet-expected-session");
+    const acknowledgedSession = expectedSession !== null &&
+      response.headers.get("x-bullet-session-id") === expectedSession ? expectedSession : null;
+    // Authentication refusals may originate before the session guard. Every other
+    // result, including absence, must bind the selected session before body access.
+    if (expectedSession !== null && acknowledgedSession === null &&
+        response.status !== 401 && response.status !== 403) {
+      throw new ApiError(method, url, response.status,
+        "SESSION_BINDING_REQUIRED: server did not confirm the requested session",
+        method !== "GET" && method !== "HEAD");
     }
     const contentType = response.headers.get("content-type") ?? "";
     if (!response.ok) {
@@ -91,6 +122,7 @@ export async function fetchJson(
           problem = undefined;
         }
       }
+      checkCanceled();
       if (isProblem(problem) && problem.status === response.status) {
         throw new ApiError(
           method,
@@ -99,9 +131,11 @@ export async function fetchJson(
           `${problem.code}: ${problem.detail} Repair: ${problem.repair} (${problem.request_id})`,
           false,
           problem,
+          acknowledgedSession,
         );
       }
-      throw new ApiError(method, url, response.status, `HTTP ${response.status}`);
+      throw new ApiError(method, url, response.status, `HTTP ${response.status}`, false,
+        undefined, acknowledgedSession);
     }
     if (expectedStatus !== undefined && response.status !== expectedStatus) {
       throw new ApiError(
@@ -130,14 +164,17 @@ export async function fetchJson(
         url,
         controller.signal.aborted ? null : response.status,
         controller.signal.aborted
-          ? `timeout after ${REQUEST_TIMEOUT_MS}ms`
+          ? cancellation()
           : "invalid JSON body",
         method !== "GET" && method !== "HEAD",
       );
     }
+    checkCanceled();
     return { body, headers: response.headers, method, status: response.status, url };
   } finally {
     clearTimeout(timer);
+    external?.removeEventListener("abort", cancel);
+    unsubscribe();
   }
 }
 
@@ -167,8 +204,18 @@ export async function readJson<T>(
 export async function readSnapshot<T>(
   path: string,
   validateData: ResponseValidator<T>,
+  signal?: AbortSignal,
+  headers?: HeadersInit,
 ): Promise<SnapshotRead<T>> {
-  const read = await fetchJson(path, undefined, 200);
+  const owner = headers === undefined ? await discoverOwner(signal) : null;
+  let read: JsonRead;
+  try {
+    read = await fetchJson(path, { signal, headers: headers ?? ownerHeaders(owner!) }, 200);
+    if (owner !== null) assertOwner(owner, signal);
+  } catch (error) {
+    if (owner !== null) forgetRefusedOwner(owner, error);
+    throw error;
+  }
   if (!isSnapshotEnvelope(read.body, validateData)) {
     throw schemaError(read, "snapshot body failed schema validation");
   }

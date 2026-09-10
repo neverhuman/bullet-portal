@@ -13,10 +13,16 @@ const page = {
 };
 
 function reply(body: unknown, watermark = "9", status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: {
+  return new Response(JSON.stringify(body), { status, headers: { "x-bullet-session-id": `sid_${"2".repeat(64)}`,
     "content-type": "application/json", "x-bullet-as-of-sequence": watermark,
   } });
 }
+
+
+vi.mock("./apiAuth", () => ({ getOperatorSession: vi.fn(async () => ({
+  status: "AUTHENTICATED", operator_id: `opr_${"1".repeat(64)}`, session_id: `sid_${"2".repeat(64)}`,
+  issued_at: "2026-09-10T00:00:00Z", expires_at: "2026-09-10T08:00:00Z",
+})) }));
 
 afterEach(() => { forgetBrowserSession(); vi.unstubAllGlobals(); });
 
@@ -30,7 +36,7 @@ it("discovers owned commands using the cookie after browser session storage loss
   expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/v1/commands?after=2&limit=10",
     expect.objectContaining({ credentials: "same-origin" }));
   expect(fetch.mock.calls[0][1].body).toBeUndefined();
-  expect(fetch.mock.calls[0][1].headers).toBeUndefined();
+  expect(fetch.mock.calls[0][1].headers).toEqual({ "x-bullet-expected-session": `sid_${"2".repeat(64)}` });
 });
 
 it("rejects invalid cursors and limits before issuing a request", async () => {

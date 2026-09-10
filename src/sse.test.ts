@@ -2,6 +2,9 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useEventStream } from "./hooks/useEventStream";
 import { createSseParser, readSseStream, type SseFrame } from "./sse";
+vi.mock("./apiAuth", () => ({ getOperatorSession: vi.fn(async () => ({
+  operator_id: `opr_${"1".repeat(64)}`, session_id: `sid_${"2".repeat(64)}`,
+})) }));
 
 describe("SSE framing", () => {
   it("parses CRLF boundaries split across chunks", () => {
@@ -106,7 +109,7 @@ describe("SSE resume transport", () => {
         Promise.resolve(
           new Response(new ReadableStream<Uint8Array>({ cancel }), {
             status: 200,
-            headers: { "content-type": "text/event-stream" },
+            headers: { "content-type": "text/event-stream", "x-bullet-session-id": `sid_${"2".repeat(64)}` },
           }),
         ),
       ),
@@ -138,7 +141,7 @@ describe("SSE resume transport", () => {
         Promise.resolve(
           new Response(new ReadableStream<Uint8Array>({ cancel }), {
             status: 200,
-            headers: { "content-type": "text/event-stream" },
+            headers: { "content-type": "text/event-stream", "x-bullet-session-id": `sid_${"2".repeat(64)}` },
           }),
         ),
       ),
@@ -170,7 +173,7 @@ describe("SSE resume transport", () => {
               start: (controller) => controller.enqueue(new Uint8Array()),
               cancel,
             }),
-            { status: 200, headers: { "content-type": "text/event-stream" } },
+            { status: 200, headers: { "content-type": "text/event-stream", "x-bullet-session-id": `sid_${"2".repeat(64)}` } },
           ),
         ),
       ),
@@ -204,7 +207,7 @@ describe("SSE resume transport", () => {
                 body = controller;
               },
             }),
-            { status: 200, headers: { "content-type": "text/event-stream" } },
+            { status: 200, headers: { "content-type": "text/event-stream", "x-bullet-session-id": `sid_${"2".repeat(64)}` } },
           ),
         ),
       ),
@@ -245,7 +248,7 @@ describe("SSE resume transport", () => {
               },
               cancel,
             }),
-            { status: 200, headers: { "content-type": "text/event-stream" } },
+            { status: 200, headers: { "content-type": "text/event-stream", "x-bullet-session-id": `sid_${"2".repeat(64)}` } },
           ),
         ),
       ),
@@ -285,7 +288,7 @@ describe("SSE resume transport", () => {
               },
               cancel: firstCancel,
             }),
-            { status: 200, headers: { "content-type": "text/event-stream" } },
+            { status: 200, headers: { "content-type": "text/event-stream", "x-bullet-session-id": `sid_${"2".repeat(64)}` } },
           ),
         ),
       )
@@ -293,7 +296,7 @@ describe("SSE resume transport", () => {
         Promise.resolve(
           new Response(new ReadableStream<Uint8Array>({ cancel: secondCancel }), {
             status: 200,
-            headers: { "content-type": "text/event-stream" },
+            headers: { "content-type": "text/event-stream", "x-bullet-session-id": `sid_${"2".repeat(64)}` },
           }),
         ),
       );
@@ -313,6 +316,7 @@ describe("SSE resume transport", () => {
     expect(init.headers).toEqual({
       accept: "text/event-stream",
       "Last-Event-ID": "4",
+      "x-bullet-expected-session": `sid_${"2".repeat(64)}`,
     });
     expect(result.current).toMatchObject({
       connection: "live",
@@ -333,7 +337,7 @@ describe("SSE resume transport", () => {
       Promise.resolve(
         new Response(new ReadableStream<Uint8Array>({ cancel }), {
           status: 200,
-          headers: { "content-type": "text/event-stream" },
+          headers: { "content-type": "text/event-stream", "x-bullet-session-id": `sid_${"2".repeat(64)}` },
         }),
       ),
     );
@@ -363,6 +367,7 @@ describe("SSE resume transport", () => {
     expect(retryInit.headers).toEqual({
       accept: "text/event-stream",
       "Last-Event-ID": "0",
+      "x-bullet-expected-session": `sid_${"2".repeat(64)}`,
     });
     expect(result.current).toMatchObject({ connection: "live", stale: true });
     expect(vi.getTimerCount()).toBe(1);
@@ -378,7 +383,7 @@ describe("SSE resume transport", () => {
       Promise.resolve(
         new Response(new ReadableStream({ start: (controller) => controller.close() }), {
           status: 200,
-          headers: { "content-type": "text/event-stream" },
+          headers: { "content-type": "text/event-stream", "x-bullet-session-id": `sid_${"2".repeat(64)}` },
         }),
       ),
     );

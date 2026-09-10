@@ -4,4 +4,5 @@
 # and embeds it in farmd, then runs all seven browser cases at that exact origin.
 # It never starts Vite. Absent sibling Kernel exits 78, which is not success.
 set -euo pipefail
+# real-farmd checks the actual host before building or spawning any daemon.
 exec bash "$(dirname "${BASH_SOURCE[0]}")/real-farmd.sh" --packaged "$@"

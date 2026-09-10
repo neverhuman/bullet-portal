@@ -1,6 +1,18 @@
 const CSRF_STORAGE_SLOT = "bullet-farm.csrf.v1";
 
 let csrfInMemory: string | null = null;
+let epoch = 0;
+const listeners = new Set<() => void>();
+
+export const browserSessionEpoch = (): number => epoch;
+export function onBrowserSessionChange(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+function changed(): void {
+  epoch += 1;
+  for (const listener of listeners) listener();
+}
 
 export const CSRF_HEADER = "x-bullet-csrf";
 
@@ -36,6 +48,7 @@ export function forgetBrowserSession(): void {
   } catch {
     // In-memory authority is already cleared; unavailable storage fails closed.
   }
+  changed();
 }
 
 export function rememberCsrfToken(csrf: string): void {
@@ -45,4 +58,5 @@ export function rememberCsrfToken(csrf: string): void {
   } catch {
     // The current page can still use the in-memory token; reload will fail closed.
   }
+  changed();
 }

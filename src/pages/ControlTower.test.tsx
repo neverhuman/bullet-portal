@@ -1,3 +1,6 @@
+import { hasSessionMaterial as realMaterial, csrfToken } from "../apiSession";
+import { setupOwner, pendingSlot, identity } from "../testing/pendingOwner";
+vi.mock("../apiAuth", () => ({ getOperatorSession: vi.fn(), revokeOperatorSession: vi.fn() }));
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,7 +9,7 @@ import {
   clearPendingCommand,
   loadPendingCommand,
   persistPendingCommand,
-} from "../pendingCommand";
+} from "../testing/pendingOwner";
 import { operatorSnapshotFixture } from "../testing/operatorSnapshot";
 import { command, commandId, codingPayload, digest, pendingRecord } from "../testing/commands";
 import { ControlTower } from "./ControlTower";
@@ -45,7 +48,7 @@ const mocked = {
   submitCommand: vi.mocked(api.submitCommand),
 };
 
-const slot = "bullet-farm.pending-command.v1";
+const slot = pendingSlot();
 
 function snapshot<T>(data: T, asOfSequence = 0): api.SnapshotRead<T> {
   return {
@@ -61,9 +64,9 @@ function missionsError(): api.ApiError {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.clearAllMocks(); setupOwner();
   clearPendingCommand();
-  mocked.hasSessionMaterial.mockReturnValue(true);
+  mocked.hasSessionMaterial.mockImplementation(realMaterial);
   mocked.listMissions.mockResolvedValue(snapshot([]));
   mocked.fetchOperatorSnapshot.mockResolvedValue(snapshot(operatorSnapshotFixture()));
   mocked.fetchOutbox.mockResolvedValue(snapshot({ items: [] }));
@@ -172,8 +175,8 @@ describe("ControlTower command honesty", () => {
     );
     render(<ControlTower />);
     await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
-    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("FAILED"));
-    expect(mocked.forgetBrowserSession).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(csrfToken()).toBeNull());
+    expect(screen.getByTestId("phase")).toHaveTextContent("IDLE");
     expect(screen.getByLabelText("One-time bootstrap token")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Submit durable coding command" })).toBeDisabled();
   });
@@ -275,6 +278,7 @@ describe("ControlTower command honesty", () => {
   });
 
   it("persists the envelope before POST and retries the same key after lost admission", async () => {
+    mocked.getCommand.mockRejectedValue(Object.assign(new api.ApiError("GET", "/commands", 404, "absent", false, undefined, identity.session_id), { code: "NOT_FOUND" }));
     mocked.submitCommand.mockRejectedValue(
       new api.ApiError("POST", "/api/v1/commands", null, "timeout after 10000ms"),
     );
@@ -288,19 +292,19 @@ describe("ControlTower command honesty", () => {
       idempotency_key: "portal_fixture",
       kind: "run_coding",
       payload: codingPayload,
-    });
+    }, { signal: expect.any(AbortSignal), csrf: "fixture-csrf" });
     expect(mocked.submitCommand).toHaveBeenNthCalledWith(2, {
       idempotency_key: "portal_fixture",
       kind: "run_coding",
       payload: codingPayload,
-    });
+    }, { signal: expect.any(AbortSignal), csrf: "fixture-csrf" });
     expect(mocked.newRunCodingEnvelope).toHaveBeenCalledTimes(1);
   });
 
   it("resumes an admitted command after reload instead of minting a new key", async () => {
     persistPendingCommand(pendingRecord("portal_fixture"));
     render(<ControlTower />);
-    await waitFor(() => expect(mocked.getCommand).toHaveBeenCalledWith(commandId));
+    await waitFor(() => expect(mocked.getCommand).toHaveBeenCalledWith(commandId, expect.any(AbortSignal), { "x-bullet-expected-session": identity.session_id }));
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("UNKNOWN"));
     expect(mocked.submitCommand).not.toHaveBeenCalled();
     expect(mocked.newRunCodingEnvelope).not.toHaveBeenCalled();
@@ -332,10 +336,11 @@ describe("ControlTower command honesty", () => {
     );
     persistPendingCommand(pendingRecord("portal_old"));
     const first = render(<ControlTower />);
-    await waitFor(() => expect(mocked.getCommand).toHaveBeenCalledWith(pendingRecord("portal_old").commandId));
+    await waitFor(() => expect(mocked.getCommand).toHaveBeenCalledWith(pendingRecord("portal_old").commandId, expect.any(AbortSignal), { "x-bullet-expected-session": identity.session_id }));
     first.unmount();
     const later = pendingRecord("portal_later");
     const laterId = later.commandId!;
+    clearPendingCommand(); // Independently settled old slot before a distinct reservation.
     persistPendingCommand(later);
     mocked.getCommand.mockResolvedValueOnce({
       id: laterId,
@@ -416,6 +421,7 @@ describe("ControlTower command honesty", () => {
     expect(mocked.submitCommand).toHaveBeenCalledTimes(1);
     first.unmount();
     const current = render(<ControlTower />);
+    mocked.getCommand.mockRejectedValueOnce(Object.assign(new api.ApiError("GET", "/commands", 404, "absent", false, undefined, identity.session_id), { code: "NOT_FOUND" }));
     await userEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
     await waitFor(() => expect(loadPendingCommand()).toBeNull());
     const later = pendingRecord("portal_later");

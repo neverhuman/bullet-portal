@@ -31,6 +31,12 @@ function view(): CodingRunView {
 function snapshot(data = view()) {
   return { data, as_of_sequence: 7, observed_at: "2026-09-10T12:00:01Z", source: "bullet-kernel/sqlite-ledger" };
 }
+
+vi.mock("./apiAuth", () => ({ getOperatorSession: vi.fn(async () => ({
+  status: "AUTHENTICATED", operator_id: `opr_${"1".repeat(64)}`, session_id: `sid_${"2".repeat(64)}`,
+  issued_at: "2026-09-10T00:00:00Z", expires_at: "2026-09-10T08:00:00Z",
+})) }));
+
 afterEach(() => { vi.unstubAllGlobals(); });
 
 it("creates task intent with one fresh idempotency key and no caller execution authority", () => {
@@ -86,7 +92,7 @@ it("binds every accepted task and selection field to the original digest without
 
 it("reads the exact task and its queue blocker from one authenticated snapshot", async () => {
   const body = snapshot();
-  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { headers: {
+  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { headers: { "x-bullet-session-id": `sid_${"2".repeat(64)}`,
     "content-type": "application/json", "x-bullet-as-of-sequence": "7",
   } }));
   vi.stubGlobal("fetch", fetch);
@@ -103,7 +109,7 @@ it("rejects substituted subjects, future acceptance and mismatched watermark hea
     [{ ...original, observed_at: "2026-09-10T11:59:59Z" }, "7", original.data.command.id],
     [original, "7", `cmd_${"f".repeat(64)}`],
   ] as const) {
-    fetch.mockResolvedValueOnce(new Response(JSON.stringify(body), { headers: {
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify(body), { headers: { "x-bullet-session-id": `sid_${"2".repeat(64)}`,
       "content-type": "application/json", "x-bullet-as-of-sequence": header,
     } }));
     await expect(getCodingTask(id)).rejects.toThrow();

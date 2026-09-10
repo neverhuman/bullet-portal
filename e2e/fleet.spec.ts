@@ -1,4 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
+import { mockOwner, sessionHeaders } from "./owner-fixture";
+
+test.beforeEach(mockOwner);
 
 const observedAt = "2026-08-25T00:00:00.000Z";
 
@@ -11,7 +14,7 @@ function snapshot(data: unknown, sequence: number, header = String(sequence)) {
       source: "bullet-kernel/sqlite-ledger",
     },
     contentType: "application/json",
-    headers: { "x-bullet-as-of-sequence": header },
+    headers: { ...sessionHeaders, "x-bullet-as-of-sequence": header },
   };
 }
 
@@ -21,7 +24,7 @@ function id(prefix: string, digit: string): string {
 
 async function mockStream(page: Page): Promise<void> {
   await page.route("**/api/v1/events**", (route) =>
-    route.fulfill({ status: 404, contentType: "text/plain", body: "no stream" }),
+    route.fulfill({ status: 404, headers: sessionHeaders, contentType: "text/plain", body: "no stream" }),
   );
 }
 
@@ -52,7 +55,7 @@ test("an empty fleet renders zero rows verified at the watermark, never green", 
 test("a failed fleet read renders unknown, not an empty list", async ({ page }) => {
   await mockStream(page);
   await page.route("**/api/v1/fleet", (route) =>
-    route.fulfill({ status: 500, contentType: "text/plain", body: "down" }),
+    route.fulfill({ status: 500, headers: sessionHeaders, contentType: "text/plain", body: "down" }),
   );
   await page.goto("/#/fleet");
   await expect(page.getByTestId("fleet-unknown")).toContainText(

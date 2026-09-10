@@ -17,6 +17,7 @@ case "$lane" in
   fast)     tools=(bash dirname git node npm) ;;
   lint)     tools=(actionlint bash dirname find git shellcheck sort) ;;
   contract) tools=(bash dirname git node npm) ;;
+  rendered) tools=(bash dirname git node npm) ;;
   security) tools=(bash dirname git gitleaks grep mktemp node npm zizmor) ;;
   docs)     tools=(bash chmod cp dirname git grep mkdir mktemp node npm rm) ;;
   required) tools=(actionlint bash chmod cp dirname find git gitleaks grep mkdir mktemp node npm rm shellcheck sort zizmor) ;;
@@ -28,7 +29,7 @@ case "$lane" in
   nightly)  tools=(bash dirname git node npm) ;;
   all)      tools=(actionlint bash cargo chmod cp dirname find git gitleaks grep jankurai mkdir mktemp node npm rm rustc shellcheck sort uname zizmor) ;;
   *)
-    echo "ci-doctor: expected fast|lint|contract|security|docs|required|coverage|portable|scheduled-hygiene|family|packaged-farmd|audit|nightly|all" >&2
+    echo "ci-doctor: expected fast|lint|contract|rendered|security|docs|required|coverage|portable|scheduled-hygiene|family|packaged-farmd|audit|nightly|all" >&2
     exit 2
     ;;
 esac
@@ -45,8 +46,11 @@ done
 
 # `require_node_floor` retains its historical name but enforces the exact local
 # and hosted Node/npm identities. Refuse drift before starting a lane.
-if [[ "$lane" =~ ^(fast|lint|contract|security|docs|required|coverage|portable|scheduled-hygiene|family|packaged-farmd|nightly|all)$ ]]; then
+if [[ "$lane" =~ ^(fast|lint|contract|rendered|security|docs|required|coverage|portable|scheduled-hygiene|family|packaged-farmd|nightly|all)$ ]]; then
   require_node_floor
+fi
+if [[ "$lane" =~ ^(rendered|family|packaged-farmd|nightly)$ ]]; then
+  node --input-type=module -e 'import { requireRenderedHost } from "./ops/proof/rendered-host.ts"; requireRenderedHost();'
 fi
 if [[ "$lane" =~ ^(security|required|scheduled-hygiene|all)$ ]]; then
   [[ "$(gitleaks version)" == "8.21.2" ]] || {

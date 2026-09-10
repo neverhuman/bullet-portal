@@ -1,4 +1,7 @@
 import { defineConfig } from "@playwright/test";
+import { requireRenderedHost } from "./ops/proof/rendered-host";
+
+requireRenderedHost();
 
 export default defineConfig({
   testDir: "e2e",

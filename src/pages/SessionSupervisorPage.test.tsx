@@ -3,6 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { surfaceById, type Surface } from "../surfaces";
 import { SessionSupervisorPage } from "./SessionSupervisorPage";
 
+
+vi.mock("../apiAuth", () => ({ getOperatorSession: vi.fn(async () => ({
+  status: "AUTHENTICATED", operator_id: `opr_${"1".repeat(64)}`, session_id: `sid_${"2".repeat(64)}`,
+  issued_at: "2026-09-10T00:00:00Z", expires_at: "2026-09-10T08:00:00Z",
+})) }));
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -15,7 +21,7 @@ function json(data: unknown, sequence = "3", header = sequence): Response {
       observed_at: "2026-08-25T00:00:00.000Z",
       source: "bullet-kernel/sqlite-ledger",
     }),
-    { status: 200, headers: { "content-type": "application/json", "x-bullet-as-of-sequence": header } },
+    { status: 200, headers: { "x-bullet-session-id": `sid_${"2".repeat(64)}`, "content-type": "application/json", "x-bullet-as-of-sequence": header } },
   );
 }
 

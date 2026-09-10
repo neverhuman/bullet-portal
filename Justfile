@@ -5,6 +5,9 @@ setup:
     node ops/ci/preinstall-scan.mjs
     bash -c 'source ops/ci/lib.sh; require_node_floor'
     npm ci --ignore-scripts --no-fund --no-audit
+
+setup-rendered: setup
+    node --input-type=module -e 'import { requireRenderedHost } from "./ops/proof/rendered-host.ts"; requireRenderedHost();'
     ./node_modules/.bin/playwright install chromium
 
 fast:
@@ -15,6 +18,9 @@ check:
 
 contract:
     bash scripts/ci-local.sh contract
+
+rendered:
+    bash scripts/ci-local.sh rendered
 
 lint:
     bash scripts/ci-local.sh lint
@@ -52,4 +58,4 @@ check-types:
     ./node_modules/.bin/tsc -p tsconfig.json --noEmit
 
 playwright-contract:
-    ./node_modules/.bin/playwright test
+    bash scripts/ci-local.sh rendered

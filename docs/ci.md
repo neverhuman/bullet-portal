@@ -28,11 +28,13 @@ and [secure use](https://docs.github.com/en/actions/reference/security/secure-us
 
 Node is pinned to 22.23.2 and npm to 10.9.8. A dependency-free source and
 lockfile scan runs before any dependency installation. Installation uses
-`npm ci --ignore-scripts`; the Chromium lifecycle is a separate reviewed
-Playwright step for the existing mocked contract identities. Authenticated
-Head Playwright and Tuiwright are not hosted: do not add them to
-`.github/workflows`. The xbabe2-only recipe is Hub `just xbabe2-head` (exit
-78 off-node or under `CI`/`GITHUB_ACTIONS`). The security lane then runs gitleaks 8.21.2 over the current
+`npm ci --ignore-scripts`. Hosted workflows do not install or execute browsers.
+All Tuiwright and Playwright runs, including mocked cases, belong locally on
+`xbabe2` outside CI. `just setup-rendered` checks that host before provisioning
+Chromium. `rendered`, `family`, and `packaged-farmd` remain additional local
+integration requirements. They do not qualify authenticated Head execution;
+Hub `just xbabe2-head` retains its separate admission and availability checks.
+The security lane then runs gitleaks 8.21.2 over the current
 tree, proves a disposable secret-shaped canary is rejected, runs the full npm
 audit, and runs zizmor 1.25.2. The lint lane requires actionlint 1.7.8 and
 ShellCheck 0.10.0.
