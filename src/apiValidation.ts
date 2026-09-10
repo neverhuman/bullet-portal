@@ -12,6 +12,7 @@ import type {
   MergeRailView,
   Mission,
   MissionView,
+  OperatorSnapshotView,
   OutboxView,
   Problem,
   QualityLabView,
@@ -21,7 +22,7 @@ import type {
 
 export type ResponseValidator<T> = (value: unknown) => value is T;
 
-function compileGeneratedValidator<T>(reference: string): ResponseValidator<T> {
+export function compileGeneratedValidator<T>(reference: string): ResponseValidator<T> {
   const validate = schemaCompiler.getSchema<T>(reference);
   if (validate === undefined) {
     throw new Error(`generated API schema is missing ${reference}`);
@@ -222,3 +223,24 @@ export function auditTailIsCoherent(view: AuditView): boolean {
 
 export const isAuditView: ResponseValidator<AuditView> = (value): value is AuditView =>
   validatesAuditView(value) && auditTailIsCoherent(value);
+
+const validatesOperatorSnapshot = compileGeneratedValidator<OperatorSnapshotView>(
+  PUBLIC_API_RUNTIME_REFS.OperatorSnapshotView,
+);
+
+export const isOperatorSnapshotView: ResponseValidator<OperatorSnapshotView> = (
+  value,
+): value is OperatorSnapshotView => {
+  if (!validatesOperatorSnapshot(value) || !isAuditView(value.audit) ||
+      !isQualityLabView(value.quality_lab) ||
+      value.audit.events.length !== Math.min(value.audit.latest_sequence, value.audit.tail_window)) return false;
+  const missions = new Map(value.missions.map((mission) => [mission.id, mission]));
+  const graphIds = new Set(value.graphs.map((graph) => graph.mission.id));
+  return missions.size === value.missions.length && graphIds.size === value.graphs.length &&
+    value.graphs.length === value.missions.length && value.graphs.every((graph) => {
+      const mission = missions.get(graph.mission.id);
+      return mission !== undefined && isMissionView(graph) &&
+        (Object.keys(mission) as (keyof Mission)[]).every((key) => mission[key] === graph.mission[key]) &&
+        graph.packages.every((work) => work.mission_id === mission.id);
+    });
+};

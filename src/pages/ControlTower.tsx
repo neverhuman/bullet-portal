@@ -1,15 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ApiError,
   errorText,
-  exchangeBootstrap,
-  fetchFleet,
-  fetchOutbox,
-  fetchSessions,
   forgetBrowserSession,
   getCommand,
   hasSessionMaterial,
-  listMissions,
   newRunCodingEnvelope,
   type CodingProviderName,
   submitCommand,
@@ -27,18 +22,13 @@ import { InsightBoard } from "../components/InsightBoard";
 import { MissionsCard } from "../components/MissionsCard";
 import { OutboxCard } from "../components/OutboxCard";
 import { StatusHeader } from "../components/StatusHeader";
+import { OperatorSession } from "../components/OperatorSession";
 import type {
   CommandEnvelope,
   CommandStatus,
-  FleetView,
-  Mission,
-  OutboxView,
-  SessionSupervisorView,
 } from "../generated/api";
-import { useEventStream } from "../hooks/useEventStream";
+import { operatorPart, useOperatorSnapshot } from "../hooks/useOperatorSnapshot";
 import { useHealthProbe } from "../hooks/useHealthProbe";
-import type { Loadable } from "../loadable";
-import { toSnapshotValue, toUnknown } from "../loadable";
 
 type MutationPhase = "IDLE" | Exclude<CommandStatus["status"], "VERIFIED">;
 
@@ -93,111 +83,21 @@ function pendingCodingConflicts(
 }
 
 export function ControlTower() {
-  const [missions, setMissions] = useState<Loadable<Mission[]>>({ kind: "loading" });
-  const [outbox, setOutbox] = useState<Loadable<OutboxView>>({ kind: "loading" });
-  const [fleet, setFleet] = useState<Loadable<FleetView>>({ kind: "loading" });
-  const [sessions, setSessions] = useState<Loadable<SessionSupervisorView>>({ kind: "loading" });
+  const snapshot = useOperatorSnapshot();
+  const missions = operatorPart(snapshot, "missions");
+  const outbox = operatorPart(snapshot, "outbox");
+  const fleet = operatorPart(snapshot, "fleet");
+  const sessions = operatorPart(snapshot, "sessions");
   const [command, setCommand] = useState<CommandStatus | null>(null);
   const [phase, setPhase] = useState<MutationPhase>("IDLE");
   const [error, setError] = useState<string | null>(null);
   const [accountId, setAccountId] = useState("acct-local");
   const [model, setModel] = useState("claude-opus-4-6");
   const [provider, setProvider] = useState<CodingProviderName>("claude");
-  const [bootstrapToken, setBootstrapToken] = useState("");
   const [sessionMaterial, setSessionMaterial] = useState(hasSessionMaterial);
-  const [authPending, setAuthPending] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
   const runningRef = useRef(false);
   const commandGeneration = useRef(0);
   const health = useHealthProbe();
-
-  const refreshMissions = useCallback(async (): Promise<number | null> => {
-    try {
-      const snapshot = await listMissions();
-      setMissions(toSnapshotValue(snapshot.data, snapshot.observedAt, snapshot.source));
-      return snapshot.asOfSequence;
-    } catch (err) {
-      setMissions(toUnknown(`control plane unreachable (${errorText(err)})`));
-      return null;
-    }
-  }, []);
-
-  const refreshOutbox = useCallback(async (): Promise<number | null> => {
-    try {
-      const snapshot = await fetchOutbox();
-      setOutbox(toSnapshotValue(snapshot.data, snapshot.observedAt, snapshot.source));
-      return snapshot.asOfSequence;
-    } catch (err) {
-      setOutbox(toUnknown(`outbox unreachable (${errorText(err)})`));
-      return null;
-    }
-  }, []);
-
-  const refreshFleet = useCallback(async (): Promise<number | null> => {
-    if (!sessionMaterial) {
-      setFleet(toUnknown("session required for fleet projection"));
-      return null;
-    }
-    try {
-      const snapshot = await fetchFleet();
-      setFleet(toSnapshotValue(snapshot.data, snapshot.observedAt, snapshot.source));
-      return snapshot.asOfSequence;
-    } catch (err) {
-      setFleet(toUnknown(`fleet unreachable (${errorText(err)})`));
-      return null;
-    }
-  }, [sessionMaterial]);
-
-  const refreshSessions = useCallback(async (): Promise<number | null> => {
-    if (!sessionMaterial) {
-      setSessions(toUnknown("session required for sessions projection"));
-      return null;
-    }
-    try {
-      const snapshot = await fetchSessions();
-      setSessions(toSnapshotValue(snapshot.data, snapshot.observedAt, snapshot.source));
-      return snapshot.asOfSequence;
-    } catch (err) {
-      setSessions(toUnknown(`sessions unreachable (${errorText(err)})`));
-      return null;
-    }
-  }, [sessionMaterial]);
-
-  const refreshSnapshot = useCallback(async (): Promise<number | null> => {
-    const [missionsSequence, outboxSequence, fleetSequence, sessionsSequence] = await Promise.all([
-      refreshMissions(),
-      refreshOutbox(),
-      refreshFleet(),
-      refreshSessions(),
-    ]);
-    if (missionsSequence === null || outboxSequence === null) {
-      return null;
-    }
-    if (fleetSequence !== null && sessionsSequence !== null) {
-      return Math.min(missionsSequence, outboxSequence, fleetSequence, sessionsSequence);
-    }
-    return Math.min(missionsSequence, outboxSequence);
-  }, [refreshMissions, refreshOutbox, refreshFleet, refreshSessions]);
-
-  const stream = useEventStream(refreshSnapshot);
-
-  async function onAuthenticate(): Promise<void> {
-    if (authPending || bootstrapToken.trim() === "") {
-      return;
-    }
-    setAuthPending(true);
-    setAuthError(null);
-    try {
-      await exchangeBootstrap(bootstrapToken.trim());
-      setBootstrapToken("");
-      setSessionMaterial(true);
-    } catch (err) {
-      setSessionMaterial(false);
-      setAuthError(errorText(err));
-    } finally {
-      setAuthPending(false);
-    }
-  }
 
   async function reconcile(initial: CommandStatus, generation: number, envelope: CommandEnvelope): Promise<void> {
     let last = initial;
@@ -365,39 +265,18 @@ export function ControlTower() {
     <main>
       <h1>Control Tower</h1>
       <p className="tagline">Many minds. One verified line to main.</p>
-      <StatusHeader stream={stream} health={health.state} />
+      {snapshot.stream !== undefined && <StatusHeader stream={snapshot.stream} health={health.state} snapshot={snapshot} />}
+      <p className="tagline" data-testid="operator-snapshot-provenance">
+        source {snapshot.kind === "loading" ? "unknown" : snapshot.source} · observed_at{" "}
+        {snapshot.kind === "loading" ? "unknown" : snapshot.observedAt} · event refresh; 10s fallback
+      </p>
+      <button type="button" onClick={snapshot.refresh}>Refresh snapshot</button>
       <InsightBoard fleet={fleet} sessions={sessions} sessionMaterial={sessionMaterial} />
-      {sessionMaterial ? (
-        <p className="pending" data-testid="auth-state">
-          local session material present; farmd revalidates every command
-        </p>
-      ) : (
-        <form
-          className="card"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void onAuthenticate();
-          }}
-        >
-          <h2>Local browser session</h2>
-          <label htmlFor="bootstrap-token">One-time bootstrap token</label>{" "}
-          <input
-            id="bootstrap-token"
-            type="password"
-            autoComplete="off"
-            value={bootstrapToken}
-            onChange={(event) => setBootstrapToken(event.target.value)}
-          />{" "}
-          <button type="submit" disabled={authPending || bootstrapToken.trim() === ""}>
-            Authenticate local session
-          </button>
-          {authError !== null ? (
-            <p className="failed" data-testid="auth-error">
-              {authError}
-            </p>
-          ) : null}
-        </form>
-      )}
+      <OperatorSession material={sessionMaterial} onChange={(material) => {
+        setSessionMaterial(material);
+        if (!material) { commandGeneration.current += 1; runningRef.current = false; }
+        snapshot.refresh?.();
+      }} />
       <label htmlFor="coding-account">Account</label>{" "}
       <input
         id="coding-account"

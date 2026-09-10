@@ -1,5 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { operatorSnapshotFixture } from "../testing/operatorSnapshot";
 import { NO_LEDGER_SUBJECT, SURFACES, surfaceById, type Surface } from "../surfaces";
 import { briefRow, ShiftBriefPage, type Provenance } from "./ShiftBriefPage";
 
@@ -111,7 +112,7 @@ describe("ShiftBriefPage", () => {
     expect(screen.getByTestId("brief-fleet-evidence")).toHaveTextContent("NONE_UNREACHABLE");
     expect(screen.getByTestId("brief-fleet-status")).toHaveClass("unknown");
     expect(screen.getByTestId("brief-fleet-blocker")).toHaveTextContent(
-      "unknown: GET /api/v1/fleet failed: ECONNREFUSED",
+      "unknown: Operator snapshot: control plane unreachable (GET /api/v1/operator-snapshot failed: ECONNREFUSED)",
     );
     expect(screen.getByTestId("brief-fleet-freshness")).toHaveTextContent("unknown");
     expect(screen.getByTestId("brief-fleet-subject")).toHaveTextContent("unknown (read failed)");
@@ -122,43 +123,48 @@ describe("ShiftBriefPage", () => {
     expect(screen.getByTestId("shift-brief").querySelector(".verified")).toBeNull();
   });
 
-  it("carries each durable surface's own provenance and reads the shared missions list once", async () => {
+  it("carries one shared provenance for every durable surface and refreshes it together", async () => {
     const urls: string[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string) => {
-        urls.push(input);
-        if (input.endsWith("/api/v1/fleet")) {
-          return json({ authority_time: "2026-08-25T00:00:01.000Z", leases: [], ready_queue: [] }, 5);
-        }
-        if (input.endsWith("/api/v1/missions")) {
-          return json([], 7);
-        }
-        return new Response("down", { status: 500, headers: { "content-type": "text/plain" } });
-      }),
-    );
+    let sequence = 7;
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+      urls.push(input);
+      if (input.endsWith("/api/v1/operator-snapshot")) return json(operatorSnapshotFixture(sequence), sequence);
+      return new Response("no stream", { status: 404 });
+    }));
     render(<ShiftBriefPage />);
     await settled();
-    expect(screen.getByTestId("brief-fleet-evidence")).toHaveTextContent("PROJECTION_SNAPSHOT");
-    expect(screen.getByTestId("brief-mission-graph-evidence")).toHaveTextContent("PROJECTION_SNAPSHOT");
-    expect(screen.getByTestId("brief-quality-lab-evidence")).toHaveTextContent("NONE_UNREACHABLE");
-    expect(screen.getByTestId("brief-fleet-subject")).toHaveTextContent(
-      "bullet-kernel/sqlite-ledger · as_of_sequence 5",
-    );
-    expect(screen.getByTestId("brief-fleet-freshness")).toHaveTextContent(
-      "observed_at 2026-08-25T00:00:00.000Z (one-shot snapshot, not live)",
-    );
-    expect(screen.getByTestId("brief-fleet-next")).toHaveTextContent("open #/fleet and read it at as_of_sequence 5");
-    expect(screen.getByTestId("brief-fleet-status")).toHaveClass("idle");
-    expect(screen.getByTestId("brief-fleet-status")).not.toHaveClass("verified");
-    expect(screen.getByTestId("brief-control-tower-subject")).toHaveTextContent("as_of_sequence 7");
-    expect(screen.getByTestId("brief-mission-graph-subject")).toHaveTextContent("as_of_sequence 7");
-    expect(screen.getByTestId("brief-quality-lab-blocker")).toHaveTextContent("HTTP 500");
-    expect(urls.filter((url) => url.endsWith("/api/v1/missions"))).toHaveLength(1);
+    for (const item of SURFACES.filter((item) => !ABSENT_SUBJECT_SURFACES.includes(item.id))) {
+      expect(screen.getByTestId(`brief-${item.id}-evidence`)).toHaveTextContent("PROJECTION_SNAPSHOT");
+      expect(screen.getByTestId(`brief-${item.id}-subject`)).toHaveTextContent("as_of_sequence 7");
+      expect(screen.getByTestId(`brief-${item.id}-freshness`)).toHaveTextContent("observed_at 2026-08-25T00:00:00.000Z (event refresh; 10s fallback)");
+      expect(screen.getByTestId(`brief-${item.id}-status`)).not.toHaveClass("verified");
+    }
+    expect(screen.getByTestId("brief-fleet-next")).toHaveTextContent("open #/fleet and read it at as_of_sequence 7");
     expect(screen.getByTestId("shift-brief-summary")).toHaveTextContent(
-      "durable 9 (read at a sequence 3, read unknown 6) · unknown 6 · profile availability unknown",
+      "durable 9 (read at a sequence 9, read unknown 0) · unknown 6 · profile availability unknown",
     );
+    expect(urls.filter((url) => !url.includes("/events"))).toEqual(["/api/v1/operator-snapshot"]);
+    sequence = 8;
+    await act(async () => { screen.getByRole("button", { name: "Refresh snapshot" }).click(); });
+    await waitFor(() => expect(screen.getByTestId("brief-fleet-subject")).toHaveTextContent("as_of_sequence 8"));
+    for (const item of SURFACES.filter((item) => !ABSENT_SUBJECT_SURFACES.includes(item.id))) {
+      expect(screen.getByTestId(`brief-${item.id}-subject`)).toHaveTextContent("as_of_sequence 8");
+    }
+    expect(screen.getByTestId("shift-brief-snapshot")).toHaveTextContent("STALE");
     expect(statusText("quota-capacity")).toBe("unknown");
+    expect(screen.getByTestId("shift-brief").querySelector(".verified")).toBeNull();
+  });
+
+  it("a malformed component refuses every durable row instead of showing a partial brief", async () => {
+    const malformed = operatorSnapshotFixture(5);
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => input.endsWith("/api/v1/operator-snapshot")
+      ? json({ ...malformed, quality_lab: { ...malformed.quality_lab, unexpected: true } }, 5)
+      : new Response("no stream", { status: 404 })));
+    render(<ShiftBriefPage />);
+    await settled();
+    expect(screen.getAllByText("NONE_UNREACHABLE")).toHaveLength(9);
+    expect(screen.queryAllByText("PROJECTION_SNAPSHOT")).toHaveLength(0);
+    expect(screen.getByTestId("brief-fleet-blocker")).toHaveTextContent("schema validation");
     expect(screen.getByTestId("shift-brief").querySelector(".verified")).toBeNull();
   });
 

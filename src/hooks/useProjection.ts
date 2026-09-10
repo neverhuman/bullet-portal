@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errorText, type SnapshotRead } from "../api";
+import { useEventStream, type EventStreamState } from "./useEventStream";
 
 /** One surface's read: a set of snapshot reads and the body derived from them. */
 export type ProjectionRead<T> = { reads: SnapshotRead<unknown>[]; body: T };
 
-export type ProjectionLoad<T> =
+export type ProjectionLoad<T> = (
   | { kind: "loading" }
   | { kind: "value"; asOf: number; observedAt: string; source: string; body: T }
-  | { kind: "unknown"; text: string; observedAt: string; source: "portal/local" };
+  | { kind: "unknown"; text: string; observedAt: string; source: "portal/local" }
+) & { stream?: EventStreamState; refresh?: () => void };
 
 export function localUnknown(text: string): ProjectionLoad<never> {
   return {
@@ -48,30 +50,81 @@ export function atomicSnapshot(reads: SnapshotRead<unknown>[]): {
 }
 
 /**
- * Load one surface exactly once per mount. `load` must be a stable function
- * (module level) so the effect does not re-run on every render.
+ * One active surface owns one stream. Events invalidate its atomic snapshot;
+ * the event cursor never substitutes for the displayed snapshot's watermark.
+ * `load` must be stable (module level). The transport bounds pending reads.
  */
 export function useProjection<T>(
   title: string,
   load: () => Promise<ProjectionRead<T>>,
 ): ProjectionLoad<T> {
   const [state, setState] = useState<ProjectionLoad<T>>({ kind: "loading" });
+  const requestRef = useRef<(sequence: number) => Promise<number | null>>(async () => null);
+  const invalidateRef = useRef<(sequence: number) => void>(() => {});
   useEffect(() => {
-    const controller = new AbortController();
-    void (async () => {
-      try {
-        const { reads, body } = await load();
-        if (controller.signal.aborted) {
-          return;
-        }
-        setState({ kind: "value", ...atomicSnapshot(reads), body });
-      } catch (err) {
-        if (!controller.signal.aborted) {
-          setState(localUnknown(`${title}: control plane unreachable (${errorText(err)})`));
-        }
+    let disposed = false;
+    let inFlight: Promise<number | null> | null = null;
+    let requested = 0;
+    let published = -1;
+    let scheduled: ReturnType<typeof setTimeout> | undefined;
+    setState({ kind: "loading" });
+
+    const invalidate = (sequence: number) => {
+      requested = Math.max(requested, sequence);
+      if (scheduled === undefined && !disposed) {
+        scheduled = setTimeout(() => {
+          scheduled = undefined;
+          void request(requested);
+        }, 100);
       }
-    })();
-    return () => controller.abort();
+    };
+    const request = (sequence: number): Promise<number | null> => {
+      if (disposed) return Promise.resolve(null);
+      requested = Math.max(requested, sequence);
+      if (inFlight !== null) return inFlight;
+      clearTimeout(scheduled);
+      scheduled = undefined;
+      const startedThrough = requested;
+      inFlight = (async () => {
+        try {
+          const { reads, body } = await load();
+          if (disposed) return null;
+          const snapshot = atomicSnapshot(reads);
+          if (snapshot.asOf < published) throw new Error("SNAPSHOT_SEQUENCE_REGRESSION");
+          published = snapshot.asOf;
+          setState({ kind: "value", ...snapshot, body });
+          return snapshot.asOf;
+        } catch (err) {
+          if (!disposed) setState(localUnknown(`${title}: control plane unreachable (${errorText(err)})`));
+          return null;
+        }
+      })().finally(() => {
+        inFlight = null;
+        // A burst during a slow read gets one successor read, not an unbounded queue.
+        if (requested > startedThrough && published < requested) invalidate(requested);
+      });
+      return inFlight;
+    };
+    requestRef.current = request;
+    invalidateRef.current = invalidate;
+    void request(0);
+    const refreshVisible = () => {
+      if (document.visibilityState !== "hidden") void request(requested);
+    };
+    const interval = setInterval(refreshVisible, 10_000);
+    window.addEventListener("focus", refreshVisible);
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      disposed = true;
+      clearTimeout(scheduled);
+      clearInterval(interval);
+      window.removeEventListener("focus", refreshVisible);
+      document.removeEventListener("visibilitychange", refreshVisible);
+    };
   }, [title, load]);
-  return state;
+  const reconcile = useCallback((sequence: number) => requestRef.current(sequence), []);
+  const onEvent = useCallback((sequence: number) => invalidateRef.current(sequence), []);
+  const refresh = useCallback(() => { void requestRef.current(0); }, []);
+  const stream = useEventStream(reconcile, onEvent, state.kind === "value" ? state.asOf : undefined);
+  return { ...state, stream, refresh };
 }

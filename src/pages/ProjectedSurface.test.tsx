@@ -139,7 +139,7 @@ describe("ProjectedSurface", () => {
     expect(JSON.parse(element.textContent ?? "")).toEqual({ ready: null, graphs: [graph] });
     expect(screen.getByTestId("live-attempt-tagline")).toHaveTextContent("as_of_sequence 3");
     expect(fetch.mock.calls.map(([input]) => String(input)).sort()).toEqual([
-      "/api/v1/missions", `/api/v1/missions/${missionId}`, "/api/v1/ready",
+      "/api/v1/missions", `/api/v1/missions/${missionId}`, "/api/v1/ready", "/api/v1/events?after=3",
     ].sort());
   });
 
@@ -158,7 +158,7 @@ describe("ProjectedSurface", () => {
     render(<ProjectedSurface surface={surface} />);
     expect(await screen.findByTestId(`${id}-unknown`)).toHaveTextContent("route unavailable");
     expect(fetch.mock.calls.map(([input]) => String(input)).sort()).toEqual(
-      endpoints.map((endpoint) => `/api/v1/${endpoint}`).sort(),
+      [...endpoints.map((endpoint) => `/api/v1/${endpoint}`), "/api/v1/events?after=0"].sort(),
     );
     expect(screen.getByTestId(`${id}-tagline`)).toHaveTextContent("confidence unknown");
   });

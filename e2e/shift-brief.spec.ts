@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { operatorSnapshotFixture } from "../src/testing/operatorSnapshot";
 
 const observedAt = "2026-08-27T11:00:00.000Z";
 
@@ -21,15 +22,12 @@ async function refuseFarmd(page: Page): Promise<void> {
 }
 
 async function mockControlTower(page: Page): Promise<void> {
-  await page.route("**/api/v1/missions", async (route) => {
+  await page.route("**/api/v1/operator-snapshot", async (route) => {
     if (route.request().method() === "GET") {
-      await route.fulfill(snapshot([]));
+      await route.fulfill(snapshot(operatorSnapshotFixture()));
       return;
     }
     await route.fallback();
-  });
-  await page.route("**/api/v1/outbox", async (route) => {
-    await route.fulfill(snapshot({ items: [] }));
   });
   await page.route("**/api/v1/events**", async (route) => {
     await route.fulfill({ status: 404, contentType: "text/plain", body: "no stream" });

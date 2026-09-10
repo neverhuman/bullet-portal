@@ -1,8 +1,8 @@
 # Portal projections
 
-Status: component contract consuming Kernel `c3a7009`; no release claim
+Status: component contract; current sources require independent release admission
 Owner: Bullet Farm maintainers
-Last reviewed: 2026-08-25
+Last reviewed: 2026-09-09
 Applies to: bullet-portal
 
 This document states what the browser reads, how each read is validated, and
@@ -34,13 +34,10 @@ following hold (`src/apiValidation.ts`: `isSnapshotEnvelope`; `src/apiTransport.
   is null or an integer; `ReadyView` may be `null`; `AuditView` must satisfy
   `auditTailIsCoherent` — at most `tail_window` events, contiguous `seq`, and
   the last `seq` equal to `latest_sequence` (an empty tail only when
-  `latest_sequence === 0`). `ContextLineageView` and its DTO are generated,
-  but the Kernel generator has not exported that view as an AJV root; the
-  adjacent strict `isContextLineageView` validates every generated field,
-  exact keys, typed IDs/digests, the exact closed 16-value snake_case
-  `TaskClass` catalog, revision one, null parent, `compression: "none"`, empty
-  dropped decisions, and RFC 3339 `recorded_at` without declaring a second
-  wire DTO.
+  `latest_sequence === 0`). `ContextLineageView` is also a generated runtime-schema root and uses the
+  same strict AJV validation for the closed fields, typed IDs/digests,
+  task-class catalog, revision one, null parent, no compression, empty dropped
+  decisions and RFC 3339 recording time.
 - The `x-bullet-as-of-sequence` response header is present, canonical
   decimal (`/^(?:0|[1-9]\d*)$/`), a safe integer, and equal to
   `body.as_of_sequence`. Otherwise the read throws `snapshot watermark header
@@ -55,8 +52,9 @@ route that disagrees with itself.
 
 ## Composition: one shared watermark per view
 
-`useProjection(title, load)` (`src/hooks/useProjection.ts`) runs `load` once
-per mount and passes every `SnapshotRead` it produced to `atomicSnapshot`:
+`useProjection(title, load)` (`src/hooks/useProjection.ts`) loads on mount and
+invalidates the active surface on ordinary accepted events. It passes every
+`SnapshotRead` in each refresh to `atomicSnapshot`:
 
 - no reads: `SNAPSHOT_WATERMARK_MISSING`;
 - any `asOfSequence` differing from the first: `SNAPSHOT_WATERMARK_MISMATCH`;
@@ -70,11 +68,50 @@ source: "portal/local"}`, a local observation timestamped by the browser, and
 the surface renders that text in the `unknown` class. `ProjectionCard`
 (`src/components/ProjectionCard.tsx`) always prints the header line
 `spec §N · as_of_sequence <n|unknown> · source <s|unknown> · observed_at
-<t|unknown> · freshness <k>s since observed_at (one-shot snapshot, not live) ·
-projection <loading|unknown|published> · confidence <published|unknown>`.
-Projected surfaces do not subscribe to `/api/v1/events`; only Control Tower does
-(`src/hooks/useEventStream.ts`), so a STALE badge there never silently
-refreshes a one-shot projection and a projection never claims to be live.
+<t|unknown> · freshness <age and refresh mode|unknown> ·
+projection <loading|unknown|stale|published> · confidence <published|unknown>`.
+The eight existing projected surfaces, Control Tower and Shift Brief each
+own one stream while mounted through `useProjection`.
+Accepted contiguous events coalesce for 100 ms before refreshing. Duplicate
+frames do not trigger reads; a burst during a pending read gets at most one
+successor request. There is one read in flight per active loader. A visible
+page also refreshes every 10 seconds, on focus and when becoming visible;
+the operator can request a refresh explicitly. Disposing a loader removes its
+timers/listeners and ignores late results. HTTP reads retain their existing
+10-second deadline. A lower snapshot sequence is refused as
+`SNAPSHOT_SEQUENCE_REGRESSION`.
+
+The card displays the event cursor and the **displayed snapshot** separately.
+A cursor ahead of the snapshot, a stream gap or a disconnected stream shows
+STALE. An event never advances the displayed snapshot watermark by itself.
+The freshness label reads `event refresh; 10s fallback`; a manually supplied
+unsubscribed card retains the one-shot label. Connection state describes the
+event transport, not provider health or verified work. An UNKNOWN or loading
+snapshot never receives a current-snapshot label even with a healthy stream.
+Control Tower and Shift Brief use `useOperatorSnapshot`, which passes one
+`GET /api/v1/operator-snapshot` response through the same refresh scheduler.
+The Kernel composes mission lists and graphs, outbox, readiness, fleet,
+sessions, context lineage, merge rail, quality lab and audit inside one
+`SqliteLedger::read_snapshot` closure. Every durable Shift Brief row therefore
+carries the same sequence, observation time and source. A failed component
+refuses the whole aggregate. Control Tower publishes all four component cards
+from that one result; its displayed snapshot watermark is separate from the
+event cursor. Refresh preserves operator input.
+
+`OperatorSnapshotView` and its strict runtime schema are generated from
+OpenAPI. The client additionally checks mission/graph agreement, complete
+contiguous audit coverage, the audit/envelope watermark, and quality outcome
+consistency. A malformed component never produces a partially successful
+brief. These are component projection guarantees; provider execution,
+independent verification and integration remain separate obligations.
+
+Navigation is keyboard accessible through the searchable palette in
+[`CommandPalette.tsx`](../src/components/CommandPalette.tsx): Ctrl/Cmd+K,
+or `/` outside editable controls; arrows choose, Enter opens, Escape closes
+and restores focus. It lists Shift Brief and all fifteen surfaces, explicitly
+labels missing projections, and submits no mutation. The planned terminal
+console, native session controls and review/integration actions remain separate
+implementation obligations.
 
 ## Counting and empty sets
 
@@ -96,7 +133,7 @@ refreshes a one-shot projection and a projection never claims to be live.
   `mission_id`), `not recorded`, `none recorded`, `absent`, `not delivered`,
   `not acked`, `none` (`nullable(...)` in each page).
 - Control Tower keeps its own vocabulary: `No missions yet.` and
-  `outbox: empty (verified)` render only from an HTTP 200 JSON snapshot
+  `outbox: empty (observed)` render only from an HTTP 200 JSON snapshot
   (`src/components/MissionsCard.tsx`, `OutboxCard.tsx`); a failed read is
   `unknown: control plane unreachable (…)` or `unknown: outbox unreachable (…)`.
 
@@ -104,7 +141,7 @@ refreshes a one-shot projection and a projection never claims to be live.
 
 | Surface (`id`, spec) | Routes | DTO (`src/generated/api.ts`) | Component | Shown | Deliberately absent |
 | --- | --- | --- | --- | --- | --- |
-| Control Tower (`control-tower`, §25.1) | `GET /api/v1/missions`, `GET /api/v1/outbox`, `GET /health`, `GET /api/v1/events?after=<seq>`; `POST /api/v1/auth/bootstrap`, `POST /api/v1/commands`, `GET /api/v1/commands/{id}` | `Mission[]`, `OutboxView`, `Health`, `EventEnvelope`, `BootstrapResponse`, `CommandEnvelope`, `CommandStatus` | `src/pages/ControlTower.tsx` | `as_of_sequence`, projection lag from durable `Event.at`, stream state, `/health` probe, missions, outbox phases, the exact admitted command and its polled status; a bare durable `VERIFIED` is displayed as local `UNKNOWN` because generic `CommandStatus.result` cannot validate runtime Evidence and Effect receipts | green for any command until a generated runtime receipt contract binds the exact Candidate, independent Evidence, Effect receipt, and command id; any status that does not repeat the admitted id, kind, and payload digest; survival, cost, quota risk, and struggle (no ledger subject) |
+| Control Tower (`control-tower`, §25.1) | `GET /api/v1/operator-snapshot`, `GET /health`, `GET /api/v1/events?after=<seq>`; `POST /api/v1/auth/bootstrap`, `POST /api/v1/commands`, `GET /api/v1/commands/{id}` | `OperatorSnapshotView`, `Health`, `EventEnvelope`, `BootstrapResponse`, `CommandEnvelope`, `CommandStatus` | `src/pages/ControlTower.tsx` | `as_of_sequence`, projection lag from durable `Event.at`, stream state, `/health` probe, missions, outbox phases, the exact admitted command and its polled status; a bare durable `VERIFIED` is displayed as local `UNKNOWN` because generic `CommandStatus.result` cannot validate runtime Evidence and Effect receipts | green for any command until a generated runtime receipt contract binds the exact Candidate, independent Evidence, Effect receipt, and command id; any status that does not repeat the admitted id, kind, and payload digest; survival, cost, quota risk, and struggle (no ledger subject) |
 | Mission Graph (`mission-graph`, §25.2) | `GET /api/v1/missions`, then `GET /api/v1/missions/{id}` per mission | `Mission[]`, `MissionView` (`mission`, `packages: WorkPackage[]`, `fence`) | `src/pages/ProjectedSurface.tsx` (`MissionGraph`) | raw JSON `{missions, graphs}` at the shared watermark | plan revisions, variants, attempts, candidates, evidence, and effects are not in `MissionView`; they appear only on Session Supervisor, Merge Rail, and Quality Lab |
 | Live Attempt (`live-attempt`, §25.6) | as Mission Graph plus `GET /api/v1/ready` | `ReadyView` or `null`, `MissionView` | `src/pages/ProjectedSurface.tsx` (`LiveAttempt`) | raw JSON `{ready, graphs}`; `ready: null` is the empty queue at the watermark | session events, authority token hash, last-progress time: none is a ledger subject; `ReadyView` carries only ids, `title`, `enqueued_at` |
 | Fleet (`fleet`, §25.5) | `GET /api/v1/fleet` | `FleetView` (`authority_time`, `leases: FleetLease[]`, `ready_queue: ReadyRow[]`) | `src/pages/FleetPage.tsx` | `authority_time` (store clock, liveness basis); per lease `liveness` live/expired/unknown judged by the kernel against that clock, fence, runner id and epoch, `heartbeat_at`, `expires_at`, `ttl_seconds`, linked attempt state, package, mission; ready queue | any browser-clock liveness judgement; runner host or process identity; a lease with no attempt row prints `contradictory: attempt row missing` rather than being hidden |
@@ -145,7 +182,7 @@ longer in this table; only the exact revision-one slice above is projected.
 
 ## Where this is exercised
 
-- Unit and component (`npm test`): `src/api.test.ts` (envelope, header, 404
+- Unit and component (`npm test`): `src/operatorSnapshot.test.ts` (aggregate closed shape, audit coverage and watermark agreement), `src/pages/ShiftBriefPage.test.tsx` (one provenance and whole-view failure), `src/pages/ControlTower.test.tsx` (one aggregate and preserved input), `src/api.test.ts` (envelope, header, 404
   and null-ready rules), `src/apiValidation.test.ts`,
   `src/projectionValidation.test.ts`, `src/components/ProjectionCard.test.tsx`,
   and `src/pages/{ProjectedSurface,FleetPage,SessionSupervisorPage,ContextLineagePage,MergeRailPage,QualityLabPage,IncidentsAuditPage,SurfacePage}.test.tsx`.
@@ -219,7 +256,7 @@ grep -oE '\$\{API_PREFIX\}/events' src/hooks/useEventStream.ts | sort -u
 The first grep must print 6; the second lists the eight projected ids. The
 route greps must print the `${API_PREFIX}` suffixes for `audit`,
 `auth/bootstrap`, `commands`, `commands/`, `context-lineage`, `fleet`,
-`merge-rail`, `missions`, `missions/`, `outbox`, `quality-lab`, `ready`,
+`merge-rail`, `missions`, `missions/`, `operator-snapshot`, `outbox`, `quality-lab`, `ready`,
 `sessions`, and `events`. With the generated prefix expanded and the two
 parameterized suffixes completed, each corresponding `/api/v1` route appears
 in the tables above and in `docs/architecture.md`; `/health` remains the one

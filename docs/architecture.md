@@ -18,7 +18,11 @@ is the per-surface contract and quotes the six reasons verbatim.
 
 Every projected read goes through `readSnapshot` in `src/apiTransport.ts`: one atomic
 ledger snapshot `{data, as_of_sequence, observed_at, source}` whose
-`x-bullet-as-of-sequence` response header must equal the body watermark. A
+`x-bullet-as-of-sequence` response header must equal the body watermark.
+Control Tower and Shift Brief consume `GET /api/v1/operator-snapshot`: all
+durable surface data is read inside one Kernel SQLite transaction, published
+as one generated `OperatorSnapshotView`, and rejected as a whole if any
+component fails validation. A
 surface that composes several reads — Mission Graph (`GET /api/v1/missions` plus
 one `GET /api/v1/missions/{id}` per mission), Live Attempt (the same plus
 `GET /api/v1/ready`), Incidents & Audit (`GET /api/v1/audit` plus `GET /api/v1/outbox`) —
@@ -41,6 +45,13 @@ polls the returned id through `GET /api/v1/commands/{id}`. The same-origin CSRF
 value is retained in memory with best-effort session-storage continuity and has
 no mutation authority without the HttpOnly cookie. A missing or stale pair
 fails at farmd.
+
+The operations rail groups the existing surfaces into Operate, Understand and
+Assure. Ctrl/Cmd+K, or `/` outside editable controls, opens a searchable native
+dialog. Arrow keys select, Enter navigates and Escape restores focus. Missing
+projections remain explicitly labelled; the palette issues no mutation.
+`src/components/OperatorNavigation.css` supplies the responsive shell without
+external fonts or assets.
 
 ## Status vocabulary
 
@@ -65,8 +76,8 @@ CONTRADICTORY. Portal rendering:
   `unknown` — and any unrecognized phase — also renders unknown.
 - Observations use the generated `ObservationKind` (`value`, `empty`,
   `unknown`, `contradictory`). UNKNOWN is never rendered as healthy and never
-  as an authoritative EMPTY: a failed `GET /api/v1/missions` renders
-  `unknown: control plane unreachable (…)`, never "No missions yet.".
+  as an authoritative EMPTY: a failed `GET /api/v1/operator-snapshot` renders
+  `unknown: Operator snapshot: control plane unreachable (…)`, never "No missions yet.".
   "No missions yet." and "outbox: empty (observed)" render only from an
   HTTP 200 with a JSON body.
 - Projected tables (`RowsTable` in `src/components/ProjectionCard.tsx`) render
@@ -79,26 +90,29 @@ CONTRADICTORY. Portal rendering:
   clears the older command before transport, so an older verified result cannot
   color a newer failed or unknown request.
 - STALE renders as a badge when the event stream detects a sequence gap. The
-  acknowledged cursor stays at the last contiguous sequence. It clears only
-  when replay fills the gap or both snapshot reads return watermarks covering
-  it; a failed or unwatermarked read remains STALE.
+  acknowledged cursor stays at the last contiguous sequence. Event continuity
+  is repaired when replay fills the gap or the aggregate snapshot covers it.
+  Overall STALE also reflects disconnected transport and a cursor ahead of the
+  displayed snapshot; a pending reconnect remains STALE after gap repair.
+  A failed or unwatermarked read cannot repair the gap.
 
 ## Sources and confidence
 
 Observation cards with a value name their source and observed-at time
-(`GET /api/v1/missions`, `GET /api/v1/outbox`, `farmd /health`); projected surfaces
+(`GET /api/v1/operator-snapshot`, `farmd /health`); projected surfaces
 name their spec section, `as_of_sequence`, `source`, `observed_at`, and
-freshness. The Control Tower header shows `as_of_sequence`, projection lag,
+freshness. The Control Tower header shows the displayed snapshot `as_of_sequence`, the
+event cursor separately, projection lag,
 source health from a real `/health` probe (10s timeout), and the stream
 connection state. Endpoints consumed (`src/api.ts` and
 `src/hooks/useEventStream.ts`):
-`GET /health`, `GET /api/v1/missions`, `GET /api/v1/missions/{id}`, `GET /api/v1/outbox`,
+`GET /health`, `GET /api/v1/operator-snapshot`, `GET /api/v1/missions`, `GET /api/v1/missions/{id}`, `GET /api/v1/outbox`,
 `GET /api/v1/ready`, `GET /api/v1/fleet`, `GET /api/v1/sessions`,
 `GET /api/v1/context-lineage`, `GET /api/v1/merge-rail`, `GET /api/v1/quality-lab`,
 `GET /api/v1/audit`, `POST /api/v1/auth/bootstrap`,
 `POST /api/v1/commands`, `GET /api/v1/commands/{id}`, and
-`GET /api/v1/events?after=<seq>`. All fifteen are mounted by kernel
-`apps/bullet-farmd/src/api.rs`; the ten `GET /api/v1/…` reads other than
+`GET /api/v1/events?after=<seq>`. All are mounted by the kernel route catalog
+`apps/bullet-farmd/src/api/routes.rs`; `GET /api/v1/…` reads other than
 `/api/v1/commands/{id}` and `/api/v1/events` are snapshot routes under the contract in
 `projections.md`.
 
@@ -142,6 +156,21 @@ hook owns the exclusive sequence cursor and carries it across reconnects.
   sequence in `Last-Event-ID`. Snapshot gap recovery also rebases through that
   header immediately; while the endpoint is unreachable the page still works
   from snapshot fetches.
+
+`useEventStream` also notifies the active projection for ordinary contiguous
+events. `useProjection` coalesces invalidations for 100 ms, allows one pending
+read, follows events received during that read, and refreshes a visible page
+every 10 seconds and on focus. A newly published, validated snapshot can finish
+gap recovery even when the original gap callback joined an older pending read.
+Only a covering watermark clears the gap and rebases the connection. The card
+shows both event cursor and displayed snapshot sequence; lag, gaps and
+disconnection remain STALE. See [`projections.md`](projections.md).
+
+This applies to the eight original `useProjection` surfaces and to Control
+Tower and Shift Brief through their shared `useOperatorSnapshot` loader.
+Neither a live event connection nor navigation proves provider execution or
+transaction completion. Durable session controls and the full terminal console remain separate
+implementation obligations.
 
 ## Error handling
 
