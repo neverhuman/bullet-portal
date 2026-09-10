@@ -8,12 +8,19 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { validatePolicyAdmission } from "./source-policy.mjs";
+import { lookupInputs, monitorSources, validatePolicyAdmission } from "./source-policy.mjs";
 import { bootstrap } from "./source-bootstrap.mjs";
 
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const sha = /^[a-f0-9]{64}$/;
-const fail = (message) => { throw new Error(`CI_SOURCE_CUSTODY: ${message}`); };
+const fail = (message, cause) => {
+  const error = new Error(`CI_SOURCE_CUSTODY: ${message}`, cause ? { cause } : undefined);
+  error.code = "CI_SOURCE_CUSTODY"; throw error;
+};
+export function custodyFailureExit(error) {
+  if (error.code !== "CI_SOURCE_CUSTODY") throw error;
+  console.error(error); process.exitCode = 75;
+}
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const inside = (path, root) => path === root || path.startsWith(`${root}/`);
 const root = process.cwd();
@@ -131,7 +138,7 @@ export function configure(lane, ownerRecord) {
   if (build.schema !== "bullet.source-monitor.build.v1" || build.executable_sha256 !== admission.monitor.sha256) fail("MONITOR_BUILD_BINDING");
   const automated = json(binding(admission.review)).schema === "bullet.source-policy-evaluation.v1";
   const sourceRoot = automated ? path(build.source_root) : join(root, "ops/proof/source-monitor");
-  const requiredSources = ["Cargo.toml", "Cargo.lock", "README.md", "src/main.rs", "src/common.rs", "src/monitor.rs", "src/protocol.rs", "src/operations.rs"].map((p) => join(sourceRoot, p));
+  const requiredSources = monitorSources.map((p) => join(sourceRoot, p));
   if (!Array.isArray(build.sources) || !same(build.sources.map((s) => s.path).sort(), requiredSources.sort())) fail("MONITOR_SOURCE_INVENTORY");
   const mandatory = [admissionPath, binding(admission.writer_release), binding(admission.review), monitor, buildPath, ...build.sources.map(binding)];
   const { review: reviewReference, ...reviewedAdmission } = admission;
@@ -181,13 +188,15 @@ export function configure(lane, ownerRecord) {
     return output.path;
   });
   if (!outputs.includes(join(root, ".ci-artifacts"))) fail("ARTIFACT_OUTPUT_NOT_ADMITTED");
+  const lookups = lookupInputs(admission.lookups);
+  if (lookups.some((lookup) => outputs.some((output) => inside(lookup.path, output) || (lookup.target !== null && inside(lookup.target, output))))) fail("LOOKUP_INTERSECTS_EXCLUDED_OUTPUT");
   const id = randomUUID();
   const session = join(root, ".ci-artifacts/source-proof", id);
   directory(session);
   const configPath = join(dirname(ownerRecord), `source-monitor-${id}.json`);
   const config = { schema: "bullet.source-monitor.config.v1", nonce: randomBytes(32).toString("hex"),
     owner_pid: Number(process.env.BULLET_CI_SOURCE_OWNER_PID), owner_record: ownerRecord,
-    roots: inputs, exclude: outputs, inventory_path: join(session, "inventory.json"), max_seconds: admission.max_seconds };
+    roots: inputs, ...(lookups.length ? { lookups } : {}), exclude: outputs, inventory_path: join(session, "inventory.json"), max_seconds: admission.max_seconds };
   if (!Number.isSafeInteger(config.owner_pid) || config.owner_pid < 1) fail("WRAPPER_OWNER_IDENTITY");
   record(configPath, config);
   record(join(session, "start.json"), { schema: "bullet.source-proof.start.v1", session: id, config_path: configPath,
@@ -232,6 +241,13 @@ function validateAck(ack, previous, command, config, selected) {
   if (previous && !same({ ...previous, command: ack.command, sequence: ack.sequence }, ack)) fail("MONITOR_ACK_SUBJECT_CHANGED");
 }
 export function exchange(command) {
+  try { return exchangeControl(command); }
+  catch (error) {
+    if (error.code === "CI_SOURCE_CUSTODY") throw error;
+    fail(`MONITOR_CONTROL_FAILURE: ${error.code ?? error.name}: ${error.message}`, error);
+  }
+}
+function exchangeControl(command) {
   const session = sessionPath();
   const selected = json(join(session, "start.json")); const config = json(selected.config_path);
   if (hash(bytes(selected.config_path)) !== selected.config_sha256 || start(config.owner_pid) !== selected.owner_start) fail("MONITOR_OWNER_CHANGED");
@@ -316,6 +332,7 @@ export function recordFailure(childCode, monitorCode, message) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  try {
   const [operation, ...args] = process.argv.slice(2);
   if (operation === "configure") console.log(configure(...args));
   else if (operation === "bootstrap") { const result = bootstrap(args[0]); console.log([result.path, result.sha256, result.tool_path].join("\n")); }
@@ -323,4 +340,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   else if (operation === "refuse") recordFailure(Number(args[0]), Number(args[1]), args[2]);
   else if (operation === "terminate") terminateMonitor();
   else fail("unknown control operation");
+  } catch (error) { custodyFailureExit(error); }
 }

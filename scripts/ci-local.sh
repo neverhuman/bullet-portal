@@ -330,7 +330,9 @@ run_with_proof_custody() {
       [[ ! -f "$BULLET_CI_SOURCE_SESSION/monitor.stderr" ]] || \
         while IFS= read -r diagnostic; do printf '%s\n' "$diagnostic" >&2; done <"$BULLET_CI_SOURCE_SESSION/monitor.stderr"
     fi
-    [[ "$status" -ne 0 ]] || status=75
+    # A failed observation helper is a custody refusal, not the lane's result.
+    # Preserve the actual nonzero child result alongside the durable refusal.
+    if [[ "$child_status" -ne 0 ]]; then status="$child_status"; else status=75; fi
   fi
   [[ "$custody_status" -eq 0 ]] || return "$custody_status"
   [[ "$CI_SOURCE_TERMINATION_UNKNOWN" == false ]] || return 75

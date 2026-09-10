@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { constants, chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { constants, chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -17,7 +17,7 @@ async function until(probe, label) {
   for (let i = 0; i < 1000; i++) { const value = probe(); if (value) return value; await delay(20); }
   throw new Error(`fixture deadline: ${label}`);
 }
-function fixture(name, mode = "plain", lane = "fast") {
+function fixture(name, mode = "plain", lane = "fast", prepareLookups = () => []) {
   const f = { name, repo: join(fixtureRoot, name), child: null, output: "", mode, lane, fifo: null };
   fixtures.push(f); // Registered before any process can start or READY can fail.
   mkdirSync(f.repo);
@@ -33,9 +33,9 @@ function fixture(name, mode = "plain", lane = "fast") {
   const gate = `${f.repo}.source-admission/compile-gate`;
   writeFileSync(join(f.repo, "input.rs"), `const GATE: &str = include_str!(${JSON.stringify(gate)});\npub fn answer() -> usize { GATE.len() }\n`);
   const reports = "mkdir -p .ci-artifacts/reports\nfor name in vitest.json vite-api-override.log farmd-test-proxy-override.log; do printf 'report\\n' >.ci-artifacts/reports/$name; done\n";
-  const hold = ": >ready\nwhile [[ ! -e release ]]; do sleep 0.02; done\n";
+  const hold = ": >ready\nwhile [[ ! -e release ]]; do sleep 0.02; done\n" + (mode === "hold-failure" ? "exit 19\n" : "");
   const compile = '"$BULLET_CI_SOURCE_RUSTC" --crate-type=lib --edition=2024 input.rs -o .ci-artifacts/fixture.rlib\nprintf \'0\\n\' >.ci-artifacts/compiler-exit\n';
-  writeFileSync(join(f.repo, "ops/ci/fast.sh"), `#!/usr/bin/env bash\nset -euo pipefail\n${reports}${mode === "compile" ? compile : mode === "hold" ? hold : ""}`);
+  writeFileSync(join(f.repo, "ops/ci/fast.sh"), `#!/usr/bin/env bash\nset -euo pipefail\n${reports}${mode === "compile" ? compile : ["hold", "hold-failure"].includes(mode) && lane !== "required" ? hold : ""}`);
   if (lane === "required") {
     writeFileSync(join(f.repo, "ops/ci/lint.sh"), `#!/usr/bin/env bash\nset -euo pipefail\n${hold}`);
     writeFileSync(join(f.repo, "ops/ci/contract.sh"), "#!/usr/bin/env bash\nprintf 'bundle fixture\\n' >.ci-artifacts/reports/bundle-tests.log\n");
@@ -53,7 +53,7 @@ function fixture(name, mode = "plain", lane = "fast") {
     f.env.PATH = `${tools}:${process.env.PATH}`;
   }
   const priorPath = process.env.PATH; process.env.PATH = f.env.PATH;
-  try { f.admission = admit(f.repo, [lane], mode === "seal-hold" ? ["npm"] : []); }
+  try { f.admission = admit(f.repo, [lane], mode === "seal-hold" ? ["npm"] : [], [], prepareLookups(f)); }
   finally { process.env.PATH = priorPath; }
   f.env.PATH = f.admission.tool_path;
   if (mode === "compile") { execFileSync("mkfifo", ["-m", "600", gate]); f.fifo = gate; }
@@ -96,6 +96,21 @@ function assertSameGit(f) {
   assert.equal(execFileSync("git", ["-C", f.repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(), f.head);
   assert.equal(execFileSync("git", ["-C", f.repo, "rev-parse", "HEAD^{tree}"], { encoding: "utf8" }).trim(), f.tree);
 }
+function externalLookup(kind) {
+  return (f) => {
+    f.external = `${f.repo}.external`;
+    mkdirSync(f.external); mkdirSync(join(f.external, "real"));
+    f.target = join(f.external, "real/config"); writeFileSync(f.target, "actual config\n");
+    f.alias = join(f.external, "alias");
+    if (kind === "absent" || kind === "missing-ancestor") {
+      f.missing = join(f.external, kind === "absent" ? "missing" : "missing/child/config");
+      return [{ path: f.missing, kind: "absent", target: null }];
+    }
+    symlinkSync(kind === "ancestor-alias" ? "real" : "real/config", f.alias);
+    f.lookup = kind === "ancestor-alias" ? join(f.alias, "config") : f.alias;
+    return [{ path: f.lookup, kind: "file", target: f.target }];
+  };
+}
 function verify(f) {
   const env = { ...f.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
   delete env.GIT_OPTIONAL_LOCKS; // The semantic consumer itself must keep reads observational.
@@ -108,6 +123,64 @@ async function case_(name, body) {
 }
 let failed = false;
 try {
+  for (const lane of ["fast", "required"]) for (const failedChild of [false, true]) {
+    await case_(`monitor-loss-${lane}-preserves-child-${failedChild ? "19" : "0"}`, async () => {
+      const f = fixture(`status-${lane}-${failedChild}`, failedChild ? "hold-failure" : "hold", lane, externalLookup("absent"));
+      launch(f); await until(() => existsSync(join(f.repo, "ready")), "status lane ready");
+      writeFileSync(f.missing, "transient"); unlinkSync(f.missing);
+      writeFileSync(join(f.repo, "release"), "");
+      const result = await finish(f); assert.equal(result.code, failedChild ? 19 : 75, result.output);
+      assertUnpublished(f);
+      const refusal = json(join(session(f), "refused.json"));
+      assert.equal(refusal.child_exit, failedChild ? 19 : lane === "required" ? 75 : 0);
+      assert.notEqual(refusal.monitor_exit, 0);
+      assert.match(result.output, /CI_SOURCE_CUSTODY/);
+      return { ...result, refusal };
+    });
+  }
+  for (const kind of ["absent", "missing-ancestor", "final-alias", "ancestor-alias", "target", "sibling"]) {
+    await case_(`external-lookup-${kind}-live-custody`, async () => {
+      const f = fixture(`lookup-${kind}`, "hold", "fast", externalLookup(kind));
+      launch(f); await until(() => existsSync(join(f.repo, "ready")), "lookup lane ready");
+      const inventory = json(join(session(f), "inventory.json"));
+      assert.equal(Object.keys(inventory.lookups).length, 1);
+      if (kind === "absent") { writeFileSync(f.missing, "transient"); unlinkSync(f.missing); }
+      else if (kind === "missing-ancestor") { mkdirSync(join(f.external, "missing")); rmSync(join(f.external, "missing"), { recursive: true }); }
+      else if (kind.endsWith("alias")) {
+        renameSync(f.alias, join(f.external, "original-alias"));
+        symlinkSync(kind === "ancestor-alias" ? "real" : "real/config", f.alias);
+        unlinkSync(f.alias); renameSync(join(f.external, "original-alias"), f.alias);
+      } else if (kind === "target") restored(f.target);
+      else { writeFileSync(join(f.external, "unrelated"), "allowed"); unlinkSync(join(f.external, "unrelated")); }
+      writeFileSync(join(f.repo, "release"), "");
+      const result = await finish(f);
+      if (kind === "sibling") { assert.equal(result.code, 0, result.output); assert.equal(verify(f).status, 0); }
+      else { assert.equal(result.code, 75, result.output); assertUnpublished(f); assert.match(result.output, /SOURCE_MUTATION|WATCH_LOST/); }
+      return { ...result, lookup_inventory: inventory.lookups };
+    });
+  }
+  for (const kind of ["absent", "final-alias", "target"]) {
+    await case_(`external-lookup-${kind}-later-drift-refuses-reuse`, async () => {
+      const f = fixture(`lookup-reuse-${kind}`, "plain", "fast", externalLookup(kind));
+      launch(f); assert.equal((await finish(f)).code, 0, f.output);
+      assert.equal(verify(f).status, 0);
+      if (kind === "absent") writeFileSync(f.missing, "new configuration");
+      else if (kind === "final-alias") { unlinkSync(f.alias); symlinkSync("real/config", f.alias); }
+      else writeFileSync(f.target, "different config");
+      const result = verify(f); assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /LOOKUP_TARGET_DIFFERS|CURRENT_LOOKUP_INVENTORY_CHANGED/);
+      return { status: result.status, stderr: result.stderr };
+    });
+  }
+  await case_("external-lookup-wrong-admitted-target-prevents-launch", async () => {
+    const f = fixture("lookup-wrong-target", "hold", "fast", (f) => {
+      const lookups = externalLookup("final-alias")(f); lookups[0].target = join(f.external, "other"); return lookups;
+    });
+    launch(f); const result = await finish(f);
+    assert.equal(result.code, 75, result.output); assertUnpublished(f);
+    assert.equal(existsSync(join(f.repo, "ready")), false); assert.match(result.output, /LOOKUP_TARGET_DIFFERS/);
+    return result;
+  });
   await case_("unchanged-wrapper-publishes-after-final-zero-exit", async () => {
     const f = fixture("unchanged"); launch(f); const result = await finish(f);
     assert.equal(result.code, 0, result.output);

@@ -38,7 +38,12 @@ The tool profile has schema `bullet.source-tool-profile.v1`, `platform: "linux"`
   and every selected tool is hash-bound. Root completeness needs independent review.
 - `outputs`: relative checkout path and reason for each exact output subtree.
   `.ci-artifacts` must be explicit. Tracked paths and Git metadata cannot be excluded.
-- `monitor`: `executable_sha256`, all eight `{name, sha256}` source entries, and
+- `lookups` (optional): exact `{path, kind, target}` declarations for external
+  lookup aliases and absence. `kind` is `file`, `directory`, or `absent`; `target`
+  is the expected canonical consumed path, or null for absence. Only this field
+  permits alias paths. `$CHECKOUT` and its path prefix expand to the checkout in
+  a reviewed hosted profile. No entries are inferred from installed dependencies.
+- `monitor`: `executable_sha256`, all ten `{name, sha256}` source entries, and
   exactly cargo/rustc `{name, sha256}` build tool entries.
 
 The independent static receipt uses `bullet.source-policy-review.v1`, verdict
@@ -51,7 +56,9 @@ static policy; they never impersonate a human review of a dynamic checkout.
 The prepared build uses `bullet.source-monitor.build.v1`, `executable_sha256`,
 `source_root`, `sources: [{path, sha256}]`, and `tools: [{name, path, sha256}]`.
 Source names are Cargo.toml, Cargo.lock, README.md, src/main.rs, src/common.rs,
-src/monitor.rs, src/protocol.rs and src/operations.rs. Automatic admission accepts
+src/monitor.rs, src/protocol.rs, src/operations.rs, src/lookup.rs and
+src/lookup_tests.rs. The shared evaluator inventory enumerates these exact names.
+An older eight-file build/profile cannot qualify this changed monitor. Automatic admission accepts
 an independently pinned external monitor bundle while the entire PR checkout is
 still monitored. This permits testing unreviewed PR changes with a previously
 admitted monitor. A self-declared matching executable/build pair is insufficient.

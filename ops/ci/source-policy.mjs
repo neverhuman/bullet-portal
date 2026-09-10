@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 export const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 export const refuse = (message) => { throw new Error(`CI_SOURCE_POLICY: ${message}`); };
 export const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+export const monitorSources = Object.freeze(["Cargo.toml", "Cargo.lock", "README.md", "src/main.rs", "src/common.rs", "src/monitor.rs", "src/protocol.rs", "src/operations.rs", "src/lookup.rs", "src/lookup_tests.rs"]);
 const sha = /^[a-f0-9]{64}$/;
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 export function regular(path) {
@@ -20,6 +21,22 @@ export function read(binding) {
   return JSON.parse(bytes);
 }
 export function file(path) { return { path: regular(path), sha256: digest(readFileSync(path)) }; }
+export function lookupInputs(entries = [], checkout) {
+  if (!Array.isArray(entries) || entries.length > 4096) refuse("bounded explicit lookup array required");
+  const seen = new Set();
+  const path = (value) => {
+    if (checkout && typeof value === "string" && (value === "$CHECKOUT" || value.startsWith("$CHECKOUT/"))) value = `${checkout}${value.slice(9)}`;
+    if (typeof value !== "string" || !isAbsolute(value) || resolve(value) !== value || /[\x00-\x1f\x7f]/.test(value)) refuse("absolute normalized lookup path required");
+    return value;
+  };
+  return entries.map((entry) => {
+    if (!entry || !same(Object.keys(entry).sort(), ["kind", "path", "target"]) || !["file", "directory", "absent"].includes(entry.kind)
+        || (entry.kind === "absent") !== (entry.target === null)) refuse("typed lookup declaration required");
+    const observed = { path: path(entry.path), kind: entry.kind, target: entry.target === null ? null : path(entry.target) };
+    if (seen.has(observed.path)) refuse("duplicate lookup path");
+    seen.add(observed.path); return observed;
+  });
+}
 export function staticPolicy(policyReference, reviewReference, profileReference) {
   const policy = read(policyReference); const review = read(reviewReference); const profile = read(profileReference);
   if (policy.schema !== "bullet.source-policy.v1" || policy.evidence_class !== "DIAGNOSTIC_COMPONENT_ONLY"
@@ -58,9 +75,8 @@ export function validateMonitor(profile, executable, build) {
   if (build.schema !== "bullet.source-monitor.build.v1" || executable.sha256 !== pinned.executable_sha256
       || build.executable_sha256 !== pinned.executable_sha256 || typeof build.source_root !== "string"
       || realpathSync(build.source_root) !== build.source_root || !lstatSync(build.source_root).isDirectory()) refuse("monitor executable/build not independently admitted");
-  const names = ["Cargo.toml", "Cargo.lock", "README.md", "src/main.rs", "src/common.rs", "src/monitor.rs", "src/protocol.rs", "src/operations.rs"];
-  if (!same(pinned.sources.map((s) => s.name).sort(), names.sort())
-      || !same(build.sources.map((s) => s.path).sort(), names.map((n) => join(build.source_root, n)).sort())) refuse("monitor source inventory differs from policy");
+  if (!same(pinned.sources.map((s) => s.name).sort(), [...monitorSources].sort())
+      || !same(build.sources.map((s) => s.path).sort(), monitorSources.map((n) => join(build.source_root, n)).sort())) refuse("monitor source inventory differs from policy");
   for (const source of pinned.sources) {
     const observed = build.sources.find((s) => s.path === join(build.source_root, source.name));
     if (!sha.test(source.sha256 ?? "") || observed.sha256 !== source.sha256 || file(observed.path).sha256 !== source.sha256) refuse("monitor source differs from independent policy");
@@ -131,6 +147,7 @@ export function validatePolicyAdmission(admission, checkout) {
     evaluation.policy.path, evaluation.policy_review.path, evaluation.tool_profile.path, evaluation.runtime.path];
   const expectedOutputs = profile.outputs.map(({ path, reason }) => ({ path: join(checkout, path), reason }));
   if (!same(admission.input_roots, expectedInputs) || !same(admission.outputs, expectedOutputs)
+      || !same(lookupInputs(admission.lookups), lookupInputs(profile.lookups, checkout))
       || !admission.path.startsWith(`${process.env.RUNNER_TEMP}/bullet-source-admission-`) || !admission.path.endsWith("/bin")) refuse("reviewed input/output projection changed");
   for (const lane of admission.lanes) validateContext(policy, observation, admission.source, lane);
   if (existsSync(join(checkout, ".git/bullet-ci.lock.d", "refused.json"))) refuse("refused owner custody");

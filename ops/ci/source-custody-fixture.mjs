@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { monitorSources } from "./source-policy.mjs";
 
 export const hash = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
 const file = (path) => ({ path: realpathSync(path), sha256: hash(path) });
@@ -18,12 +19,12 @@ export function copySources(origin, repo) {
   for (const relative of ["scripts/ci-local.sh", "ops/ci/observation.mjs", "ops/ci/source-custody.mjs", "ops/ci/required.sh", "ops/ci/lib.sh",
     "ops/ci/npm-userconfig.npmrc", "ops/ci/npm-globalconfig.npmrc",
     "ops/ci/source-policy.json", "ops/ci/source-policy.mjs", "ops/ci/source-bootstrap.mjs",
-    ...["Cargo.toml", "Cargo.lock", "README.md", "src/main.rs", "src/common.rs", "src/monitor.rs", "src/protocol.rs", "src/operations.rs"].map((p) => `ops/proof/source-monitor/${p}`)]) {
+    ...monitorSources.map((p) => `ops/proof/source-monitor/${p}`)]) {
     mkdirSync(dirname(join(repo, relative)), { recursive: true });
     copyFileSync(join(origin, relative), join(repo, relative));
   }
 }
-export function admit(repo, lanes = ["fast"], extraTools = [], extraOutputs = []) {
+export function admit(repo, lanes = ["fast"], extraTools = [], extraOutputs = [], lookups = []) {
   const temporaryRoot = process.env.BULLET_CI_FIXTURE_ROOT;
   if (!temporaryRoot || !repo.startsWith(`${realpathSync(temporaryRoot)}/`) || repo === realpathSync(temporaryRoot)) throw new Error("disposable fixture root required");
   const directory = `${repo}.source-admission`;
@@ -34,7 +35,7 @@ export function admit(repo, lanes = ["fast"], extraTools = [], extraOutputs = []
   const rustcPath = process.env.BULLET_CI_SOURCE_RUSTC;
   const cargoPath = process.env.BULLET_CI_SOURCE_CARGO;
   if (![monitorPath, rustcPath, cargoPath].every((p) => p && p.startsWith("/") && existsSync(p))) throw new Error("admitted monitor and Rust fixture tool subjects required");
-  const sources = ["Cargo.toml", "Cargo.lock", "README.md", "src/main.rs", "src/common.rs", "src/monitor.rs", "src/protocol.rs", "src/operations.rs"].map((p) => file(join(repo, "ops/proof/source-monitor", p)));
+  const sources = monitorSources.map((p) => file(join(repo, "ops/proof/source-monitor", p)));
   const buildTools = [{ name: "rustc", ...file(rustcPath) }, { name: "cargo", ...file(cargoPath) }];
   const build = write(join(directory, "monitor-build.json"), { schema: "bullet.source-monitor.build.v1", evidence_class: "DIAGNOSTIC_COMPONENT_ONLY",
     executable_sha256: hash(monitorPath), sources, tools: buildTools });
@@ -52,7 +53,7 @@ export function admit(repo, lanes = ["fast"], extraTools = [], extraOutputs = []
     .map((p) => ({ path: join(repo, p), reason: "explicit disposable fixture output/control" }));
   const admission = { schema: "bullet.source-admission.v1", evidence_class: "DIAGNOSTIC_COMPONENT_ONLY", author: "fixture-author", repository: "bullet-portal", checkout: repo,
     lanes, path: toolPath, source, monitor: { ...file(monitorPath), build }, input_roots: [realpathSync(rustcPath), toolPath], tools,
-    outputs, writer_release: writerRelease, expires_at: new Date(Date.now() + 3600_000).toISOString(), max_seconds: 300, response_seconds: 30,
+    outputs, ...(lookups.length ? { lookups } : {}), writer_release: writerRelease, expires_at: new Date(Date.now() + 3600_000).toISOString(), max_seconds: 300, response_seconds: 30,
     inputs_complete: true, tools_complete: true, conditions: { cooperative_freeze: true, local_filesystem: true, no_mmap_writers: true, no_mount_changes: true } };
   const review = write(join(directory, "synthetic-review.json"), { schema: "bullet.source-admission-review.v1", evidence_class: "DIAGNOSTIC_COMPONENT_ONLY",
     fixture: repo, reviewer: "fixture-reviewer", verdict: "accepted", admission_subject_sha256: createHash("sha256").update(JSON.stringify(admission)).digest("hex") });

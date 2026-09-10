@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { constants, accessSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { digest, file, observeHosted, read, refuse, staticPolicy, validateContext, validateMonitor } from "./source-policy.mjs";
+import { digest, file, lookupInputs, observeHosted, read, refuse, staticPolicy, validateContext, validateMonitor } from "./source-policy.mjs";
 
 function envBinding(name) {
   const path = process.env[`BULLET_CI_${name}`]; const sha256 = process.env[`BULLET_CI_${name}_SHA256`];
@@ -57,10 +57,11 @@ export function bootstrap(lane) {
     if (typeof path !== "string" || path.startsWith("/") || path.split("/").some((p) => ["", ".", ".."].includes(p)) || !reason) refuse("explicit relative output required");
     return { path: join(checkout, path), reason };
   });
+  const lookups = lookupInputs(profile.lookups, checkout);
   const admission = { schema: "bullet.source-admission.v1", evidence_class: "DIAGNOSTIC_COMPONENT_ONLY", author: "reviewed diagnostic policy evaluator",
     repository: "bullet-portal", checkout, lanes: [lane], path: toolPath, source,
     monitor: { ...file(monitorPath), build: buildReference }, input_roots: [...inputs, toolPath, policyReference.path, reviewReference.path, profileReference.path, runtime.path],
-    tools, outputs, writer_release: writerRelease, expires_at: new Date(Date.now() + (policy.max_seconds + 300) * 1000).toISOString(),
+    tools, outputs, ...(lookups.length ? { lookups } : {}), writer_release: writerRelease, expires_at: new Date(Date.now() + (policy.max_seconds + 300) * 1000).toISOString(),
     max_seconds: policy.max_seconds, response_seconds: policy.response_seconds, inputs_complete: true, tools_complete: true, conditions: policy.conditions };
   const evaluation = record(join(directory, "evaluation.json"), { schema: "bullet.source-policy-evaluation.v1", verdict: "admitted-diagnostic", evidence_class: "DIAGNOSTIC_COMPONENT_ONLY",
     policy: policyReference, policy_review: reviewReference, tool_profile: profileReference, runtime,

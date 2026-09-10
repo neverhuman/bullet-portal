@@ -23,6 +23,8 @@ struct Inventory<'a> {
     config: &'a Config,
     roots: &'a BTreeSet<PathBuf>,
     entries: &'a BTreeMap<String, Entry>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    lookups: &'a BTreeMap<String, super::lookup::Observation>,
     watch_scopes: BTreeSet<&'a Scope>,
 }
 #[derive(Serialize)]
@@ -119,6 +121,7 @@ pub fn run() -> Result<()> {
         monitor.ancestors(&root)?;
         monitor.install(&root, &mut visited)?;
     }
+    monitor.install_lookups(&config.lookups)?;
     let baseline = monitor.snapshot()?;
     monitor.drain()?;
     if io(fs::read(&config_path))? != config_bytes {
@@ -130,7 +133,8 @@ pub fn run() -> Result<()> {
         schema: "bullet.source-monitor.inventory.v1",
         config: &config,
         roots: &monitor.roots,
-        entries: &baseline,
+        entries: &baseline.entries,
+        lookups: &baseline.lookups,
         watch_scopes,
     })?;
     let subject = hash(&inventory);
@@ -153,7 +157,7 @@ pub fn run() -> Result<()> {
         owner_pid: config.owner_pid,
         owner_start: &owner_start,
         watch_sha256: &watch_sha256,
-        entry_count: baseline.len(),
+        entry_count: baseline.entries.len() + baseline.lookups.len(),
     };
     acknowledge(&ack)?;
     let start = Instant::now();

@@ -21,7 +21,11 @@ The only argument is an absolute JSON configuration path:
   "owner_pid": 12345,
   "owner_record": "/private/proof-lock/owner",
   "roots": ["/checkout", "/pinned/toolchain", "/private/writer-release-packet"],
-  "exclude": ["/checkout/dist", "/checkout/node_modules/.vite"],
+  "lookups": [
+    {"path": "/etc/resolv.conf", "kind": "file", "target": "/run/systemd/resolve/stub-resolv.conf"},
+    {"path": "/etc/ld.so.preload", "kind": "absent", "target": null}
+  ],
+  "exclude": ["/checkout/dist", "/checkout/node_modules/.vite-temp"],
   "inventory_path": "/private/observation/input-inventory.json",
   "max_seconds": 3600
 }
@@ -39,7 +43,7 @@ All root descendants are inputs, including ignored files, generated contracts,
 command or ignore pattern defines the subject. The caller must explicitly add
 external selected tools, scripts, package caches, Git config, dependency roots,
 release/freeze records and any other inputs actually consumed by the proof.
-Direct symlinks and their resolved targets are bound. Symlinked input ancestors,
+Within recursive roots, direct symlinks and resolved targets are bound. Symlinked input ancestors,
 indirect symlink chains, dangling links, links into excluded outputs, special
 files and non-UTF-8 input names refuse. Select canonical tool/root paths. Each named
 exclusion permits precisely that path and its descendants; it never permits a
@@ -48,6 +52,25 @@ or outside the inputs. Exclusions are bound into the inventory. They must not
 hide sources or executable dependencies. An input directory's creation times
 and link count are omitted because admitted output creation changes them;
 directory inode/device/permissions/ownership remain bound.
+
+The optional `lookups` array is a separate explicit inventory for external lookup
+paths, including final and ancestor aliases or absent files. Each declaration
+requires an absolute normalized `path`, `kind` (`file`, `directory`, or `absent`),
+and the expected canonical consumed `target` (null only for absence). Resolution
+watches each existing parent before inspecting the next component, binds each
+symlink's text and inode, follows relative targets in filesystem order, and binds
+the resolved file bytes or directory identity. Directory lookups do not silently
+enroll all descendants: declare consumed child files or a recursive root too.
+Absence binds the first missing component and nearest existing parent, including
+dangling symlink targets; transient creation and removal remains a failure.
+Cycles or more than 40 link traversals, non-directory ancestors, unsupported
+kinds, target mismatch and any resolution inside an output exclusion refuse.
+Unrelated sibling writes outside recursive roots are allowed. Every lookup and
+its component observations persist in the inventory and are compared at every
+checkpoint and current-input reuse. Omitted lookups preserve legacy roots-only
+behavior, which does not imply external lookup coverage. These declarations do
+not discover a complete dynamic-loader, NSS, TLS or configuration dependency
+closure; the admitted profile must still enumerate what its tools consume.
 
 File and directory watches, including ancestor replacement watches, are
 installed before inventory and READY. File inode watches additionally detect

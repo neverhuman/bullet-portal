@@ -5,7 +5,7 @@ import {
   readFileSync, readdirSync, renameSync, writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { checkpoint, completedProof, currentBinding, finishRecord } from "./source-custody.mjs";
+import { checkpoint, completedProof, currentBinding, custodyFailureExit, finishRecord } from "./source-custody.mjs";
 
 const fast = ["reports/farmd-test-proxy-override.log", "reports/vite-api-override.log", "reports/vitest.json"];
 const policies = {
@@ -24,6 +24,7 @@ const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const fail = (message) => { throw new Error(`CI_OBSERVATION_LIFECYCLE: ${message}`); };
 const [operation, ...args] = process.argv.slice(2);
+try {
 if (operation === "prepare") {
   if (args.length !== 1) fail("prepare arguments");
   console.log(prepare(args[0]));
@@ -40,6 +41,7 @@ if (operation === "prepare") {
   const [outcome, code, ...commands] = args;
   verify(operation, outcome, code, commands);
 }
+} catch (error) { custodyFailureExit(error); }
 
 function lanePolicy(lane) {
   if (!Object.hasOwn(policies, lane)) fail(`unsupported lane ${lane}`);

@@ -1,7 +1,7 @@
 //! Finite Linux operations. External callers impose their own response deadlines.
 use super::common::*;
 use super::monitor::{Monitor, Scope};
-use serde_json::{json as value, Value};
+use serde_json::{Value, json as value};
 use std::collections::BTreeSet;
 use std::fs;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -49,16 +49,26 @@ pub(super) fn verify_inventory(path: &Path) -> Result<Value> {
         monitor.ancestors(&root)?;
         monitor.install(&root, &mut visited)?;
     }
+    monitor.install_lookups(&config.lookups)?;
     let mut expected = inventory["entries"]
         .as_object()
         .ok_or("INVENTORY_ENTRIES")?
         .clone();
     expected.retain(|p, _| !Path::new(p).starts_with(ephemeral));
-    let observed = serde_json::to_value(monitor.snapshot()?).map_err(|e| e.to_string())?;
+    let snapshot = monitor.snapshot()?;
+    let observed = serde_json::to_value(&snapshot.entries).map_err(|e| e.to_string())?;
+    let lookups = serde_json::to_value(&snapshot.lookups).map_err(|e| e.to_string())?;
     monitor.drain()?;
     inventory_guard.drain()?;
     if observed != Value::Object(expected) {
         return Err("CURRENT_INPUT_INVENTORY_CHANGED".into());
+    }
+    let expected_lookups = inventory
+        .get("lookups")
+        .cloned()
+        .unwrap_or_else(|| value!({}));
+    if lookups != expected_lookups {
+        return Err("CURRENT_LOOKUP_INVENTORY_CHANGED".into());
     }
     Ok(value!({"schema":"bullet.source-monitor.revalidation.v1",
         "inventory_sha256":hash(&original), "outcome":"MATCH"}))
@@ -87,7 +97,7 @@ pub(super) fn terminate(pid: u32, expected: &str, owner: u32) -> Result<Value> {
     let stat = match fs::read_to_string(format!("/proc/{pid}/stat")) {
         Ok(stat) => stat,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(ack("ORIGINAL_GONE"))
+            return Ok(ack("ORIGINAL_GONE"));
         }
         Err(error) => return Err(format!("TERMINATION_STAT: {error}")),
     };

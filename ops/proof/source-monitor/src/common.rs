@@ -49,9 +49,28 @@ pub(super) struct Config {
     pub(super) owner_pid: u32,
     pub(super) owner_record: PathBuf,
     pub(super) roots: Vec<PathBuf>,
+    // Omitted by legacy configurations: canonical recursive roots only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) lookups: Vec<Lookup>,
     pub(super) exclude: Vec<PathBuf>,
     pub(super) inventory_path: PathBuf,
     pub(super) max_seconds: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum LookupKind {
+    File,
+    Directory,
+    Absent,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Lookup {
+    pub(super) path: PathBuf,
+    pub(super) kind: LookupKind,
+    pub(super) target: Option<PathBuf>,
 }
 
 pub(super) fn children(path: &Path) -> Result<Vec<PathBuf>> {

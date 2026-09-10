@@ -15,6 +15,10 @@ fn main() {
 #[cfg(target_os = "linux")]
 mod common;
 #[cfg(target_os = "linux")]
+mod lookup;
+#[cfg(all(test, target_os = "linux"))]
+mod lookup_tests;
+#[cfg(target_os = "linux")]
 mod monitor;
 #[cfg(target_os = "linux")]
 mod operations;
@@ -171,9 +175,10 @@ mod tests {
             .unwrap();
         std::os::unix::fs::symlink(target.0.join("second-link"), f.0.join("link")).unwrap();
         let mut m = Monitor::new(vec![]).unwrap();
-        assert!(m
-            .install(&f.0, &mut BTreeSet::new())
-            .unwrap_err()
-            .contains("INDIRECT_SYMLINK"));
+        assert!(
+            m.install(&f.0, &mut BTreeSet::new())
+                .unwrap_err()
+                .contains("INDIRECT_SYMLINK")
+        );
     }
 }

@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub(super) struct Entry {
-    kind: &'static str,
+    pub(super) kind: &'static str,
     dev: u64,
     ino: u64,
     mode: u32,
@@ -23,10 +23,10 @@ pub(super) struct Entry {
     mtime: Option<(i64, i64)>,
     ctime: Option<(i64, i64)>,
     content_sha256: Option<String>,
-    link_target: Option<String>,
+    pub(super) link_target: Option<String>,
 }
 
-fn entry(path: &Path) -> Result<Entry> {
+pub(super) fn entry(path: &Path) -> Result<Entry> {
     let m = io(fs::symlink_metadata(path))?;
     let (kind, content_sha256, link_target) = if m.is_file() {
         // O_NOFOLLOW prevents a replaced input symlink from redirecting the read.
@@ -76,14 +76,22 @@ fn entry(path: &Path) -> Result<Entry> {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub(super) enum Scope {
     Node(PathBuf),
+    Identity(PathBuf),
     Children(PathBuf),
     Ancestor { path: PathBuf, child: PathBuf },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct Snapshot {
+    pub(super) entries: BTreeMap<String, Entry>,
+    pub(super) lookups: BTreeMap<String, super::lookup::Observation>,
 }
 
 pub(super) struct Monitor {
     pub(super) fd: OwnedFd,
     pub(super) scopes: BTreeMap<i32, BTreeSet<Scope>>,
     pub(super) roots: BTreeSet<PathBuf>,
+    pub(super) lookups: Vec<Lookup>,
     pub(super) exclude: Vec<PathBuf>,
     pub(super) failure: Option<String>,
 }
@@ -100,6 +108,7 @@ impl Monitor {
             fd: unsafe { OwnedFd::from_raw_fd(fd) },
             scopes: BTreeMap::new(),
             roots: BTreeSet::new(),
+            lookups: Vec::new(),
             exclude,
             failure: None,
         })
@@ -217,6 +226,7 @@ impl Monitor {
         let mut changed = None;
         for scope in scopes {
             let path = match scope {
+                Scope::Identity(path) => child.is_none().then(|| path.clone()),
                 Scope::Node(path) => {
                     if child.is_some() {
                         changed = Some("MALFORMED_NODE_EVENT".into());
@@ -317,7 +327,7 @@ impl Monitor {
             .as_ref()
             .map_or(Ok(()), |error| Err(error.clone()))
     }
-    pub(super) fn snapshot(&self) -> Result<BTreeMap<String, Entry>> {
+    pub(super) fn snapshot(&self) -> Result<Snapshot> {
         fn walk(
             m: &Monitor,
             path: &Path,
@@ -345,9 +355,12 @@ impl Monitor {
                 all.entry(name(parent)?).or_insert(entry(parent)?);
             }
         }
-        Ok(all)
+        Ok(Snapshot {
+            entries: all,
+            lookups: self.lookup_snapshot()?,
+        })
     }
-    pub(super) fn checkpoint(&mut self, baseline: &BTreeMap<String, Entry>) -> Result<()> {
+    pub(super) fn checkpoint(&mut self, baseline: &Snapshot) -> Result<()> {
         self.drain()?;
         let observed = self.snapshot()?;
         self.drain()?;

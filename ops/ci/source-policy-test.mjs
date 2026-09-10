@@ -3,7 +3,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { file, observeHosted, staticPolicy, validateContext, validateMonitor } from "./source-policy.mjs";
+import { file, lookupInputs, monitorSources, observeHosted, staticPolicy, validateContext, validateMonitor } from "./source-policy.mjs";
 import { selected } from "./source-custody-fixture.mjs";
 
 const directory = mkdtempSync(join(tmpdir(), "bullet-source-policy-"));
@@ -11,7 +11,7 @@ const results = [];
 const record = (name, value) => { const path = join(directory, name); writeFileSync(path, JSON.stringify(value), { mode: 0o600 }); return file(path); };
 const policy = JSON.parse(readFileSync("ops/ci/source-policy.json", "utf8"));
 const policyReference = file(join(process.cwd(), "ops/ci/source-policy.json"));
-const sources = ["Cargo.toml", "Cargo.lock", "README.md", "src/main.rs", "src/common.rs", "src/monitor.rs", "src/protocol.rs", "src/operations.rs"];
+const sources = monitorSources;
 const sourceRoot = join(process.cwd(), "ops/proof/source-monitor");
 const toolPath = (name) => name === "cargo" ? process.env.BULLET_CI_SOURCE_CARGO : name === "rustc" ? process.env.BULLET_CI_SOURCE_RUSTC : selected(name);
 const names = ["bash", "node", "git", "timeout", "stat", "wc", "mkdir", "rm", "rmdir", "uname", "dirname", "sleep", "env", "cargo", "rustc"];
@@ -32,6 +32,20 @@ const reviewReference = record("review.json", review);
 function case_(name, body) { try { body(); results.push({ name, status: "PASS" }); } catch (error) { results.push({ name, status: "FAIL", error: String(error.stack) }); throw error; } }
 let success = false;
 try {
+  case_("lookup-profile-expands-only-explicit-checkout-paths", () => assert.deepEqual(
+    lookupInputs([{ path: "$CHECKOUT/config-alias", kind: "file", target: "/admitted/config" },
+      { path: "/admitted/absent", kind: "absent", target: null }], "/checkout"),
+    [{ path: "/checkout/config-alias", kind: "file", target: "/admitted/config" },
+      { path: "/admitted/absent", kind: "absent", target: null }]));
+  for (const [name, declarations] of [
+    ["non-array", null],
+    ["relative", [{ path: "relative", kind: "absent", target: null }]],
+    ["dotdot", [{ path: "/input/../other", kind: "absent", target: null }]],
+    ["absent-with-target", [{ path: "/input", kind: "absent", target: "/target" }]],
+    ["file-without-target", [{ path: "/input", kind: "file", target: null }]],
+    ["extra-field", [{ path: "/input", kind: "absent", target: null, skip: true }]],
+    ["duplicate", [0, 1].map(() => ({ path: "/input", kind: "absent", target: null }))],
+  ]) case_(`lookup-${name}-refuses`, () => assert.throws(() => lookupInputs(declarations), /CI_SOURCE_POLICY/));
   case_("reviewed-policy-and-pinned-monitor-components-validate", () => { assert.equal(staticPolicy(policyReference, reviewReference, profileReference).policy.id, policy.id); validateMonitor(profile, executable, build); });
   case_("missing-independent-review-refuses", () => assert.throws(() => staticPolicy(policyReference, { path: reviewReference.path, sha256: "0".repeat(64) }, profileReference), /static input changed/));
   for (const field of ["policy_sha256", "tool_profile_sha256"]) case_(`review-${field}-drift-refuses`, () => {
