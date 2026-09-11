@@ -92,6 +92,7 @@ pub(super) struct Monitor {
     pub(super) scopes: BTreeMap<i32, BTreeSet<Scope>>,
     pub(super) roots: BTreeSet<PathBuf>,
     pub(super) lookups: Vec<Lookup>,
+    declared_targets: BTreeMap<PathBuf, PathBuf>,
     pub(super) exclude: Vec<PathBuf>,
     pub(super) failure: Option<String>,
 }
@@ -109,6 +110,7 @@ impl Monitor {
             scopes: BTreeMap::new(),
             roots: BTreeSet::new(),
             lookups: Vec::new(),
+            declared_targets: BTreeMap::new(),
             exclude,
             failure: None,
         })
@@ -153,6 +155,29 @@ impl Monitor {
         }
         Ok(())
     }
+    pub(super) fn install_inputs(&mut self, lookups: &[Lookup]) -> Result<()> {
+        self.declared_targets.clear();
+        // Only successfully validated, watched lookups may opt a recursive
+        // symlink into the explicit chain resolver. No path is inferred here.
+        self.install_lookups(lookups)?;
+        self.declared_targets = lookups
+            .iter()
+            .filter(|lookup| lookup.kind != LookupKind::Absent)
+            .filter_map(|lookup| {
+                lookup
+                    .target
+                    .clone()
+                    .map(|target| (lookup.path.clone(), target))
+            })
+            .collect();
+        let mut visited = BTreeSet::new();
+        for root in self.roots.clone() {
+            absolute(&root)?;
+            self.ancestors(&root)?;
+            self.install(&root, &mut visited)?;
+        }
+        self.drain()
+    }
     pub(super) fn install(&mut self, path: &Path, visited: &mut BTreeSet<PathBuf>) -> Result<()> {
         if self.excluded(path) || !visited.insert(path.to_owned()) {
             return Ok(());
@@ -169,31 +194,40 @@ impl Monitor {
                 self.install(&child, visited)?;
             }
         } else if m.file_type().is_symlink() {
-            let link = io(fs::read_link(path))?;
-            let raw_target = if link.is_absolute() {
-                link
-            } else {
-                path.parent().ok_or("SYMLINK_PARENT_MISSING")?.join(link)
-            };
-            // Resolve dot components lexically, then require the resolution chain
-            // to contain no further symlinks. Canonicalize alone would hide them.
-            let mut target_path = PathBuf::new();
-            for component in raw_target.components() {
-                match component {
-                    std::path::Component::ParentDir => {
-                        target_path.pop();
-                    }
-                    std::path::Component::CurDir => (),
-                    other => target_path.push(other),
+            let target = if let Some(declared) = self.declared_targets.get(path) {
+                let target = io(fs::canonicalize(path))?;
+                if &target != declared {
+                    return Err("LOOKUP_TARGET_DIFFERS_FROM_ADMISSION".into());
                 }
-            }
-            if io(fs::canonicalize(&target_path))? != target_path {
-                return Err("INDIRECT_SYMLINK_INPUT_REFUSED".into());
-            }
-            let target = io(fs::canonicalize(path))?;
-            if target != target_path {
-                return Err("INDIRECT_SYMLINK_INPUT_REFUSED".into());
-            }
+                target
+            } else {
+                let link = io(fs::read_link(path))?;
+                let raw_target = if link.is_absolute() {
+                    link
+                } else {
+                    path.parent().ok_or("SYMLINK_PARENT_MISSING")?.join(link)
+                };
+                // Resolve dot components lexically, then require the resolution chain
+                // to contain no further symlinks. Canonicalize alone would hide them.
+                let mut target_path = PathBuf::new();
+                for component in raw_target.components() {
+                    match component {
+                        std::path::Component::ParentDir => {
+                            target_path.pop();
+                        }
+                        std::path::Component::CurDir => (),
+                        other => target_path.push(other),
+                    }
+                }
+                if io(fs::canonicalize(&target_path))? != target_path {
+                    return Err("INDIRECT_SYMLINK_INPUT_REFUSED".into());
+                }
+                let target = io(fs::canonicalize(path))?;
+                if target != target_path {
+                    return Err("INDIRECT_SYMLINK_INPUT_REFUSED".into());
+                }
+                target
+            };
             if self.excluded(&target) {
                 return Err("INPUT_SYMLINK_POINTS_TO_EXCLUDED_OUTPUT".into());
             }

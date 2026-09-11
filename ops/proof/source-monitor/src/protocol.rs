@@ -116,12 +116,7 @@ pub fn run() -> Result<()> {
     {
         return Err("INVENTORY_OUTPUT_INSIDE_INPUTS".into());
     }
-    let mut visited = BTreeSet::new();
-    for root in monitor.roots.clone() {
-        monitor.ancestors(&root)?;
-        monitor.install(&root, &mut visited)?;
-    }
-    monitor.install_lookups(&config.lookups)?;
+    monitor.install_inputs(&config.lookups)?;
     let baseline = monitor.snapshot()?;
     monitor.drain()?;
     if io(fs::read(&config_path))? != config_bytes {

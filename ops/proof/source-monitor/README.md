@@ -45,7 +45,9 @@ external selected tools, scripts, package caches, Git config, dependency roots,
 release/freeze records and any other inputs actually consumed by the proof.
 Within recursive roots, direct symlinks and resolved targets are bound. Symlinked input ancestors,
 indirect symlink chains, dangling links, links into excluded outputs, special
-files and non-UTF-8 input names refuse. Select canonical tool/root paths. Each named
+files and non-UTF-8 input names refuse. An indirect recursive symlink may opt in
+only through an exact explicit non-absent lookup declaration described below.
+Select canonical tool/root paths. Each named
 exclusion permits precisely that path and its descendants; it never permits a
 similar prefix. Review these output subtrees and keep proof tools' caches there
 or outside the inputs. Exclusions are bound into the inventory. They must not
@@ -71,6 +73,16 @@ checkpoint and current-input reuse. Omitted lookups preserve legacy roots-only
 behavior, which does not imply external lookup coverage. These declarations do
 not discover a complete dynamic-loader, NSS, TLS or configuration dependency
 closure; the admitted profile must still enumerate what its tools consume.
+
+Explicit lookup watches and validation precede recursive traversal, both at
+startup and during current-input reuse. If a recursive root contains an indirect
+symlink, only a declaration naming that exact lexical link and its expected
+resolved file or directory target permits it. The already watched lookup chain
+binds intermediate aliases and ancestors; recursive monitoring still includes
+the target and every descendant. A directory declaration does not opt its
+unlisted descendant links into this exception. Undeclared, absent, mismatched,
+cyclic, special or excluded chains keep refusing. No path is inferred from
+canonicalization, and no input subtree is removed to accommodate an alias.
 
 File and directory watches, including ancestor replacement watches, are
 installed before inventory and READY. File inode watches additionally detect

@@ -41,6 +41,7 @@ function fixture(name, mode = "plain", lane = "fast", prepareLookups = () => [])
     writeFileSync(join(f.repo, "ops/ci/contract.sh"), "#!/usr/bin/env bash\nprintf 'bundle fixture\\n' >.ci-artifacts/reports/bundle-tests.log\n");
     for (const other of ["security", "docs"]) writeFileSync(join(f.repo, `ops/ci/${other}.sh`), "#!/usr/bin/env bash\nexit 0\n");
   }
+  const lookups = prepareLookups(f);
   execFileSync("git", ["-C", f.repo, "add", "."]);
   execFileSync("git", ["-C", f.repo, "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "source custody fixture"]);
   f.head = execFileSync("git", ["-C", f.repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
@@ -53,7 +54,7 @@ function fixture(name, mode = "plain", lane = "fast", prepareLookups = () => [])
     f.env.PATH = `${tools}:${process.env.PATH}`;
   }
   const priorPath = process.env.PATH; process.env.PATH = f.env.PATH;
-  try { f.admission = admit(f.repo, [lane], mode === "seal-hold" ? ["npm"] : [], [], prepareLookups(f)); }
+  try { f.admission = admit(f.repo, [lane], mode === "seal-hold" ? ["npm"] : [], [], lookups); }
   finally { process.env.PATH = priorPath; }
   f.env.PATH = f.admission.tool_path;
   if (mode === "compile") { execFileSync("mkfifo", ["-m", "600", gate]); f.fifo = gate; }
@@ -136,6 +137,48 @@ try {
       assert.notEqual(refusal.monitor_exit, 0);
       assert.match(result.output, /CI_SOURCE_CUSTODY/);
       return { ...result, refusal };
+    });
+  }
+  for (const mode of ["unchanged", "middle-restore", "target-restore", "directory-child", "undeclared", "wrong", "excluded", "later-reuse"]) {
+    await case_(`declared-recursive-alias-${mode}`, async () => {
+      const negative = ["undeclared", "wrong", "excluded"].includes(mode);
+      const mutating = ["middle-restore", "target-restore", "directory-child"].includes(mode);
+      const f = fixture(`recursive-${mode}`, mutating ? "hold" : "plain", "fast", (f) => {
+        const lookup = externalLookup(mode === "directory-child" ? "ancestor-alias" : "final-alias")(f)[0];
+        const link = join(f.repo, "declared-root-alias"); symlinkSync(f.alias, link); lookup.path = link;
+        if (mode === "directory-child") { lookup.kind = "directory"; lookup.target = join(f.external, "real"); }
+        if (mode === "wrong") lookup.target = join(f.external, "wrong");
+        if (mode === "excluded") {
+          mkdirSync(join(f.repo, ".ci-artifacts")); f.target = join(f.repo, ".ci-artifacts/private-input");
+          writeFileSync(f.target, "excluded"); unlinkSync(f.alias); symlinkSync(f.target, f.alias); lookup.target = f.target;
+        }
+        return mode === "undeclared" ? [] : [lookup];
+      });
+      const replaceMiddle = () => {
+        renameSync(f.alias, join(f.external, "saved-middle")); symlinkSync("real/config", f.alias);
+        unlinkSync(f.alias); renameSync(join(f.external, "saved-middle"), f.alias);
+      };
+      launch(f);
+      if (mutating) {
+        await until(() => existsSync(join(f.repo, "ready")), "declared recursive alias ready");
+        if (mode === "middle-restore") replaceMiddle();
+        else if (mode === "target-restore") restored(f.target);
+        else { const child = join(f.external, "real/new-child"); writeFileSync(child, "transient"); unlinkSync(child); }
+        writeFileSync(join(f.repo, "release"), "");
+      }
+      const result = await finish(f);
+      if (negative || mutating) {
+        assert.equal(result.code, 75, result.output); assertUnpublished(f);
+        assert.match(result.output, negative ? /INDIRECT_SYMLINK_INPUT_REFUSED|LOOKUP_TARGET_DIFFERS|LOOKUP_INTERSECTS_EXCLUDED_OUTPUT/ : /SOURCE_MUTATION|WATCH_LOST/);
+      } else {
+        assert.equal(result.code, 0, result.output); assert.equal(verify(f).status, 0);
+        if (mode === "later-reuse") {
+          unlinkSync(f.alias); symlinkSync("real/config", f.alias);
+          const later = verify(f); assert.notEqual(later.status, 0); assert.match(later.stderr, /CURRENT_LOOKUP_INVENTORY_CHANGED/);
+          return { ...result, later_revalidation: later.stderr };
+        }
+      }
+      return result;
     });
   }
   for (const kind of ["absent", "missing-ancestor", "final-alias", "ancestor-alias", "target", "sibling"]) {

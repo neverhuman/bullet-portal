@@ -181,3 +181,108 @@ fn cycles_special_inputs_nondirectories_and_wrong_expected_target_refuse() {
             .contains("LOOKUP_COUNT_LIMIT")
     );
 }
+
+fn recursive_alias(fixture: &Fixture, directory: bool) -> Lookup {
+    fs::create_dir(fixture.0.join("watched")).unwrap();
+    symlink(
+        if directory { "real" } else { "real/config" },
+        fixture.0.join("middle"),
+    )
+    .unwrap();
+    symlink("../middle", fixture.0.join("watched/alias")).unwrap();
+    fixture.lookup(
+        "watched/alias",
+        if directory {
+            LookupKind::Directory
+        } else {
+            LookupKind::File
+        },
+    )
+}
+
+fn recursive_monitor(
+    fixture: &Fixture,
+    lookups: &[Lookup],
+    excluded: Vec<PathBuf>,
+) -> Result<Monitor, String> {
+    let mut monitor = Monitor::new(excluded)?;
+    monitor.roots.insert(fixture.0.join("watched"));
+    monitor.install_inputs(lookups)?;
+    Ok(monitor)
+}
+
+#[test]
+fn explicitly_declared_recursive_alias_keeps_file_and_directory_contents() {
+    for directory in [false, true] {
+        let fixture = Fixture::new();
+        let lookup = recursive_alias(&fixture, directory);
+        let mut monitor = recursive_monitor(&fixture, &[lookup], vec![]).unwrap();
+        let baseline = monitor.snapshot().unwrap();
+        assert!(
+            baseline
+                .entries
+                .contains_key(fixture.0.join("real/config").to_str().unwrap())
+        );
+        monitor.checkpoint(&baseline).unwrap();
+        if directory {
+            // A directory lookup alone binds identity. Recursive admission must
+            // additionally watch a previously absent descendant's creation.
+            fs::write(fixture.0.join("real/new-child"), "transient").unwrap();
+            fs::remove_file(fixture.0.join("real/new-child")).unwrap();
+        } else {
+            let path = fixture.0.join("real/config");
+            let before = fs::read(&path).unwrap();
+            fs::write(&path, "transient").unwrap();
+            fs::write(&path, before).unwrap();
+        }
+        assert!(monitor.checkpoint(&baseline).is_err());
+    }
+}
+
+#[test]
+fn explicitly_declared_recursive_alias_intermediate_restore_is_latched() {
+    let fixture = Fixture::new();
+    let lookup = recursive_alias(&fixture, false);
+    let mut monitor = recursive_monitor(&fixture, &[lookup], vec![]).unwrap();
+    let baseline = monitor.snapshot().unwrap();
+    let middle = fixture.0.join("middle");
+    fs::rename(&middle, fixture.0.join("preserved-middle")).unwrap();
+    symlink("real/config", &middle).unwrap();
+    fs::remove_file(&middle).unwrap();
+    fs::rename(fixture.0.join("preserved-middle"), &middle).unwrap();
+    assert!(monitor.checkpoint(&baseline).is_err());
+}
+
+#[test]
+fn recursive_alias_requires_exact_valid_declaration() {
+    let fixture = Fixture::new();
+    let lookup = recursive_alias(&fixture, false);
+    assert!(
+        recursive_monitor(&fixture, &[], vec![])
+            .err()
+            .unwrap()
+            .contains("INDIRECT_SYMLINK_INPUT_REFUSED")
+    );
+    let mut wrong = lookup.clone();
+    wrong.target = Some(fixture.0.join("different"));
+    assert!(recursive_monitor(&fixture, &[wrong], vec![]).is_err());
+    let mut absent = lookup.clone();
+    absent.kind = LookupKind::Absent;
+    absent.target = None;
+    assert!(recursive_monitor(&fixture, &[absent], vec![]).is_err());
+    assert!(recursive_monitor(&fixture, &[lookup], vec![fixture.0.join("real")]).is_err());
+}
+
+#[test]
+fn declared_directory_alias_does_not_admit_an_unlisted_descendant_alias() {
+    let fixture = Fixture::new();
+    let lookup = recursive_alias(&fixture, true);
+    symlink("real/config", fixture.0.join("other-middle")).unwrap();
+    symlink("../other-middle", fixture.0.join("real/unlisted")).unwrap();
+    assert!(
+        recursive_monitor(&fixture, &[lookup], vec![])
+            .err()
+            .unwrap()
+            .contains("INDIRECT_SYMLINK_INPUT_REFUSED")
+    );
+}

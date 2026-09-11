@@ -43,13 +43,7 @@ pub(super) fn verify_inventory(path: &Path) -> Result<Value> {
         .into_iter()
         .filter(|p| !p.starts_with(ephemeral))
         .collect();
-    let mut visited = BTreeSet::new();
-    for root in monitor.roots.clone() {
-        absolute(&root)?;
-        monitor.ancestors(&root)?;
-        monitor.install(&root, &mut visited)?;
-    }
-    monitor.install_lookups(&config.lookups)?;
+    monitor.install_inputs(&config.lookups)?;
     let mut expected = inventory["entries"]
         .as_object()
         .ok_or("INVENTORY_ENTRIES")?
