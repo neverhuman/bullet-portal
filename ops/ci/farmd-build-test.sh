@@ -4,12 +4,23 @@ set -euo pipefail
 umask 077
 portal="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 scratch="$(mktemp -d)"
-trap 'rm -rf -- "$scratch"' EXIT
+fixture_case=setup
+finish_fixture() {
+  local result=$?
+  if [[ "$result" -ne 0 ]]; then
+    printf '[ci] farmd target fixture failed (%s), retained: %s\n' "$fixture_case" "$scratch" >&2
+    [[ ! -f "$scratch/output" ]] || cat "$scratch/output" >&2
+  else
+    rm -rf -- "$scratch"
+  fi
+}
+trap finish_fixture EXIT
 scratch="$(cd "$scratch" && pwd -P)"
 fixture="$scratch/family"
-mkdir -p "$fixture/bullet-portal/ops/ci" "$fixture/bullet-kernel/target/debug" \
+mkdir -p "$fixture/bullet-portal/ops/ci" "$fixture/bullet-portal/ops/proof" "$fixture/bullet-kernel/target/debug" \
   "$scratch/caller/debug" "$scratch/bin" "$scratch/tmp"
 cp "$portal/ops/ci/real-farmd.sh" "$fixture/bullet-portal/ops/ci/real-farmd.sh"
+cp "$portal/ops/proof/rendered-host.ts" "$fixture/bullet-portal/ops/proof/rendered-host.ts"
 : >"$fixture/bullet-kernel/Cargo.toml"
 cat >"$fixture/bullet-portal/ops/ci/lib.sh" <<'FIXTURE'
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -79,6 +90,24 @@ done
 FIXTURE
 chmod +x "$scratch/bin/npm" "$scratch/bin/cargo"
 ln -s "$scratch/tmp" "$scratch/tmp-link"
+for guard in CI GITHUB_ACTIONS; do
+  fixture_case="host guard $guard"
+  status=0
+  env "$guard=false" PATH="$scratch/bin:$PATH" \
+    bash "$fixture/bullet-portal/ops/ci/real-farmd.sh" >"$scratch/output" 2>&1 || status=$?
+  [[ "$status" -ne 0 && ! -e "$scratch/selected-target" ]]
+  grep -Fq RENDERED_HOST_REQUIRED "$scratch/output"
+done
+# Only these fake-Cargo target-custody cases use synthetic host facts. Keep the
+# actual validator and its separate runtime refusals above; this is no live/UI proof.
+mv "$fixture/bullet-portal/ops/proof/rendered-host.ts" \
+  "$fixture/bullet-portal/ops/proof/rendered-host-production.ts"
+cat >"$fixture/bullet-portal/ops/proof/rendered-host.ts" <<'FIXTURE'
+import { validateRenderedHost } from "./rendered-host-production.ts";
+export function requireRenderedHost() {
+  validateRenderedHost("xbabe2", "linux", {});
+}
+FIXTURE
 passed=0
 for packaged in 0 1; do
 proof_args=()
@@ -86,6 +115,7 @@ proof_args=()
 for mode in valid relative-caller temporary-link fail missing link parent-link nonexecutable directory writable \
   missing-bullet-command-worker missing-transaction_offline missing-bullet-runner \
   missing-bullet-verifier-fixture gitd-drift; do
+  fixture_case="packaged=$packaged mode=$mode"
   rm -f "$scratch/selected-target" "$scratch/fresh-launched" "$scratch/poison-launched" "$scratch/bundle-checked"
   caller="$scratch/caller"
   temporary="$scratch/tmp"
@@ -106,7 +136,7 @@ for mode in valid relative-caller temporary-link fail missing link parent-link n
   case "$mode" in
     valid|relative-caller|temporary-link)
       [[ -f "$scratch/fresh-launched" && "$(<"$scratch/fresh-launched")" == fresh ]] \
-        || { cat "$scratch/output" >&2; exit 1; } ;;
+        || exit 1 ;;
     fail)
       [[ "$status" -eq 23 && ! -e "$scratch/fresh-launched" ]] ;;
     gitd-drift)
@@ -119,4 +149,5 @@ for mode in valid relative-caller temporary-link fail missing link parent-link n
   passed=$((passed + 1))
 done
 done
-printf '[ci] farmd private build target fixtures: %s passed\n' "$passed"
+printf '[ci] farmd private build target fixtures: %s passed (fake Cargo, synthetic host facts)\n' "$passed"
+printf '[ci] farmd real host guard: 2 refusals passed\n'

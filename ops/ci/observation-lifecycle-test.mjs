@@ -20,7 +20,15 @@ const outputPolicy = {
   portable: ["platform/refusal.json", "reports/farmd-test-proxy-override.log", "reports/vite-api-override.log", "reports/vitest.json"],
 };
 let lifecycleCount = 0;
-const execute = (fixture, command, args, env = {}) => spawnSync(command, args, { cwd: fixture, encoding: "utf8", env: { ...process.env, ...fixtureEnvironment(fixture), ...env } });
+function execute(fixture, command, args, overrides = {}) {
+  const env = { ...process.env, ...fixtureEnvironment(fixture) };
+  // Direct fixture calls own no live enclosing proof. Retain tools/configuration;
+  // live operations and refusal cases supply their exact context explicitly.
+  for (const key of ["BULLET_CI_PROOF_CUSTODY", "BULLET_CI_OBSERVATION_OWNER", "BULLET_CI_SOURCE_SESSION",
+    "BULLET_CI_SOURCE_OWNER_PID", "BULLET_CI_SOURCE_MONITOR_PID", "BULLET_CI_SOURCE_MONITOR_START",
+    "BULLET_CI_SOURCE_READ_FD", "BULLET_CI_SOURCE_WRITE_FD", "BULLET_CI_SOURCE_RESPONSE_SECONDS", "BULLET_CI_SOURCE_CHILD_STARTED"]) delete env[key];
+  return spawnSync(command, args, { cwd: fixture, encoding: "utf8", env: { ...env, ...overrides } });
+}
 const observe = (fixture, ...args) => execute(fixture, process.execPath, [producer, ...args]);
 const wrapper = (fixture, lane, env = {}) => execute(fixture, "bash", ["scripts/ci-local.sh", lane], env);
 const sanitize = (fixture, lane) => execute(fixture, process.execPath, [script, lane]);
@@ -101,6 +109,36 @@ await lifecycle("every consumer lane inventory and unchanged legacy verification
     assert(!existsSync(join(staged, "lifecycle")), "generation state uploaded");
   }
   assert(hash(join(fixture, ".ci-artifacts/component/retained.log")) === retained, "unrelated diagnostic changed");
+});
+await lifecycle("completed foreign session remains separate from recovery", async (foreign) => {
+  good(wrapper(foreign, "fast"), "foreign completed invocation");
+  const foreignProof = JSON.parse(readFileSync(join(foreign, ".ci-artifacts/reports/fast-source-proof.json")));
+  const foreignSession = join(foreign, ".ci-artifacts/source-proof", foreignProof.binding.session);
+  await lifecycle("historical recovery isolates inherited session and refuses explicit foreign session", async (fixture) => {
+    const previous = process.env.BULLET_CI_SOURCE_SESSION;
+    process.env.BULLET_CI_SOURCE_SESSION = foreignSession;
+    try {
+      good(wrapper(fixture, "fast"), "own completed invocation under enclosing session");
+      const before = hash(reportPath(fixture, "fast"));
+      const recovered = observe(fixture, "fast", "success", "0");
+      good(recovered, "recovery outside inherited session");
+      const refused = execute(fixture, process.execPath, [producer, "fast", "success", "0"], {
+        BULLET_CI_SOURCE_SESSION: foreignSession,
+      });
+      assert(refused.status === 75 && refused.stderr.includes("CI_SOURCE_CUSTODY: SOURCE_SESSION_REQUIRED"),
+        `explicit foreign session lost refusal: ${refused.status}: ${refused.stderr}`);
+      const repeated = observe(fixture, "fast", "success", "0");
+      good(repeated, "recovery after refused foreign session");
+      assert(hash(reportPath(fixture, "fast")) === before, "recovery/refusal changed saved observation");
+      assert(process.env.BULLET_CI_SOURCE_SESSION === foreignSession, "fixture changed enclosing session");
+      console.log("[ci] historical session recovery: " + JSON.stringify({ recovered: recovered.status,
+        explicit_foreign: refused.status, recovered_again: repeated.status, observation_sha256: before,
+        refusal_stderr: refused.stderr }));
+    } finally {
+      if (previous === undefined) delete process.env.BULLET_CI_SOURCE_SESSION;
+      else process.env.BULLET_CI_SOURCE_SESSION = previous;
+    }
+  });
 });
 await lifecycle("stale exact reports plus no-op success refuse", async (fixture) => {
   outputs(fixture, "fast");
