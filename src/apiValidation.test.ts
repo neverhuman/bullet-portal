@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  compileGeneratedValidator,
   isBootstrapResponse,
   isDemoReceipt,
   isEventEnvelope,
@@ -272,5 +273,26 @@ describe("local response semantics outside the generated roots", () => {
     const { candidate_head: _candidateHead, ...missingCandidate } = demoReceipt;
     expect(isDemoReceipt(missingCandidate)).toBe(false);
     expect(isRfc3339(null)).toBe(false);
+  });
+});
+
+
+describe("generated validator admission and exact fence numbers", () => {
+  it("refuses an unregistered generated schema instead of admitting arbitrary responses", () => {
+    expect(() => compileGeneratedValidator("missing-reviewed-response")).toThrow(
+      "generated API schema is missing missing-reviewed-response",
+    );
+  });
+
+  it("accepts absent lease fences and exact safe integer observations", () => {
+    for (const fence of [null, 0, Number.MAX_SAFE_INTEGER]) {
+      expect(isMissionView({ mission, packages: [workPackage], fence })).toBe(true);
+    }
+  });
+
+  it("refuses a fence whose number cannot identify one exact durable integer", () => {
+    for (const fence of [Number.MAX_SAFE_INTEGER + 1, 1.5, Infinity, NaN]) {
+      expect(isMissionView({ mission, packages: [workPackage], fence })).toBe(false);
+    }
   });
 });
