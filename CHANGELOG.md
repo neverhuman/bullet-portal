@@ -36,4 +36,4 @@ heading may be added before the gates in `docs/release.md` hold with receipts.
   Portal has no run-forever agent loop, so the three-line stub was not a runbook
   and was removed rather than faked into one.
 
-[Unreleased]: https://github.com/bullet-farm/bullet-portal
+[Unreleased]: https://github.com/neverhuman/bullet-portal

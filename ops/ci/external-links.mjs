@@ -13,6 +13,12 @@ for (const file of files) {
   const text = readFileSync(file, "utf8");
   for (const match of text.matchAll(/\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/g)) urls.add(match[1]);
   for (const match of text.matchAll(/<(https?:\/\/[^>\s]+)>/g)) urls.add(match[1]);
+  // Reference destinations may follow the label on the next line. Keep the
+  // destination separate from an optional title; escaped label punctuation
+  // must not cause an otherwise real HTTP URL to disappear from the partition.
+  for (const match of text.matchAll(/^[ \t]{0,3}\[(?:\\[^\r\n]|[^\]\\\r\n])+\]:[ \t]*(?:\r?\n[ \t]*)?(?:<(https?:\/\/[^>\s]+)>|(https?:\/\/[^\s<>]+))/gm)) {
+    urls.add(match[1] ?? match[2]);
+  }
 }
 const external = [...urls].filter((url) => !/^https?:\/\/(?:127\.0\.0\.1|localhost)(?::|\/)/.test(url));
 if (external.length === 0) throw new Error("ZERO_EXTERNAL_LINK_PARTITION");
