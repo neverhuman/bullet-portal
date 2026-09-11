@@ -47,9 +47,15 @@ repair landed. `agent/test-map.json` routes an owned path to its lane, and
 purpose, the kernel's stable reason code, the common fixes for each, the repair
 hint, and where each one is documented.
 
-The current unit partition contains 360 distinct passing identities, pinned by
+The current unit partition selects 372 distinct identities, pinned by
 count and SHA-256 in both fast and coverage lanes. This includes navigation,
 atomic operator snapshots, ordinary event refresh and durable session consumers.
+Status-header cases distinguish a snapshot watermark from the event cursor,
+preserve unresolved continuity and health failures, and check lag over time.
+Validator cases refuse missing generated schemas and inexact fences. The
+focused new cases have executed; a complete passing report over the current
+source remains required for full-partition acceptance. Coverage percentages
+require their own run and cannot be inferred from an older source report.
 Command-history tests cover owned discovery after local cache loss,
 pagination, stale responses, phase regression and exact HTTP status validation.
 Retry coverage also checks Rust-compatible request digests, exact settled-command

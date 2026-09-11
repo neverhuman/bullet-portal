@@ -16,7 +16,7 @@ log "coverage lane: all unit/component tests with ratcheted summary"
   --coverage.exclude=src/test-setup.ts \
   --coverage.exclude=src/env.d.ts \
   '--coverage.exclude=src/generated/**'
-node ops/ci/assert-report.mjs vitest "$reports/coverage-tests.json" 360 \
-  bfdf9a13dc210141b8c5cc0d1d0ecd86e0618393504f2ecd6e8e6756a555b4d1
+node ops/ci/assert-report.mjs vitest "$reports/coverage-tests.json" 372 \
+  7d47523612afcd80b234c6cb71f44afbc23569134f0e4c3cb7451f37f2b427d9
 node ops/ci/assert-coverage.mjs "$coverage/coverage-summary.json"
 log "coverage lane passed"
