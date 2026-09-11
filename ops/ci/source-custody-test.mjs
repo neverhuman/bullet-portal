@@ -18,7 +18,7 @@ async function until(probe, label) {
   throw new Error(`fixture deadline: ${label}`);
 }
 function fixture(name, mode = "plain", lane = "fast", prepareLookups = () => []) {
-  const f = { name, repo: join(fixtureRoot, name), child: null, output: "", mode, lane, fifo: null };
+  const f = { name, repo: join(fixtureRoot, name), child: null, output: "", verifications: [], mode, lane, fifo: null };
   fixtures.push(f); // Registered before any process can start or READY can fail.
   mkdirSync(f.repo);
   copySources(origin, f.repo);
@@ -112,11 +112,19 @@ function externalLookup(kind) {
     return [{ path: f.lookup, kind: "file", target: f.target }];
   };
 }
-function verify(f) {
+function verify(f, overrides = {}) {
   const env = { ...f.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
+  // A completed fixture is recovered outside the enclosing proof's live
+  // session. Keep tool/configuration subjects; remove only live custody context.
+  for (const key of ["BULLET_CI_PROOF_CUSTODY", "BULLET_CI_OBSERVATION_OWNER", "BULLET_CI_SOURCE_SESSION",
+    "BULLET_CI_SOURCE_OWNER_PID", "BULLET_CI_SOURCE_MONITOR_PID", "BULLET_CI_SOURCE_MONITOR_START",
+    "BULLET_CI_SOURCE_READ_FD", "BULLET_CI_SOURCE_WRITE_FD", "BULLET_CI_SOURCE_RESPONSE_SECONDS", "BULLET_CI_SOURCE_CHILD_STARTED"]) delete env[key];
   delete env.GIT_OPTIONAL_LOCKS; // The semantic consumer itself must keep reads observational.
-  return spawnSync("node", ["ops/ci/observation.mjs", "fast", "success", "0"], { cwd: f.repo,
-    env, encoding: "utf8", timeout: 30_000 });
+  const result = spawnSync("node", ["ops/ci/observation.mjs", "fast", "success", "0"], { cwd: f.repo,
+    env: { ...env, ...overrides }, encoding: "utf8", timeout: 30_000 });
+  f.verifications.push({ status: result.status, signal: result.signal, error: result.error?.message ?? null,
+    stdout: result.stdout, stderr: result.stderr });
+  return result;
 }
 async function case_(name, body) {
   try { const detail = await body(); observations.push({ name, status: "PASS", detail }); }
@@ -171,7 +179,7 @@ try {
         assert.equal(result.code, 75, result.output); assertUnpublished(f);
         assert.match(result.output, negative ? /INDIRECT_SYMLINK_INPUT_REFUSED|LOOKUP_TARGET_DIFFERS|LOOKUP_INTERSECTS_EXCLUDED_OUTPUT/ : /SOURCE_MUTATION|WATCH_LOST/);
       } else {
-        assert.equal(result.code, 0, result.output); assert.equal(verify(f).status, 0);
+        assert.equal(result.code, 0, result.output); const recovery = verify(f); assert.equal(recovery.status, 0, recovery.stderr);
         if (mode === "later-reuse") {
           unlinkSync(f.alias); symlinkSync("real/config", f.alias);
           const later = verify(f); assert.notEqual(later.status, 0); assert.match(later.stderr, /CURRENT_LOOKUP_INVENTORY_CHANGED/);
@@ -197,7 +205,7 @@ try {
       else { writeFileSync(join(f.external, "unrelated"), "allowed"); unlinkSync(join(f.external, "unrelated")); }
       writeFileSync(join(f.repo, "release"), "");
       const result = await finish(f);
-      if (kind === "sibling") { assert.equal(result.code, 0, result.output); assert.equal(verify(f).status, 0); }
+      if (kind === "sibling") { assert.equal(result.code, 0, result.output); const recovery = verify(f); assert.equal(recovery.status, 0, recovery.stderr); }
       else { assert.equal(result.code, 75, result.output); assertUnpublished(f); assert.match(result.output, /SOURCE_MUTATION|WATCH_LOST/); }
       return { ...result, lookup_inventory: inventory.lookups };
     });
@@ -206,7 +214,7 @@ try {
     await case_(`external-lookup-${kind}-later-drift-refuses-reuse`, async () => {
       const f = fixture(`lookup-reuse-${kind}`, "plain", "fast", externalLookup(kind));
       launch(f); assert.equal((await finish(f)).code, 0, f.output);
-      assert.equal(verify(f).status, 0);
+      const recovery = verify(f); assert.equal(recovery.status, 0, recovery.stderr);
       if (kind === "absent") writeFileSync(f.missing, "new configuration");
       else if (kind === "final-alias") { unlinkSync(f.alias); symlinkSync("real/config", f.alias); }
       else writeFileSync(f.target, "different config");
@@ -312,6 +320,19 @@ try {
     const f = fixture("reuse-valid"); launch(f); assert.equal((await finish(f)).code, 0, f.output);
     assert.equal(existsSync(join(f.repo, ".git/bullet-ci.lock.d")), false);
     const result = verify(f); assert.equal(result.status, 0, result.stderr); return { status: result.status };
+  });
+  await case_("historical-recovery-isolates-inherited-session-but-explicit-foreign-session-refuses", async () => {
+    const foreign = fixture("foreign-session"); launch(foreign); assert.equal((await finish(foreign)).code, 0, foreign.output);
+    const f = fixture("isolated-recovery"); f.env.BULLET_CI_SOURCE_SESSION = session(foreign);
+    launch(f); assert.equal((await finish(f)).code, 0, f.output);
+    const path = join(f.repo, ".ci-artifacts/observations/fast.json"); const digest = hash(path);
+    assert.notEqual(session(f), f.env.BULLET_CI_SOURCE_SESSION);
+    const recovered = verify(f); assert.equal(recovered.status, 0, recovered.stderr);
+    const refused = verify(f, { BULLET_CI_SOURCE_SESSION: f.env.BULLET_CI_SOURCE_SESSION });
+    assert.equal(refused.status, 75, refused.stderr); assert.match(refused.stderr, /CI_SOURCE_CUSTODY: SOURCE_SESSION_REQUIRED/);
+    const recoveredAgain = verify(f); assert.equal(recoveredAgain.status, 0, recoveredAgain.stderr);
+    assert.equal(f.env.BULLET_CI_SOURCE_SESSION, session(foreign)); assert.equal(hash(path), digest);
+    return { recovered: recovered.status, explicit_foreign: refused.status, recovered_again: recoveredAgain.status, observation_sha256: digest };
   });
   for (const kind of ["ignored-dependency", "assume-unchanged-source", "external-tool"]) await case_(`completed-proof-refuses-${kind}-drift`, async () => {
     const f = fixture(`reuse-${kind}`, kind === "external-tool" ? "seal-hold" : "plain");
@@ -452,7 +473,8 @@ finally {
     writeFileSync(join(f.repo, "fixture-diagnostic.txt"), f.output);
   }
   mkdirSync(join(origin, ".ci-artifacts/reports"), { recursive: true });
-  writeFileSync(join(origin, ".ci-artifacts/reports/source-custody-tests.json"), `${JSON.stringify({ schema: "bullet.source-custody.tests.v1", evidence_class: "DIAGNOSTIC_COMPONENT_ONLY", cases: observations }, null, 2)}\n`);
+  writeFileSync(join(origin, ".ci-artifacts/reports/source-custody-tests.json"), `${JSON.stringify({ schema: "bullet.source-custody.tests.v1", evidence_class: "DIAGNOSTIC_COMPONENT_ONLY", cases: observations,
+    verifications: fixtures.filter((f) => f.verifications.length).map((f) => ({ fixture: f.name, attempts: f.verifications })) }, null, 2)}\n`);
   if (failed) console.error(`[ci] retained failed source-custody fixtures: ${fixtureRoot}`);
   else { rmSync(fixtureRoot, { recursive: true }); console.log(`[ci] source custody integration passed (${observations.length} cases)`); }
 }
