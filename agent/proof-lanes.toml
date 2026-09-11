@@ -28,7 +28,7 @@ requires_network = false
 [[lane]]
 name = "rendered"
 command = "just rendered"
-purpose = "all fourteen mocked Playwright cases with exact identity and result checks; only locally on xbabe2/Linux with CI and GITHUB_ACTIONS absent, outside hosted required"
+purpose = "all twenty-four mocked Playwright cases with exact identity and result checks; only locally on xbabe2/Linux with CI and GITHUB_ACTIONS absent, outside hosted required"
 requires_network = false
 
 [[lane]]
