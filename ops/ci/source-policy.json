@@ -1,0 +1,23 @@
+{
+  "schema": "bullet.source-policy.v1",
+  "id": "portal-hosted-linux-diagnostic-v1",
+  "author": "Bullet engineering",
+  "evidence_class": "DIAGNOSTIC_COMPONENT_ONLY",
+  "platform": "linux",
+  "runner_environment": "github-hosted",
+  "repositories": ["neverhuman/bullet-portal", "neverhuman/bulletfarm"],
+  "events": ["push", "pull_request", "merge_group", "workflow_dispatch", "schedule"],
+  "lanes": ["required", "fast", "lint", "contract", "security", "docs", "coverage", "scheduled-hygiene", "portable"],
+  "max_seconds": 7200,
+  "response_seconds": 60,
+  "require_only_owned_process_ancestry": true,
+  "require_raw_committed_source": true,
+  "require_pinned_tools_and_complete_inputs": true,
+  "require_explicit_outputs": true,
+  "conditions": {
+    "cooperative_freeze": true,
+    "local_filesystem": true,
+    "no_mmap_writers": true,
+    "no_mount_changes": true
+  }
+}

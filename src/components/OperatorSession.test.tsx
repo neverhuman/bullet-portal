@@ -5,7 +5,8 @@ import { getOperatorSession, revokeOperatorSession } from "../apiAuth";
 import { ApiError } from "../apiTransport";
 import { OperatorSession } from "./OperatorSession";
 import { useState } from "react";
-import { clearPendingCommand, persistPendingCommand } from "../pendingCommand";
+import { clearPendingCommand, persistPendingCommand } from "../testing/pendingOwner";
+import { pendingSlot } from "../testing/pendingOwner";
 
 vi.mock("../apiAuth", () => ({ getOperatorSession: vi.fn(), revokeOperatorSession: vi.fn() }));
 const identity = { operator_id: `opr_${"1".repeat(64)}`, session_id: `sid_${"2".repeat(64)}` };
@@ -38,7 +39,7 @@ it("recovers from response loss and a refused session without deleting the reque
   vi.mocked(revokeOperatorSession).mockRejectedValue(new ApiError("POST", "/api/v1/auth/revoke", null, "response lost"));
   vi.mocked(getOperatorSession).mockRejectedValue(new ApiError("GET", "/api/v1/auth/session", 401, "session invalid"));
   persistPendingCommand({ envelope: { idempotency_key: "preserved", kind: "run_demo", payload: {} }, commandId: null, kind: "run_demo", payloadDigest: null });
-  const slot = "bullet-farm.pending-command.v1";
+  const slot = pendingSlot();
   const original = window.sessionStorage.getItem(slot);
   expect(original).not.toBeNull();
   function Client() { const [material, setMaterial] = useState(true); return <OperatorSession material={material} onChange={setMaterial} />; }

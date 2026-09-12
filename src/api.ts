@@ -35,6 +35,7 @@ import {
 import { CSRF_HEADER, csrfToken, rememberCsrfToken } from "./apiSession";
 import { ApiError, apiBase, readJson, readSnapshot, type SnapshotRead } from "./apiTransport";
 import { prepareCommand } from "./commandIdentity";
+import { assertOwner, discoverOwner, forgetRefusedOwner, ownerHeaders } from "./apiOwner";
 
 export { apiBase, ApiError, errorText, type SnapshotRead } from "./apiTransport";
 export { forgetBrowserSession, hasSessionMaterial } from "./apiSession";
@@ -71,8 +72,14 @@ export function newRunDemoEnvelope(): CommandEnvelope {
 
 export { newRunCodingEnvelope, type CodingProviderName, type RunCodingFields } from "./codingTasks";
 
-export async function submitCommand(envelope: CommandEnvelope): Promise<CommandStatus> {
-  const csrf = csrfToken();
+export async function submitCommand(
+  envelope: CommandEnvelope,
+  options?: { signal?: AbortSignal; csrf?: string },
+): Promise<CommandStatus> {
+  const csrf = options?.csrf ?? csrfToken();
+  if (options?.csrf !== undefined && options.csrf !== csrfToken()) {
+    throw new ApiError("POST", `${API_PREFIX}/commands`, null, "local session changed before dispatch", false);
+  }
   if (csrf === null) {
     throw new ApiError(
       "POST",
@@ -99,6 +106,7 @@ export async function submitCommand(envelope: CommandEnvelope): Promise<CommandS
         [CSRF_HEADER]: csrf,
       },
       body: prepared.body,
+      signal: options?.signal,
     },
     202,
   );
@@ -115,8 +123,14 @@ export async function submitCommand(envelope: CommandEnvelope): Promise<CommandS
   return status;
 }
 
-export async function getCommand(id: string): Promise<CommandStatus> {
-  const status = await readJson(`${API_PREFIX}/commands/${encodeURIComponent(id)}`, isCommandStatus, undefined, 200);
+export async function getCommand(id: string, signal?: AbortSignal, headers?: HeadersInit): Promise<CommandStatus> {
+  const owner = headers === undefined ? await discoverOwner(signal) : null;
+  const status = await readJson(`${API_PREFIX}/commands/${encodeURIComponent(id)}`, isCommandStatus,
+    { signal, headers: owner === null ? headers : ownerHeaders(owner) }, 200).catch((error: unknown) => {
+      if (owner !== null) forgetRefusedOwner(owner, error);
+      throw error;
+    });
+  if (owner !== null) assertOwner(owner, signal);
   if (status.id !== id) {
     throw new ApiError(
       "GET",

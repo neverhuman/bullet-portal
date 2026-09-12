@@ -4,6 +4,8 @@ import { isEventEnvelope } from "../apiValidation";
 import { API_PREFIX } from "../generated/api";
 import type { SseFrame } from "../sse";
 import { readSseStream } from "../sse";
+import { assertOwner, discoverOwner, forgetRefusedOwner, verifyOwner, type ConversationOwner } from "../apiOwner";
+import { browserSessionEpoch, onBrowserSessionChange } from "../apiSession";
 
 export type StreamConnection = "live" | "reconnecting" | "unknown";
 
@@ -176,6 +178,7 @@ function createStream(cb: StreamCallbacks): {
   let recovery: Promise<void> | null = null;
   let activeConnection: AbortController | null = null;
   let rebaseRequested = false;
+  let owner: ConversationOwner | null = null;
 
   const patchCursor = (lastEventAt?: string): void => {
     cb.patch({
@@ -220,6 +223,8 @@ function createStream(cb: StreamCallbacks): {
   };
 
   const handleFrame = (frame: SseFrame): void => {
+    if (disposed || owner === null) return;
+    assertOwner(owner, controller.signal);
     const event = parseFrame(frame);
     if (event === null) {
       tracker.markUncertain(safeFrameSequence(frame) ?? undefined);
@@ -254,6 +259,16 @@ function createStream(cb: StreamCallbacks): {
   };
 
   const loop = async (): Promise<void> => {
+    while (!disposed && owner === null) {
+      try {
+        owner = await discoverOwner(controller.signal);
+      } catch {
+        if (disposed) return;
+        markDown();
+        await delay(RETRY_MS, controller.signal);
+      }
+    }
+    if (disposed || owner === null) return;
     try {
       const watermark = await cb.onGap(tracker.lastSeq());
       if (!disposed && tracker.applySnapshot(watermark)) {
@@ -267,6 +282,8 @@ function createStream(cb: StreamCallbacks): {
         await recover();
       }
       try {
+        assertOwner(owner, controller.signal);
+        owner = await verifyOwner(owner, controller.signal);
         const cursor = tracker.lastSeq();
         const url = reconnect
           ? `${apiBase}${API_PREFIX}/events`
@@ -279,19 +296,22 @@ function createStream(cb: StreamCallbacks): {
             connection.signal,
             {
               onOpen: () => {
+                assertOwner(owner!, controller.signal);
                 everConnected = true;
                 cb.patch({ connection: "live", detail: "" });
               },
               onFrame: handleFrame,
             },
             reconnect ? cursor : undefined,
+            owner.sessionId,
           );
         } finally {
           if (activeConnection === connection) {
             activeConnection = null;
           }
         }
-      } catch {
+      } catch (error) {
+        forgetRefusedOwner(owner, error);
         // fall through to markDown + retry
       }
       if (disposed) {
@@ -332,6 +352,14 @@ export function useEventStream(
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
   const observer = useRef<((watermark: number) => void) | null>(null);
+  const activeStream = useRef<ReturnType<typeof createStream> | null>(null);
+  const [epoch, setEpoch] = useState(browserSessionEpoch);
+  useEffect(() => onBrowserSessionChange(() => {
+    activeStream.current?.dispose();
+    observer.current = null;
+    setState(INITIAL);
+    setEpoch(browserSessionEpoch());
+  }), []);
 
   useEffect(() => {
     let disposed = false;
@@ -345,12 +373,13 @@ export function useEventStream(
       onEvent: (sequence) => onEventRef.current?.(sequence),
     });
     observer.current = stream.observeSnapshot;
+    activeStream.current = stream;
     return () => {
       disposed = true;
       observer.current = null;
       stream.dispose();
     };
-  }, []);
+  }, [epoch]);
 
   useEffect(() => {
     if (publishedSnapshot !== undefined) observer.current?.(publishedSnapshot);

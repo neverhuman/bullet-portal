@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { sourceProofPath, validateSourceProof } from "./source-proof.mjs";
 
 const expected = ["fast", "lint", "contract", "security", "docs"];
 const observationKeys = [
@@ -60,6 +61,10 @@ export function validateRequiredRun(artifactRoot, expectedCommit, needs) {
     const observation = readObservation(observationPath, lane);
     validateObservation(observation, lane, expectedCommit, expectedTree);
 
+    if (!observation.artifact_hashes.some((artifact) => artifact?.path === sourceProofPath(lane))) {
+      fail("CI_SOURCE_PROOF_MISSING", lane);
+    }
+
     for (const artifact of observation.artifact_hashes) {
       validateArtifactEntry(artifact, lane);
       if (boundArtifacts.has(artifact.path)) {
@@ -73,6 +78,9 @@ export function validateRequiredRun(artifactRoot, expectedCommit, needs) {
         fail("CI_ARTIFACT_HASH_MISMATCH", artifact.path);
       }
       expectedFiles.add(downloadedRelative);
+      if (artifact.path === sourceProofPath(lane)) {
+        validateSourceProof(readObservation(artifactPath, lane), lane, observation, true);
+      }
     }
   }
 

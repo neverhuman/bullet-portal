@@ -3,6 +3,9 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { requireRenderedHost } from "../proof/rendered-host.ts";
+
+requireRenderedHost();
 
 const ORIGIN = process.env.PORTAL_ORIGIN ?? "http://127.0.0.1:4399";
 const TOKEN = process.env.BULLET_BOOTSTRAP_TOKEN ?? "";

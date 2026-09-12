@@ -34,8 +34,7 @@ run = ["bash ops/ci/jeryu-activation-gate.sh", "bash ops/ci/jeryu-lane.sh contra
 cache_mounts = []
 artifact_paths = [
   ".ci-artifacts/observations/contract.json",
-  ".ci-artifacts/reports/playwright.xml",
-  ".ci-artifacts/playwright",
+  ".ci-artifacts/reports/bundle-tests.log",
 ]
 timeout_seconds = 1200
 

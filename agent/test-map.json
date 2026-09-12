@@ -22,7 +22,7 @@
       "purpose": "thin Claude adapter that only points at AGENTS.md"
     },
     "playwright.packaged.config.ts": {
-      "command": "bash scripts/ci-local.sh fast",
+      "command": "bash scripts/ci-local.sh packaged-farmd",
       "purpose": "packaged-farmd browser lane configuration"
     },
     "scripts/": {
@@ -30,8 +30,8 @@
       "purpose": "local CI entrypoints that delegate to the same ops/ci scripts hosted jobs call"
     },
     "test-results/": {
-      "command": "bash scripts/ci-local.sh contract",
-      "purpose": "Playwright screenshot and trace receipts; the contract lane regenerates them"
+      "command": "bash scripts/ci-local.sh rendered",
+      "purpose": "xbabe2-local Playwright screenshot and trace receipts; the rendered lane regenerates them"
     },
     "tools/": {
       "command": "bash scripts/ci-local.sh security",
@@ -58,8 +58,8 @@
       "purpose": "prove observation rendering and Control Tower state"
     },
     "e2e/": {
-      "command": "bash scripts/ci-local.sh contract",
-      "purpose": "prove pending-to-verified and unknown-as-unknown"
+      "command": "bash scripts/ci-local.sh rendered",
+      "purpose": "xbabe2-local mocked browser proof; real-farmd and packaged cases also require their separate local family lanes"
     },
     "ops/": {
       "command": "just check",
@@ -126,11 +126,11 @@
       "purpose": "TypeScript configuration checked by tsc"
     },
     "playwright.config.ts": {
-      "command": "bash scripts/ci-local.sh fast",
+      "command": "bash scripts/ci-local.sh rendered",
       "purpose": "mocked-farmd browser lane configuration"
     },
     "playwright.real.config.ts": {
-      "command": "bash scripts/ci-local.sh fast",
+      "command": "bash scripts/ci-local.sh family",
       "purpose": "real-farmd browser lane configuration"
     },
     "index.html": {

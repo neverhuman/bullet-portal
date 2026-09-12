@@ -3,6 +3,8 @@ import { ApiError, errorText, getCommand, type SnapshotRead } from "../api";
 import { listCommands } from "../apiCommands";
 import type { CommandDiscoveryView, CommandStatus } from "../generated/api";
 import { CommandCard } from "./CommandCard";
+import { assertOwner, discoverOwner, forgetRefusedOwner, ownerHeaders, verifyOwner, type ConversationOwner } from "../apiOwner";
+import { browserSessionEpoch, onBrowserSessionChange } from "../apiSession";
 
 function sameSubject(left: CommandStatus, right: CommandStatus): boolean {
   return left.id === right.id && left.kind === right.kind && left.payload_digest === right.payload_digest;
@@ -28,31 +30,48 @@ export function CommandHistory({ onUnauthorized }: { onUnauthorized: () => void 
   const selection = useRef<CommandStatus | null>(null);
   const cursor = useRef(0);
   const watermark = useRef(0);
+  const pageOwner = useRef<ConversationOwner | null>(null);
+  const pageController = useRef<AbortController | null>(null);
+  const detailController = useRef<AbortController | null>(null);
 
-  function unauthorized(err: unknown): boolean {
-    if (!(err instanceof ApiError) || (err.status !== 401 && err.status !== 403)) return false;
-    pageRequest.current += 1;
-    detailRequest.current += 1;
-    selection.current = null;
+  function clearOwner(): void {
+    pageController.current?.abort(); detailController.current?.abort();
+    pageRequest.current += 1; detailRequest.current += 1;
+    selection.current = null; cursor.current = 0; watermark.current = 0;
+    pageOwner.current = null;
     setPage(null); setSelected(null); setDetail(null); setBusy(false); setDetailBusy(false);
-    onUnauthorized();
-    return true;
+    setError(null); setDetailError(null);
+  }
+
+  function unauthorized(err: unknown, owner: ConversationOwner | null): boolean {
+    if (!(err instanceof ApiError) || (err.status !== 401 && err.status !== 403)) return false;
+    const epoch = browserSessionEpoch();
+    if (owner !== null) forgetRefusedOwner(owner, err);
+    if (epoch === browserSessionEpoch()) return false;
+    onUnauthorized(); return true;
   }
 
   async function select(command: CommandStatus): Promise<void> {
+    if (pageOwner.current === null) return;
     const request = ++detailRequest.current;
+    detailController.current?.abort();
+    const active = new AbortController(); detailController.current = active;
+    let owner: ConversationOwner | null = pageOwner.current;
     const previous = selection.current?.id === command.id ? selection.current : command;
     selection.current = previous; setSelected(previous); setDetail(null); setDetailError(null); setDetailBusy(true);
     try {
       if (!sameSubject(previous, command)) throw new Error("command identity or payload changed");
-      const current = await getCommand(command.id);
+      owner = await verifyOwner(owner, active.signal);
+      if (request !== detailRequest.current) return;
+      const current = await getCommand(command.id, active.signal, ownerHeaders(owner));
+      assertOwner(owner, active.signal);
       if (request !== detailRequest.current) return;
       assertCurrent(previous, current);
       selection.current = current; setSelected(current);
       setDetail(current);
     } catch (err) {
       if (request !== detailRequest.current) return;
-      if (unauthorized(err)) return;
+      if (unauthorized(err, owner)) return;
       setDetailError(`Current command unavailable: ${errorText(err)}`);
     } finally {
       if (request === detailRequest.current) setDetailBusy(false);
@@ -61,21 +80,28 @@ export function CommandHistory({ onUnauthorized }: { onUnauthorized: () => void 
 
   async function refresh(after: number): Promise<void> {
     const request = ++pageRequest.current;
+    pageController.current?.abort(); detailController.current?.abort();
+    const active = new AbortController(); pageController.current = active;
+    let owner: ConversationOwner | null = null;
     detailRequest.current += 1;
     setBusy(true); setError(null); setDetail(null); setDetailError(null); setDetailBusy(false);
     try {
-      const next = await listCommands(after);
+      owner = await discoverOwner(active.signal);
+      if (request !== pageRequest.current) return;
+      const next = await listCommands(after, 25, active.signal, owner);
+      assertOwner(owner, active.signal);
       if (request !== pageRequest.current) return;
       if (next.asOfSequence < watermark.current) throw new Error("history watermark moved backwards");
       const previous = selection.current;
       const retained = next.data.commands.find((command) => command.id === previous?.id) ?? null;
       if (retained !== null && previous !== null) assertCurrent(previous, retained);
       cursor.current = after; watermark.current = next.asOfSequence;
+      pageOwner.current = owner;
       setPage(next); setSelected(retained); selection.current = retained;
       if (retained !== null) void select(retained);
     } catch (err) {
       if (request !== pageRequest.current) return;
-      if (unauthorized(err)) return;
+      if (unauthorized(err, owner)) return;
       setError(`Command history unavailable: ${errorText(err)}`);
     } finally {
       if (request === pageRequest.current) setBusy(false);
@@ -83,8 +109,10 @@ export function CommandHistory({ onUnauthorized }: { onUnauthorized: () => void 
   }
 
   useEffect(() => {
+    const unsubscribe = onBrowserSessionChange(clearOwner);
     void refresh(0);
-    return () => { pageRequest.current += 1; detailRequest.current += 1; };
+    return () => { unsubscribe(); pageController.current?.abort(); detailController.current?.abort();
+      pageRequest.current += 1; detailRequest.current += 1; };
   }, []);
 
   return (

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   ApiError,
   errorText,
-  forgetBrowserSession,
   getCommand,
   hasSessionMaterial,
   newRunCodingEnvelope,
@@ -14,6 +13,7 @@ import {
   clearPendingCommandIf,
   envelopeForRetryOrCreate,
   loadPendingCommand,
+  recoverPendingCommand,
   PendingCommandError,
   rememberAdmittedCommand,
   restoredSubjectConflicts,
@@ -28,13 +28,15 @@ import { OperatorSession } from "../components/OperatorSession";
 import { CodingTaskFields, emptyCodingTask } from "../components/CodingTaskFields";
 import { CodingTaskCard } from "../components/CodingTaskCard";
 import { codingTaskPayload, isCodingTaskPayload } from "../codingTasks";
-import { canonicalCommandPayload } from "../commandIdentity";
+import { canonicalCommandPayload, prepareCommand } from "../commandIdentity";
 import type {
   CommandEnvelope,
   CommandStatus,
 } from "../generated/api";
 import { operatorPart, useOperatorSnapshot } from "../hooks/useOperatorSnapshot";
 import { useHealthProbe } from "../hooks/useHealthProbe";
+import { onBrowserSessionChange } from "../apiSession";
+import { assertOwner, discoverOwner, forgetRefusedOwner, ownerHeaders, type ConversationOwner } from "../apiOwner";
 
 type MutationPhase = "IDLE" | Exclude<CommandStatus["status"], "VERIFIED">;
 
@@ -64,8 +66,8 @@ function unverifiableSuccess(commandId: string): string {
   return `command ${commandId} reported durable VERIFIED, but no generated runtime Evidence and Effect receipt contract is available; displayed outcome is UNKNOWN`;
 }
 
-function pendingCodingConflicts(fields: RunCodingFields): boolean {
-  const pending = loadPendingCommand();
+function pendingCodingConflicts(fields: RunCodingFields, owner: ConversationOwner): boolean {
+  const pending = loadPendingCommand(owner);
   if (pending === null) return false;
   if (pending.envelope.kind !== "run_coding") return true;
   const payload = pending.envelope.payload as Record<string, unknown>;
@@ -101,10 +103,12 @@ export function ControlTower() {
   const [sessionMaterial, setSessionMaterial] = useState(hasSessionMaterial);
   const [historyOpen, setHistoryOpen] = useState(false);
   const runningRef = useRef(false);
+  const [running, setRunning] = useState(false);
   const commandGeneration = useRef(0);
+  const controller = useRef<AbortController | null>(null);
   const health = useHealthProbe();
 
-  async function reconcile(initial: CommandStatus, generation: number, envelope: CommandEnvelope): Promise<void> {
+  async function reconcile(initial: CommandStatus, generation: number, envelope: CommandEnvelope, owner: ConversationOwner, signal: AbortSignal): Promise<void> {
     let last = initial;
     while (!isTerminal(last.status)) {
       await waitForPoll();
@@ -113,16 +117,15 @@ export function ControlTower() {
       }
       let next: CommandStatus;
       try {
-        next = await getCommand(initial.id);
+        next = await getCommand(initial.id, signal, ownerHeaders(owner));
+        assertOwner(owner, signal);
       } catch (err) {
         if (commandGeneration.current === generation) {
-          if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-            forgetBrowserSession();
-            setSessionMaterial(false);
-          }
+          forgetRefusedOwner(owner, err);
+          if (commandGeneration.current !== generation) return;
           setPhase("UNKNOWN");
           setError(`command ${initial.id} reconciliation unknown (${errorText(err)})`);
-          runningRef.current = false;
+          runningRef.current = false; setRunning(false);
         }
         return;
       }
@@ -135,20 +138,20 @@ export function ControlTower() {
       ) {
         setPhase("UNKNOWN");
         setError(`command ${initial.id} reconciliation returned conflicting durable truth`);
-        runningRef.current = false;
+        runningRef.current = false; setRunning(false);
         return;
       }
       if (next.status === "VERIFIED") {
         setCommand(next);
         setPhase("UNKNOWN");
         setError(unverifiableSuccess(next.id));
-        runningRef.current = false;
+        runningRef.current = false; setRunning(false);
         if (commandGeneration.current === generation) {
           if (clearPendingCommandIf({
             commandId: next.id,
             kind: next.kind,
             payloadDigest: next.payload_digest,
-          }, envelope)) setLegacyRetry(false);
+          }, envelope, owner)) setLegacyRetry(false);
         }
         return;
       }
@@ -156,13 +159,13 @@ export function ControlTower() {
       setCommand(next);
       setPhase(next.status);
     }
-    runningRef.current = false;
+    runningRef.current = false; setRunning(false);
     if (commandGeneration.current === generation) {
       if (clearPendingCommandIf({
         commandId: last.id,
         kind: last.kind,
         payloadDigest: last.payload_digest,
-      }, envelope)) setLegacyRetry(false);
+      }, envelope, owner)) setLegacyRetry(false);
     }
     if (last.status === "FAILED" || last.status === "UNKNOWN") {
       setCommand(last);
@@ -179,8 +182,16 @@ export function ControlTower() {
     if (runningRef.current) return;
     const generation = commandGeneration.current + 1;
     commandGeneration.current = generation;
+    controller.current?.abort();
+    const active = new AbortController(); controller.current = active;
+    const signal = active.signal;
+    let owner: ConversationOwner | null = null;
+    runningRef.current = true; setRunning(true);
     try {
-      const pending = loadPendingCommand();
+      owner = await discoverOwner(signal);
+      const pending = await recoverPendingCommand(owner, signal);
+      assertOwner(owner, signal);
+      if (commandGeneration.current !== generation) return;
       if (pending === null) return;
       const payload = pending.envelope.payload as Record<string, unknown>;
       if (pending.kind === "run_coding" && isCodingTaskPayload(payload)) {
@@ -204,10 +215,11 @@ export function ControlTower() {
         throw new PendingCommandError("pending command cannot be retried as a coding action; reconcile its original envelope");
       }
       if (pending.commandId === null) return;
-      runningRef.current = true;
+      runningRef.current = true; setRunning(true);
       setPhase("PENDING");
       setError(null);
-      const admitted = await getCommand(pending.commandId);
+      const admitted = await getCommand(pending.commandId, signal, ownerHeaders(owner));
+      assertOwner(owner, signal);
       if (commandGeneration.current !== generation) return;
       if (restoredSubjectConflicts(pending, admitted)) {
         throw new PendingCommandError(
@@ -215,76 +227,105 @@ export function ControlTower() {
         );
       }
       setCommand(admitted);
-      await reconcile(admitted, generation, pending.envelope);
+      await reconcile(admitted, generation, pending.envelope, owner, signal);
     } catch (err) {
       if (commandGeneration.current !== generation) return;
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        forgetBrowserSession(); setSessionMaterial(false); setHistoryOpen(false);
-      }
+      if (owner !== null) forgetRefusedOwner(owner, err);
+      if (commandGeneration.current !== generation) return;
       setPhase("UNKNOWN");
       setError(`command reconciliation unknown (${errorText(err)})`);
-      runningRef.current = false;
+    } finally {
+      if (commandGeneration.current === generation) { runningRef.current = false; setRunning(false); }
     }
   }
 
   useEffect(() => {
+    const unsubscribe = onBrowserSessionChange(() => {
+      commandGeneration.current += 1;
+      controller.current?.abort();
+      runningRef.current = false; setRunning(false);
+      setCommand(null);
+      setPhase("IDLE");
+      setError(null);
+      setHistoryOpen(false);
+      setTask(emptyCodingTask());
+      setAccountId("acct-local");
+      setModel("claude-opus-4-6");
+      setProvider("claude");
+      setEffort("");
+      setTaskCommand(false);
+      setLegacyRetry(false);
+      setSessionMaterial(hasSessionMaterial());
+      if (hasSessionMaterial()) {
+        const generation = commandGeneration.current;
+        queueMicrotask(() => { if (commandGeneration.current === generation) void resumePending(); });
+      }
+    });
     void resumePending();
     return () => {
+      unsubscribe();
       commandGeneration.current += 1;
-      runningRef.current = false;
+      controller.current?.abort();
+      runningRef.current = false; setRunning(false);
     };
   }, []);
 
   async function onRunCoding(): Promise<void> {
     if (runningRef.current) return;
-    let generation = commandGeneration.current;
+    const generation = ++commandGeneration.current;
+    controller.current?.abort();
+    const active = new AbortController(); controller.current = active;
+    const signal = active.signal;
+    let owner: ConversationOwner | null = null;
+    runningRef.current = true; setRunning(true);
+    setPhase("PENDING"); setError(null); setCommand(null);
     try {
-      const pending = loadPendingCommand();
-      if (pending?.commandId !== null && pending?.commandId !== undefined) {
-        await resumePending();
-        return;
-      }
+      owner = await discoverOwner(signal);
+      const pending = await recoverPendingCommand(owner, signal);
+      assertOwner(owner, signal);
+      if (commandGeneration.current !== generation) return;
       const fields: RunCodingFields = { task, accountId, provider, model, effort: effort === "" ? null : effort };
-      if (pendingCodingConflicts(fields)) {
+      if (pendingCodingConflicts(fields, owner)) {
         throw new PendingCommandError("pending command conflicts with the coding action; reconcile it first");
       }
-      const envelope = envelopeForRetryOrCreate(() => newRunCodingEnvelope(fields));
+      const envelope = envelopeForRetryOrCreate(() => newRunCodingEnvelope(fields), owner);
       setTaskCommand(isCodingTaskPayload(envelope.payload));
-      runningRef.current = true;
-      generation = commandGeneration.current + 1;
-      commandGeneration.current = generation;
-      setPhase("PENDING");
-      setError(null);
-      setCommand(null);
-      const admitted = await submitCommand(envelope);
+      let admitted: CommandStatus | null = null;
+      if (pending !== null) {
+        const expected = prepareCommand(envelope).subject;
+        try {
+          admitted = await getCommand(expected.id, signal, ownerHeaders(owner));
+          if (admitted.id !== expected.id || admitted.kind !== expected.kind || admitted.payload_digest !== expected.payload_digest) {
+            throw new PendingCommandError("restored command subject conflicts with its exact request");
+          }
+        } catch (err) {
+          if (!(pending.commandId === null && err instanceof ApiError && err.status === 404 &&
+              err.code === "NOT_FOUND" && err.acknowledgedSession === owner.sessionId)) throw err;
+        }
+      }
+      assertOwner(owner, signal);
+      if (admitted === null) {
+        if (owner.csrf === null) throw new PendingCommandError("authenticate before submitting a command");
+        admitted = await submitCommand(envelope, { signal, csrf: owner.csrf });
+      }
+      assertOwner(owner, signal);
       if (commandGeneration.current !== generation) return;
       setCommand(admitted);
-      setPhase("PENDING");
-      const persisted = rememberAdmittedCommand({
-        commandId: admitted.id,
-        kind: admitted.kind,
-        payloadDigest: admitted.payload_digest,
-      }, envelope);
+      const persisted = rememberAdmittedCommand({ commandId: admitted.id, kind: admitted.kind,
+        payloadDigest: admitted.payload_digest }, envelope, owner);
       if (!persisted) {
-        setPhase("UNKNOWN");
-        setError(`command ${admitted.id} admitted but persistence failed; retry will reuse the envelope`);
+        throw new PendingCommandError(`command ${admitted.id} admitted but persistence failed; retry will reuse the envelope`);
       }
-      await reconcile(admitted, generation, envelope);
+      await reconcile(admitted, generation, envelope, owner, signal);
     } catch (err) {
       if (commandGeneration.current !== generation) return;
-      const custodyFailure = err instanceof PendingCommandError;
+      if (owner !== null) forgetRefusedOwner(owner, err);
+      if (commandGeneration.current !== generation) return;
       const ambiguous = err instanceof ApiError && err.outcomeUnknown;
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        forgetBrowserSession();
-        setSessionMaterial(false);
-      }
-      setPhase(ambiguous || custodyFailure ? "UNKNOWN" : "FAILED");
-      setError(
-        ambiguous
-          ? `command admission outcome unknown; no command id was received (${errorText(err)})`
-          : errorText(err),
-      );
-      runningRef.current = false;
+      setPhase(ambiguous || err instanceof PendingCommandError ? "UNKNOWN" : "FAILED");
+      setError(ambiguous ? `command admission outcome unknown; no command id was received (${errorText(err)})` : errorText(err));
+    } finally {
+      if (commandGeneration.current === generation) { runningRef.current = false; setRunning(false); }
     }
   }
 
@@ -302,20 +343,20 @@ export function ControlTower() {
       <OperatorSession material={sessionMaterial} onChange={(material) => {
         setSessionMaterial(material);
         setHistoryOpen(false);
-        if (!material) { commandGeneration.current += 1; runningRef.current = false; }
+        if (!material) { commandGeneration.current += 1; runningRef.current = false; setRunning(false); }
         snapshot.refresh?.();
       }} />
       <button type="button" aria-expanded={historyOpen} onClick={() => setHistoryOpen(!historyOpen)}>
         {historyOpen ? "Hide command history" : "Show command history"}
       </button>
       {historyOpen && <CommandHistory onUnauthorized={() => {
-        forgetBrowserSession(); setSessionMaterial(false); setHistoryOpen(false);
-        commandGeneration.current += 1; runningRef.current = false;
+        setSessionMaterial(hasSessionMaterial()); setHistoryOpen(false);
+        commandGeneration.current += 1; runningRef.current = false; setRunning(false);
       }} />}
       <details open>
       <summary>Advanced coding task</summary>
       {legacyRetry ? <p>Saved historical request: retry uses its exact original contents.</p> :
-        <CodingTaskFields value={task} onChange={setTask} disabled={runningRef.current} />}
+        <CodingTaskFields value={task} onChange={setTask} disabled={running} />}
       <label htmlFor="coding-account">Account</label>{" "}
       <input
         id="coding-account"
@@ -347,7 +388,7 @@ export function ControlTower() {
         onChange={(event) => setEffort(event.target.value)} />{" "}
       <button
         type="button"
-        disabled={!sessionMaterial || runningRef.current}
+        disabled={!sessionMaterial || running}
         onClick={() => void onRunCoding()}
       >
         Submit durable coding command

@@ -11,6 +11,9 @@ import {
 } from "./api";
 
 const OBSERVED_AT = "2026-08-24T22:00:00.000Z";
+vi.mock("./apiAuth", () => ({ getOperatorSession: vi.fn(async () => ({
+  operator_id: `opr_${"1".repeat(64)}`, session_id: `sid_${"2".repeat(64)}`,
+})) }));
 
 function snapshot(data: unknown, sequence = 42): Record<string, unknown> {
   return {
@@ -26,7 +29,7 @@ function jsonResponse(
   sequenceHeader: string | null = "42",
   status = 200,
 ): Response {
-  const headers = new Headers({ "content-type": "application/json" });
+  const headers = new Headers({ "content-type": "application/json", "x-bullet-session-id": `sid_${"2".repeat(64)}` });
   if (sequenceHeader !== null) {
     headers.set("x-bullet-as-of-sequence", sequenceHeader);
   }
@@ -86,7 +89,7 @@ describe("api transport honesty", () => {
         Promise.resolve({
           ok: true,
           status: 200,
-          headers: new Headers({ "content-type": "application/json" }),
+          headers: new Headers({ "content-type": "application/json", "x-bullet-session-id": `sid_${"2".repeat(64)}` }),
           json: () =>
             new Promise<unknown>((_resolve, reject) => {
               init?.signal?.addEventListener("abort", () =>
@@ -116,7 +119,7 @@ describe("api transport honesty", () => {
         Promise.resolve(
           new Response("<html></html>", {
             status: 200,
-            headers: { "content-type": "text/html" },
+            headers: { "content-type": "text/html", "x-bullet-session-id": `sid_${"2".repeat(64)}` },
           }),
         ),
       ),
@@ -133,7 +136,7 @@ describe("api transport honesty", () => {
         Promise.resolve(
           new Response("[]", {
             status: 200,
-            headers: { "content-type": "text/application/json-shadow" },
+            headers: { "content-type": "text/application/json-shadow", "x-bullet-session-id": `sid_${"2".repeat(64)}` },
           }),
         ),
       ),
@@ -152,6 +155,7 @@ describe("api transport honesty", () => {
             status: 200,
             headers: {
               "content-type": "Application/JSON; Charset=UTF-8",
+              "x-bullet-session-id": `sid_${"2".repeat(64)}`,
               "x-bullet-as-of-sequence": "42",
             },
           }),
@@ -169,7 +173,7 @@ describe("api transport honesty", () => {
   it("carries method, url, and status on HTTP failures", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => Promise.resolve(new Response("down", { status: 503 }))),
+      vi.fn(() => Promise.resolve(new Response("down", { status: 503, headers: { "x-bullet-session-id": `sid_${"2".repeat(64)}` } }))),
     );
     const err = await listMissions().then(
       () => null,
@@ -274,6 +278,7 @@ describe("api transport honesty", () => {
             status: 200,
             headers: {
               "content-type": "application/json",
+              "x-bullet-session-id": `sid_${"2".repeat(64)}`,
               "x-bullet-as-of-sequence": "42",
             },
           }),
@@ -388,7 +393,7 @@ describe("api transport honesty", () => {
             }),
             {
               status: 200,
-              headers: { "content-type": "application/json" },
+              headers: { "content-type": "application/json", "x-bullet-session-id": `sid_${"2".repeat(64)}` },
             },
           ),
         ),

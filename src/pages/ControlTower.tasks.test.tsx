@@ -1,9 +1,12 @@
+import { hasSessionMaterial as realMaterial, csrfToken } from "../apiSession";
+import { setupOwner, pendingSlot, identity } from "../testing/pendingOwner";
+vi.mock("../apiAuth", () => ({ getOperatorSession: vi.fn(), revokeOperatorSession: vi.fn() }));
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import * as api from "../api";
 import { getCodingTask } from "../codingTasks";
 import { prepareCommand } from "../commandIdentity";
-import { clearPendingCommand, loadPendingCommand, persistPendingCommand } from "../pendingCommand";
+import { clearPendingCommand, loadPendingCommand, persistPendingCommand } from "../testing/pendingOwner";
 import { codingTaskFixture, taskEnvelopeFixture, taskSnapshotFixture } from "../testing/codingTask";
 import { operatorSnapshotFixture } from "../testing/operatorSnapshot";
 import { ControlTower } from "./ControlTower";
@@ -25,8 +28,8 @@ const fill = (label: string, value: string) => fireEvent.change(screen.getByLabe
 const submit = () => fireEvent.click(screen.getByRole("button", { name: "Submit durable coding command" }));
 
 beforeEach(() => {
-  vi.clearAllMocks(); clearPendingCommand();
-  vi.mocked(api.hasSessionMaterial).mockReturnValue(true);
+  vi.clearAllMocks(); setupOwner(); clearPendingCommand();
+  vi.mocked(api.hasSessionMaterial).mockImplementation(realMaterial);
   vi.mocked(api.fetchHealth).mockResolvedValue({ status: "ok" });
   vi.mocked(api.fetchOperatorSnapshot).mockResolvedValue({ data: operatorSnapshotFixture(),
     asOfSequence: 0, observedAt: "2026-09-10T03:00:00Z", source: "bullet-kernel/sqlite-ledger" });
@@ -48,6 +51,7 @@ it("journals the complete form intent before admission and displays its persiste
     return { ...prepareCommand(sent).subject, status: "UNKNOWN", result: {} };
   });
   render(<ControlTower />);
+  await waitFor(() => expect(screen.getByRole("button", { name: "Submit durable coding command" })).toBeEnabled());
   fill("Task title", task.title); fill("Objective", task.objective);
   fill("Repository ID", task.repository_id); fill("Base commit", task.base_commit);
   fill("Allowed paths (one per line)", task.scope_paths.join("\n"));
@@ -70,8 +74,8 @@ it("restores every task field after response loss and refuses changed intent und
   vi.mocked(api.submitCommand).mockResolvedValue({ ...prepareCommand(saved).subject, status: "UNKNOWN", result: {} });
   persistPendingCommand({ ...recorded, envelope: saved, commandId: null, payloadDigest: null });
   render(<ControlTower />);
-  expect(screen.getByLabelText("Task title")).toHaveValue(codingTaskFixture().title);
-  expect(screen.getByLabelText("Allowed paths (one per line)")).toHaveValue("src\ntests");
+  await waitFor(() => expect(screen.getByLabelText("Task title")).toHaveValue(codingTaskFixture().title));
+  await waitFor(() => expect(screen.getByLabelText("Allowed paths (one per line)")).toHaveValue("src\ntests"));
   expect(screen.getByLabelText("Effort (optional)")).toHaveValue("high");
   expect(screen.getByLabelText("Deadline (UTC)")).toHaveValue("2100-01-01T00:00:00.123");
   expect(api.submitCommand).not.toHaveBeenCalled();
@@ -79,15 +83,16 @@ it("restores every task field after response loss and refuses changed intent und
   await screen.findByText(/pending command conflicts/);
   expect(api.submitCommand).not.toHaveBeenCalled();
   expect(loadPendingCommand()?.envelope).toEqual(saved);
+  vi.mocked(api.getCommand).mockRejectedValueOnce(Object.assign(new api.ApiError("GET", "/commands", 404, "absent", false, undefined, identity.session_id), { code: "NOT_FOUND" }));
   fill("Objective", codingTaskFixture().objective); submit();
-  await waitFor(() => expect(api.submitCommand).toHaveBeenCalledExactlyOnceWith(saved));
+  await waitFor(() => expect(api.submitCommand).toHaveBeenCalledExactlyOnceWith(saved, { signal: expect.any(AbortSignal), csrf: "fixture-csrf" }));
   await waitFor(() => expect(loadPendingCommand()).toBeNull());
 });
 
 it("reconciles a recorded v2 admission on reload without creating or posting a replacement", async () => {
   persistPendingCommand(recorded);
   render(<ControlTower />);
-  await waitFor(() => expect(api.getCommand).toHaveBeenCalledExactlyOnceWith(subject.id));
+  await waitFor(() => expect(api.getCommand).toHaveBeenCalledExactlyOnceWith(subject.id, expect.any(AbortSignal), { "x-bullet-expected-session": identity.session_id }));
   await screen.findByText("CODING_BINDING_ADMISSION_UNAVAILABLE");
   expect(getCodingTask).toHaveBeenCalledExactlyOnceWith(subject.id);
   expect(screen.getByLabelText("Base commit")).toHaveValue(codingTaskFixture().base_commit);

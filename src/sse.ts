@@ -1,3 +1,5 @@
+import { ApiError } from "./apiTransport";
+
 export type SseFrame = {
   id: string | null;
   event: string;
@@ -189,6 +191,7 @@ export async function readSseStream(
   signal: AbortSignal,
   cb: SseCallbacks,
   lastEventId?: number,
+  expectedSession?: string,
 ): Promise<void> {
   if (
     lastEventId !== undefined &&
@@ -200,6 +203,7 @@ export async function readSseStream(
     throw abortReason(signal);
   }
   const headers: Record<string, string> = { accept: "text/event-stream" };
+  if (expectedSession !== undefined) headers["x-bullet-expected-session"] = expectedSession;
   if (lastEventId !== undefined) {
     headers["Last-Event-ID"] = String(lastEventId);
   }
@@ -211,13 +215,17 @@ export async function readSseStream(
   let reachedEof = false;
   try {
     const response = await withInactivityDeadline(
-      fetch(url, { signal: connection.signal, headers }),
+      fetch(url, { signal: connection.signal, headers, credentials: "same-origin" }),
       connection,
       SSE_HEADER_TIMEOUT_MS,
       `GET ${url} failed: response headers inactive for ${SSE_HEADER_TIMEOUT_MS}ms`,
     );
+    if (connection.signal.aborted) throw abortReason(connection.signal);
     if (!response.ok) {
-      throw new Error(`GET ${url} failed: HTTP ${response.status}`);
+      throw new ApiError("GET", url, response.status, `HTTP ${response.status}`);
+    }
+    if (expectedSession !== undefined && response.headers.get("x-bullet-session-id") !== expectedSession) {
+      throw new ApiError("GET", url, response.status, "SESSION_BINDING_REQUIRED: stream did not confirm the requested session");
     }
     const contentType = response.headers.get("content-type") ?? "";
     if (!hasEventStreamMediaType(contentType)) {
@@ -234,6 +242,7 @@ export async function readSseStream(
     const parse = createSseParser(cb.onFrame);
     for (;;) {
       const { done, value } = await readBodyChunk(reader, connection, url);
+      if (connection.signal.aborted) throw abortReason(connection.signal);
       if (done) {
         parse(decoder.decode());
         reachedEof = true;

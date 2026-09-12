@@ -5,10 +5,12 @@ import {
   readFileSync, readdirSync, renameSync, writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { checkpoint, completedProof, currentBinding, custodyFailureExit, finishRecord } from "./source-custody.mjs";
 
 const fast = ["reports/farmd-test-proxy-override.log", "reports/vite-api-override.log", "reports/vitest.json"];
 const policies = {
-  fast, lint: [], contract: ["playwright/.last-run.json", "reports/playwright.xml"],
+  fast, lint: [], contract: ["reports/bundle-tests.log"],
+  rendered: ["playwright/.last-run.json", "reports/playwright.xml"],
   security: [], docs: [], "scheduled-hygiene": [],
   coverage: ["coverage/coverage-summary.json", "reports/coverage-tests.json"],
   portable: ["platform/refusal.json", ...fast],
@@ -22,20 +24,33 @@ const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const fail = (message) => { throw new Error(`CI_OBSERVATION_LIFECYCLE: ${message}`); };
 const [operation, ...args] = process.argv.slice(2);
+try {
 if (operation === "prepare") {
   if (args.length !== 1) fail("prepare arguments");
   console.log(prepare(args[0]));
 } else if (operation === "seal") {
   const [lane, generation, outcome, code, ...commands] = args;
   seal(lane, generation, outcome, code, commands);
+} else if (operation === "readback") {
+  readback();
+} else if (operation === "publish") {
+  publish(Number(args[0]), Number(args[1]));
+} else if (operation === "invalidate") {
+  invalidate();
 } else {
   const [outcome, code, ...commands] = args;
   verify(operation, outcome, code, commands);
 }
+} catch (error) { custodyFailureExit(error); }
 
 function lanePolicy(lane) {
   if (!Object.hasOwn(policies, lane)) fail(`unsupported lane ${lane}`);
-  return policies[lane].map((path) => `${root}/${path}`);
+  return [...policies[lane].map((path) => `${root}/${path}`), proofArtifact(lane)];
+}
+function proofArtifact(lane) { return `${root}/reports/${lane}-source-proof.json`; }
+function sourceSession() {
+  const binding = currentBinding();
+  return `${root}/source-proof/${binding.session}`;
 }
 
 // Every component is inspected without following links, including absent leaves.
@@ -80,7 +95,8 @@ function snapshot(source, destination) {
 }
 
 function run(command, arguments_) {
-  return execFileSync(command, arguments_, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  return execFileSync(command, arguments_, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+    env: command === "git" ? { ...process.env, GIT_OPTIONAL_LOCKS: "0" } : process.env }).trim();
 }
 function subject() {
   const source = {
@@ -115,6 +131,7 @@ function generationRoot(id) {
 }
 function complete(id) {
   const path = generationRoot(id);
+  if (inspect(`${path}/invalidated.json`, "file", true)) fail("generation durably invalidated");
   const completion = json(`${path}/completion.json`);
   const pending = json(`${path}/pending.json`);
   const publication = json(`${path}/publication.json`);
@@ -127,6 +144,12 @@ function complete(id) {
   if (!equal(report.artifact_hashes, completion.artifact_hashes)) fail("completion inventory");
   for (const artifact of completion.artifact_hashes) {
     if (!validArtifact(artifact.path) || hash(bytes(`${path}/payload/${artifact.path}`)) !== artifact.sha256) fail("retained payload changed");
+  }
+  if (pending.source_custody) {
+    const proof = completedProof(pending.source_custody);
+    const stage = proof.stages.find((item) => item.generation === id && item.lane === pending.lane);
+    if (!stage || stage.sealed_sha256 !== hash(bytes(`${path}/sealed.json`))
+        || !equal(json(`${path}/payload/${proofArtifact(pending.lane)}`), proof)) fail("source proof stage binding");
   }
   return { path, pending, report, completion };
 }
@@ -146,7 +169,19 @@ function validateRetained(path, prepared) {
 function histories(except) {
   if (!inspect(generations, "directory", true)) return;
   for (const entry of readdirSync(generations)) {
-    if (entry !== except) complete(entry); // Missing completion includes interrupted preparation/sealing.
+    if (entry === except) continue;
+    const path = generationRoot(entry);
+    if (inspect(`${path}/invalidated.json`, "file", true)) {
+      const invalid = json(`${path}/invalidated.json`);
+      if (invalid.pending_sha256 !== hash(bytes(`${path}/pending.json`))
+          || invalid.refusal_sha256 !== hash(bytes(`${root}/source-proof/${invalid.source_session}/refused.json`))
+          || (invalid.sealed_sha256 !== null && invalid.sealed_sha256 !== hash(bytes(`${path}/sealed.json`)))) fail("invalidated history changed");
+      continue;
+    }
+    const pending = json(`${path}/pending.json`);
+    if (process.env.BULLET_CI_SOURCE_SESSION && pending.source_custody?.session === currentBinding().session
+        && !inspect(`${path}/publication.json`, "file", true)) sealed(entry);
+    else complete(entry); // Unclassified interrupted preparation/sealing still refuses.
   }
 }
 function validArtifact(path) {
@@ -168,6 +203,7 @@ function files(path) {
 }
 
 function prepare(lane) {
+  checkpoint();
   const selected = lanePolicy(lane);
   const owner = custody(lane);
   const source = subject();
@@ -176,7 +212,7 @@ function prepare(lane) {
   const id = randomUUID();
   const path = `${generations}/${id}`;
   mkdirSync(path, { mode: 0o700 }); // Exclusive collision refusal; never reuse a generation.
-  record(`${path}/pending.json`, { generation: id, lane, owner, source });
+  record(`${path}/pending.json`, { generation: id, lane, owner, source, source_custody: currentBinding() });
   const overlapping = Object.keys(policies).filter((other) => other === lane || lanePolicy(other).some((p) => selected.includes(p)));
   const retired = [];
   for (const other of overlapping) {
@@ -207,7 +243,7 @@ function prepare(lane) {
     if (!validArtifact(artifact)) fail("prior working path");
     retainedWorking.push({ path: artifact, sha256: hash(bytes(artifact)) });
   };
-  if (lane === "contract") {
+  if (lane === "rendered") {
     owned.delete(`${root}/playwright/.last-run.json`);
     if (inspect(`${root}/playwright`, "directory", true)) {
       files(`${root}/playwright`).forEach(retainHash);
@@ -225,6 +261,7 @@ function prepare(lane) {
   if (!equal(subject(), source) || custody(lane) !== owner) fail("preparation subject/custody drift");
   record(`${path}/prepared.json`, { pending_sha256: hash(bytes(`${path}/pending.json`)), absent: selected, retained_working: retainedWorking, retired });
   record(active(lane), { generation: id });
+  checkpoint();
   return id;
 }
 
@@ -244,6 +281,7 @@ function tools() {
   };
 }
 function seal(lane, id, outcome, codeText, commands) {
+  checkpoint();
   const invocation = argumentsFor(lane, outcome, codeText, commands);
   if (!["success", "failure"].includes(outcome) || !equal(invocation.commands, [`bash scripts/ci-local.sh ${lane}`])) fail("unexecuted outcome/command");
   const owner = custody(lane);
@@ -251,10 +289,10 @@ function seal(lane, id, outcome, codeText, commands) {
   histories(id);
   const pending = json(`${path}/pending.json`);
   const prepared = json(`${path}/prepared.json`);
-  if (pending.generation !== id || pending.lane !== lane || pending.owner !== owner || prepared.pending_sha256 !== hash(bytes(`${path}/pending.json`)) || !equal(prepared.absent, lanePolicy(lane)) || !equal(subject(), pending.source) || json(active(lane)).generation !== id) fail("preparation changed");
-  if (inspect(`${path}/completion.json`, "file", true)) fail("generation already sealed");
-  const paths = lanePolicy(lane).filter((artifact) => inspect(artifact, "file", outcome !== "success"));
-  if (lane === "contract" && outcome === "failure") paths.push(...files(`${root}/playwright`).filter(trace));
+  if (pending.generation !== id || pending.lane !== lane || pending.owner !== owner || prepared.pending_sha256 !== hash(bytes(`${path}/pending.json`)) || !equal(prepared.absent, lanePolicy(lane)) || !equal(subject(), pending.source) || json(active(lane)).generation !== id || !equal(pending.source_custody, currentBinding())) fail("preparation changed");
+  if (inspect(`${path}/sealed.json`, "file", true)) fail("generation already sealed");
+  const paths = lanePolicy(lane).filter((artifact) => artifact !== proofArtifact(lane)).filter((artifact) => inspect(artifact, "file", outcome !== "success"));
+  if (lane === "rendered" && outcome === "failure") paths.push(...files(`${root}/playwright`).filter(trace));
   const artifacts = [...new Set(paths)].sort().map((artifact) => ({ path: artifact, sha256: snapshot(artifact, `${path}/payload/${artifact}`) }));
   const report = {
     schema_version: "bullet.ci-observation.v1", repository: "bullet-portal", ...pending.source,
@@ -265,20 +303,92 @@ function seal(lane, id, outcome, codeText, commands) {
   if (!equal(subject(), pending.source) || custody(lane) !== owner) fail("sealing subject/custody drift");
   for (const artifact of artifacts) if (hash(bytes(artifact.path)) !== artifact.sha256) fail("output changed while sealing");
   validateRetained(path, prepared);
-  record(`${path}/observation.json`, report);
-  if (inspect(observation(lane), "file", true)) fail("active observation collision");
-  directory(dirname(observation(lane)));
-  snapshot(`${path}/observation.json`, `${path}/publish.json`);
-  record(`${path}/completion.json`, { generation: id, lane, outcome, prepared_sha256: hash(bytes(`${path}/prepared.json`)), observation_sha256: hash(bytes(`${path}/observation.json`)), artifact_hashes: artifacts });
-  renameSync(`${path}/publish.json`, observation(lane));
-  // Completion is not admitted until publication has its own immutable receipt.
-  record(`${path}/publication.json`, { completion_sha256: hash(bytes(`${path}/completion.json`)), observation_sha256: hash(bytes(observation(lane))) });
+  record(`${path}/draft-observation.json`, report);
+  record(`${path}/sealed.json`, { generation: id, lane, outcome, prepared_sha256: hash(bytes(`${path}/prepared.json`)), draft_sha256: hash(bytes(`${path}/draft-observation.json`)), artifact_hashes: artifacts });
+  checkpoint();
+}
+
+function sealed(id) {
+  const path = generationRoot(id);
+  const pending = json(`${path}/pending.json`);
+  const prepared = json(`${path}/prepared.json`);
+  const value = json(`${path}/sealed.json`);
+  const report = json(`${path}/draft-observation.json`);
+  if (value.generation !== id || value.lane !== pending.lane
+      || value.prepared_sha256 !== hash(bytes(`${path}/prepared.json`))
+      || prepared.pending_sha256 !== hash(bytes(`${path}/pending.json`))
+      || value.draft_sha256 !== hash(bytes(`${path}/draft-observation.json`))
+      || !equal(value.artifact_hashes, report.artifact_hashes)) fail("sealed stage changed");
+  validateRetained(path, prepared);
+  for (const artifact of value.artifact_hashes) {
+    if (!validArtifact(artifact.path) || hash(bytes(`${path}/payload/${artifact.path}`)) !== artifact.sha256) fail("sealed payload changed");
+  }
+  return { path, pending, prepared, value, report };
+}
+function selectedStages() {
+  const binding = currentBinding();
+  if (!inspect(generations, "directory", true)) return [];
+  return readdirSync(generations).sort().filter((id) => {
+    const pending = json(`${generationRoot(id)}/pending.json`);
+    return pending.source_custody?.session === binding.session;
+  });
+}
+function readback() {
+  checkpoint();
+  const selected = selectedStages().map((id) => {
+    const stage = sealed(id);
+    if (!equal(stage.pending.source_custody, currentBinding()) || custody(stage.pending.lane) !== stage.pending.owner
+        || !equal(subject(), stage.pending.source)) fail("final stage subject drift");
+    for (const artifact of stage.value.artifact_hashes) if (hash(bytes(artifact.path)) !== artifact.sha256) fail("final output readback drift");
+    return { generation: id, lane: stage.pending.lane, sealed_sha256: hash(bytes(`${stage.path}/sealed.json`)) };
+  });
+  record(`${sourceSession()}/readback.json`, selected);
+  checkpoint();
+}
+function publish(childCode, monitorCode) {
+  // All input-dependent work was checked in readback while Rust was live.
+  // This operation only promotes the retained, hash-bound output bytes.
+  const selected = json(`${sourceSession()}/readback.json`);
+  if (!equal(selected.map((s) => s.generation).sort(), selectedStages())) fail("final stage inventory drift");
+  for (const item of selected) if (hash(bytes(`${generationRoot(item.generation)}/sealed.json`)) !== item.sealed_sha256) fail("readback changed");
+  const proof = finishRecord(childCode, monitorCode, selected);
+  for (const item of selected) {
+    const { path, pending, value, report } = sealed(item.generation);
+    const artifact = proofArtifact(pending.lane);
+    directory(dirname(artifact));
+    record(artifact, proof);
+    const artifacts = [...report.artifact_hashes, { path: artifact, sha256: snapshot(artifact, `${path}/payload/${artifact}`) }];
+    const final = { ...report, artifact_hashes: artifacts };
+    record(`${path}/observation.json`, final);
+    if (inspect(observation(pending.lane), "file", true)) fail("active observation collision");
+    directory(dirname(observation(pending.lane)));
+    snapshot(`${path}/observation.json`, `${path}/publish.json`);
+    record(`${path}/completion.json`, { generation: item.generation, lane: pending.lane, outcome: value.outcome,
+      prepared_sha256: value.prepared_sha256, observation_sha256: hash(bytes(`${path}/observation.json`)), artifact_hashes: artifacts });
+    renameSync(`${path}/publish.json`, observation(pending.lane));
+    record(`${path}/publication.json`, { completion_sha256: hash(bytes(`${path}/completion.json`)), observation_sha256: hash(bytes(observation(pending.lane))) });
+  }
+}
+function invalidate() {
+  const session = sourceSession();
+  const refused = hash(bytes(`${session}/refused.json`));
+  for (const id of selectedStages()) {
+    const path = generationRoot(id); const pending = json(`${path}/pending.json`);
+    if (inspect(`${path}/publication.json`, "file", true) && inspect(observation(pending.lane), "file", true)) {
+      renameSync(observation(pending.lane), `${path}/refused-observation.json`);
+    }
+    record(`${path}/invalidated.json`, { source_session: pending.source_custody.session, refusal_sha256: refused,
+      pending_sha256: hash(bytes(`${path}/pending.json`)), sealed_sha256: inspect(`${path}/sealed.json`, "file", true) ? hash(bytes(`${path}/sealed.json`)) : null });
+  }
 }
 function verify(lane, outcome, codeText, commands) {
   const invocation = argumentsFor(lane, outcome, codeText, commands);
   histories();
   const { pending, report, completion } = complete(json(active(lane)).generation);
+  if (!pending.source_custody) fail("historical unmonitored observation cannot qualify current source custody");
   if (completion.outcome !== invocation.outcome || pending.lane !== lane || !equal(subject(), pending.source) || !equal(report.commands, invocation.commands) || !equal(report.outcomes, [{ lane, status: outcome === "success" ? "PASS" : "FAIL", exit_code: invocation.code }]) || hash(bytes(observation(lane))) !== completion.observation_sha256) fail("sealed invocation mismatch");
   for (const artifact of report.artifact_hashes) if (hash(bytes(artifact.path)) !== artifact.sha256) fail("sealed output changed");
+  completedProof(pending.source_custody, true);
+  if (inspect(`${generationRoot(completion.generation)}/invalidated.json`, "file", true)) fail("generation durably invalidated");
   console.log(`[ci] verified unsigned sealed observation ${observation(lane)}`);
 }

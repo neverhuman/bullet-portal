@@ -13,7 +13,7 @@ const pending = { id, status: "PENDING", kind: "run_demo",
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
-    status, headers: { "content-type": "application/json" },
+    status, headers: { "x-bullet-session-id": `sid_${"2".repeat(64)}`, "content-type": "application/json" },
   });
 }
 
@@ -25,6 +25,12 @@ async function session(response: unknown) {
   await exchangeBootstrap("boot_command_boundary");
   return fetch;
 }
+
+
+vi.mock("./apiAuth", () => ({ getOperatorSession: vi.fn(async () => ({
+  status: "AUTHENTICATED", operator_id: `opr_${"1".repeat(64)}`, session_id: `sid_${"2".repeat(64)}`,
+  issued_at: "2026-09-10T00:00:00Z", expires_at: "2026-09-10T08:00:00Z",
+})) }));
 
 afterEach(() => {
   forgetBrowserSession();

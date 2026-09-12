@@ -1,5 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import { mockOwner, sessionHeaders } from "./owner-fixture";
 import { operatorSnapshotFixture } from "../src/testing/operatorSnapshot";
+
+test.beforeEach(mockOwner);
 
 const observedAt = "2026-08-27T11:00:00.000Z";
 
@@ -12,7 +15,7 @@ function snapshot(data: unknown, sequence = 0) {
       source: "bullet-kernel/sqlite-ledger",
     },
     contentType: "application/json",
-    headers: { "x-bullet-as-of-sequence": String(sequence) },
+    headers: { ...sessionHeaders, "x-bullet-as-of-sequence": String(sequence) },
   };
 }
 
@@ -30,7 +33,7 @@ async function mockControlTower(page: Page): Promise<void> {
     await route.fallback();
   });
   await page.route("**/api/v1/events**", async (route) => {
-    await route.fulfill({ status: 404, contentType: "text/plain", body: "no stream" });
+    await route.fulfill({ status: 404, headers: sessionHeaders, contentType: "text/plain", body: "no stream" });
   });
   await page.route("**/health", (route) =>
     route.fulfill({ json: { status: "ok" }, contentType: "application/json" }),

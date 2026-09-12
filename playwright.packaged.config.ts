@@ -1,4 +1,7 @@
 import { defineConfig } from "@playwright/test";
+import { requireRenderedHost } from "./ops/proof/rendered-host";
+
+requireRenderedHost();
 
 // The packaged lane has no preview server: farmd serves the built Portal at
 // its own origin, so the browser base URL and the API origin are the same.

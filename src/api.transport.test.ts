@@ -8,6 +8,9 @@ import {
 } from "./api";
 
 const OBSERVED_AT = "2026-08-24T22:00:00.000Z";
+vi.mock("./apiAuth", () => ({ getOperatorSession: vi.fn(async () => ({
+  operator_id: `opr_${"1".repeat(64)}`, session_id: `sid_${"2".repeat(64)}`,
+})) }));
 
 function snapshot(data: unknown, sequence = 42): Record<string, unknown> {
   return {
@@ -23,7 +26,7 @@ function jsonResponse(
   sequenceHeader: string | null = "42",
   status = 200,
 ): Response {
-  const headers = new Headers({ "content-type": "application/json" });
+  const headers = new Headers({ "content-type": "application/json", "x-bullet-session-id": `sid_${"2".repeat(64)}` });
   if (sequenceHeader !== null) {
     headers.set("x-bullet-as-of-sequence", sequenceHeader);
   }
@@ -79,7 +82,7 @@ describe("api snapshot transport honesty", () => {
 
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => Promise.resolve(new Response("missing", { status: 404 }))),
+      vi.fn(() => Promise.resolve(new Response("missing", { status: 404, headers: { "x-bullet-session-id": `sid_${"2".repeat(64)}` } }))),
     );
     await expect(fetchReady()).rejects.toThrowError("GET /api/v1/ready failed: HTTP 404");
   });

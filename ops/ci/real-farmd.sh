@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-require_node_floor
 cd "$REPO_ROOT"
+node --input-type=module -e 'import { requireRenderedHost } from "./ops/proof/rendered-host.ts"; requireRenderedHost();'
+require_node_floor
 
 mode="${1:-forwarded}"
 if (( $# > 1 )) || [[ "$mode" != forwarded && "$mode" != --packaged ]]; then

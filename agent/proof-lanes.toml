@@ -22,7 +22,13 @@ requires_network = false
 [[lane]]
 name = "contract"
 command = "just contract"
-purpose = "bundle typecheck and tests plus the mocked Playwright suite with an asserted case count; no live farmd and no live models"
+purpose = "portable bundle typecheck and five bundle tests; actual command output is retained in a source-bound observation"
+requires_network = false
+
+[[lane]]
+name = "rendered"
+command = "just rendered"
+purpose = "all twenty-four mocked Playwright cases with exact identity and result checks; only locally on xbabe2/Linux with CI and GITHUB_ACTIONS absent, outside hosted required"
 requires_network = false
 
 [[lane]]
@@ -46,13 +52,13 @@ requires_network = true
 [[lane]]
 name = "family"
 command = "just family"
-purpose = "the real sibling-farmd browser proof, deliberately outside standalone required; refuses with FAMILY_MUTATION_LINUX_ONLY (exit 78) off Linux"
+purpose = "the three real sibling-farmd browser cases, only locally on xbabe2/Linux outside CI; deliberately outside standalone required"
 requires_network = false
 
 [[lane]]
 name = "packaged-farmd"
 command = "just packaged-farmd"
-purpose = "browser proof against a packaged farmd serving this Portal; exits 78 (neutral, never green) without the sibling bullet-kernel checkout"
+purpose = "seven browser cases against a packaged farmd serving this Portal, only locally on xbabe2/Linux outside CI; exits 78 (never green) without the sibling Kernel"
 requires_network = false
 
 [[lane]]

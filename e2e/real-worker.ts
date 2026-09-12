@@ -37,7 +37,7 @@ export async function reconcileComponent(
     const runWorker = async (label: string, seconds: string) => {
       try {
         const output = await promisify(execFile)("/usr/bin/python3",
-          [supervisor, "--timeout-seconds", seconds, "--", binary, ...args],
+          ["-I", "-B", "-S", supervisor, "--timeout-seconds", seconds, "--", binary, ...args],
           { env: { PATH: "/usr/bin:/bin" }, maxBuffer: 1024 * 1024 });
         await writeFile(join(reports, `component-worker-${label}.stdout`), output.stdout);
         await writeFile(join(reports, `component-worker-${label}.stderr`), output.stderr);

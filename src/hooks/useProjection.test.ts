@@ -1,8 +1,12 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SnapshotRead } from "../api";
 import type { SseCallbacks } from "../sse";
 import { atomicSnapshot, useProjection, type ProjectionRead } from "./useProjection";
+import { forgetBrowserSession, rememberCsrfToken } from "../apiSession";
+vi.mock("../apiAuth", () => ({ getOperatorSession: vi.fn(async () => ({
+  operator_id: `opr_${"1".repeat(64)}`, session_id: `sid_${"2".repeat(64)}`,
+})) }));
 
 const transport = vi.hoisted(() => ({ callbacks: [] as SseCallbacks[], cursors: [] as (number | undefined)[] }));
 vi.mock("../sse", () => ({
@@ -14,7 +18,7 @@ vi.mock("../sse", () => ({
   },
 }));
 beforeEach(() => { transport.callbacks = []; transport.cursors = []; });
-afterEach(() => { vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); forgetBrowserSession(); });
 
 const early = "2026-09-08T20:00:00.000Z";
 const late = "2026-09-08T20:01:00.000Z";
@@ -61,6 +65,37 @@ describe("atomic projection reads", () => {
 });
 
 describe("projection lifecycle", () => {
+  it("refreshes when a page becomes visible and avoids background work while hidden", async () => {
+    const load = vi.fn(async () => projection("current"));
+    const visibility = vi.spyOn(document, "visibilityState", "get");
+    visibility.mockReturnValue("visible");
+    renderHook(() => useProjection("Fleet", load));
+    await waitFor(() => expect(transport.callbacks).toHaveLength(1));
+    load.mockClear();
+    visibility.mockReturnValue("hidden");
+    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); window.dispatchEvent(new Event("focus")); });
+    expect(load).not.toHaveBeenCalled();
+    visibility.mockReturnValue("visible");
+    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(load).toHaveBeenCalledOnce();
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+  it("clears prior-owner rows and ignores an old loader after authentication changes", async () => {
+    const old = deferred<ProjectionRead<string>>();
+    const next = deferred<ProjectionRead<string>>();
+    const load = vi.fn().mockResolvedValueOnce(projection("private old rows"))
+      .mockImplementationOnce(() => old.promise).mockImplementation(() => next.promise);
+    const { result } = renderHook(() => useProjection("Fleet", load));
+    await waitFor(() => expect(result.current).toMatchObject({ body: "private old rows" }));
+    act(() => result.current.refresh?.());
+    act(() => rememberCsrfToken("replacement"));
+    expect(result.current.kind).toBe("loading");
+    await act(async () => old.resolve(projection("delayed private rows")));
+    expect(result.current.kind).toBe("loading");
+    await act(async () => next.resolve(projection("current owner rows")));
+    await waitFor(() => expect(result.current).toMatchObject({ body: "current owner rows" }));
+  });
   it("rebases a gap from a covering successor snapshot after joining an older read", async () => {
     const pending = deferred<ProjectionRead<string>>();
     const load = vi.fn().mockResolvedValueOnce(projection("old"))
@@ -98,7 +133,7 @@ describe("projection lifecycle", () => {
     const load = vi.fn().mockResolvedValueOnce(projection("old"))
       .mockImplementationOnce(() => pending.promise).mockResolvedValue(projection("latest", 9));
     const { result } = renderHook(() => useProjection("Fleet", load));
-    await waitFor(() => expect(result.current).toMatchObject({ asOf: 7 }));
+    await waitFor(() => expect(result.current).toMatchObject({ asOf: 7, stream: { connection: "live" } }));
     act(() => event(8));
     await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
     act(() => { event(9); result.current.refresh?.(); result.current.refresh?.(); });
@@ -114,7 +149,7 @@ describe("projection lifecycle", () => {
       .mockRejectedValueOnce(new Error("session expired"))
       .mockResolvedValue(projection("current", 8));
     const { result } = renderHook(() => useProjection("Fleet", load));
-    await waitFor(() => expect(result.current).toMatchObject({ asOf: 7 }));
+    await waitFor(() => expect(result.current).toMatchObject({ asOf: 7, stream: { connection: "live" } }));
     act(() => result.current.refresh?.());
     await waitFor(() => expect(result.current).toMatchObject({ kind: "unknown", text: expect.stringContaining("SNAPSHOT_SEQUENCE_REGRESSION") }));
     act(() => result.current.refresh?.());
@@ -126,7 +161,7 @@ describe("projection lifecycle", () => {
   it("cancels a scheduled event refresh on unmount", async () => {
     const load = vi.fn().mockResolvedValue(projection("old"));
     const { result, unmount } = renderHook(() => useProjection("Fleet", load));
-    await waitFor(() => expect(result.current).toMatchObject({ asOf: 7 }));
+    await waitFor(() => expect(result.current).toMatchObject({ asOf: 7, stream: { connection: "live" } }));
     act(() => event(8));
     unmount();
     await act(() => new Promise((resolve) => setTimeout(resolve, 150)));

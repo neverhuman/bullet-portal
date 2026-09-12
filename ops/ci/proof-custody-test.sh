@@ -5,16 +5,22 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 cd "$REPO_ROOT"
 
 TEST_ROOT="$(mktemp -d)"
+export BULLET_CI_FIXTURE_ROOT="$TEST_ROOT"
 ACTIVE_DISPATCHER_PID=""
 ORPHAN_PID=""
 cleanup() {
+  local status=$?
   if [[ -n "$ACTIVE_DISPATCHER_PID" ]] && kill -0 "$ACTIVE_DISPATCHER_PID" 2>/dev/null; then
     kill -KILL "$ACTIVE_DISPATCHER_PID" 2>/dev/null || true
   fi
   if [[ -n "$ORPHAN_PID" ]] && kill -0 "$ORPHAN_PID" 2>/dev/null; then
     kill -KILL "$ORPHAN_PID" 2>/dev/null || true
   fi
-  rm -rf -- "$TEST_ROOT"
+  if [[ "$status" -ne 0 ]]; then
+    printf '[ci] retained failed custody fixtures: %s\n' "$TEST_ROOT" >&2
+  else
+    rm -rf -- "$TEST_ROOT"
+  fi
 }
 trap cleanup EXIT
 
@@ -41,8 +47,7 @@ new_fixture() {
   mkdir -p "$repo/scripts" "$repo/ops/ci"
   git -c init.templateDir= init --quiet --initial-branch=main "$repo"
   chmod 700 "$repo/.git"
-  cp "$REPO_ROOT/scripts/ci-local.sh" "$repo/scripts/ci-local.sh"
-  cp "$REPO_ROOT/ops/ci/observation.mjs" "$repo/ops/ci/observation.mjs"
+  node "$REPO_ROOT/ops/ci/source-custody-fixture.mjs" copy "$REPO_ROOT" "$repo"
   cat >"$repo/.gitignore" <<'IGNORED'
 /.ci-artifacts/
 /child.log
@@ -91,16 +96,22 @@ fi
 exit "${FIXTURE_STATUS:-0}"
 FIXTURE
   chmod +x "$repo/scripts/ci-local.sh" "$repo/ops/ci/fast.sh"
-  git -C "$repo" add -- .gitignore scripts/ci-local.sh ops/ci/observation.mjs ops/ci/fast.sh
+  git -C "$repo" add -- .gitignore scripts ops
   git -C "$repo" -c core.hooksPath=/dev/null -c commit.gpgsign=false \
     -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m fixture
+  mkdir -m 700 "$repo.source-admission"
+  node "$REPO_ROOT/ops/ci/source-custody-fixture.mjs" admit "$repo" >"$repo.source-admission/selected-sha256"
   printf '%s\n' "$repo"
 }
 
 run_dispatcher() {
   local repo="$1"
   shift
-  (cd "$repo" && env "$@" bash scripts/ci-local.sh fast)
+  (cd "$repo" && env \
+    PATH="$repo.source-admission/bin" \
+    BULLET_CI_SOURCE_ADMISSION="$repo.source-admission/admission.json" \
+    BULLET_CI_SOURCE_ADMISSION_SHA256="$(<"$repo.source-admission/selected-sha256")" \
+    "$@" bash scripts/ci-local.sh fast)
 }
 
 write_owner() {
@@ -141,7 +152,7 @@ assert_parent_record_refused() {
 
 repo="$(new_fixture standalone-pass)"
 run_dispatcher "$repo" FIXTURE_CHILD_LOG="$repo/child.log" FIXTURE_REPORT="$repo/report" \
-  FIXTURE_STATUS=0 >/dev/null 2>&1 || fail "standalone PASS refused"
+  FIXTURE_STATUS=0 >"$repo/dispatcher.output" 2>&1 || fail "standalone PASS refused"
 [[ -f "$repo/report" && "$(line_count "$repo/child.log")" -eq 1 \
   && ! -e "$repo/.git/bullet-ci.lock.d" ]] || fail "standalone PASS did not release"
 
@@ -345,6 +356,9 @@ printf 'original\n' >"$repo/report"
   (umask 077; mkdir .git/bullet-ci.lock.d; printf '%s\n' "$record" >.git/bullet-ci.lock.d/owner)
   set +e
   env BULLET_CI_PROOF_CUSTODY="$record" FIXTURE_CHILD_LOG="$repo/child.log" \
+    PATH="$repo.source-admission/bin" \
+    BULLET_CI_SOURCE_ADMISSION="$repo.source-admission/admission.json" \
+    BULLET_CI_SOURCE_ADMISSION_SHA256="$(<"$repo.source-admission/selected-sha256")" \
     FIXTURE_REPORT="$repo/report" FIXTURE_WRITE_REPORT=0 FIXTURE_HOLD=1 \
     FIXTURE_READY="$repo/ready" FIXTURE_LANE_PID="$repo/lane.pid" FIXTURE_RELEASE="$repo/release" \
     bash scripts/ci-local.sh fast
@@ -399,3 +413,6 @@ kill -0 "$ORPHAN_PID" 2>/dev/null && fail "fixture orphan survived bounded clean
 ORPHAN_PID=""
 
 log "proof custody fixture passed"
+node "$REPO_ROOT/ops/ci/source-custody-test.mjs"
+node "$REPO_ROOT/ops/ci/source-policy-test.mjs"
+node "$REPO_ROOT/ops/ci/npm-config-test.mjs"
