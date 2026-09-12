@@ -127,4 +127,50 @@ function assert(condition, message) {
   if (!condition) throw new Error(`CI_STAGE_TEST_FAILED: ${message}`);
 }
 
+// Bootstrap refuses before lifecycle preparation: retain a typed diagnostic,
+// never a success-shaped substitute for the missing proof and observation.
+const diagnosticScript = resolve("ops/ci/refusal-diagnostic.mjs");
+for (const mutation of ["none", "pass", "extra", "occupied", "symlink", "observation", "proof", "oversized"]) {
+  const fixture = mkdtempSync(join(tmpdir(), "bullet-portal-refusal-"));
+  try {
+    const recorded = spawnSync(process.execPath, [diagnosticScript, "fast", "failure", "75", "91"], { cwd: fixture, encoding: "utf8" });
+    assert(recorded.status === 0, `refusal writer failed: ${recorded.stderr}`);
+    const path = join(fixture, ".ci-artifacts/diagnostics/fast-refusal.json");
+    const value = JSON.parse(readFileSync(path, "utf8"));
+    if (mutation === "pass") value.lane_outcome = "success";
+    if (mutation === "extra") value.raw = "unexpected payload";
+    if (["pass", "extra"].includes(mutation)) writeFileSync(path, JSON.stringify(value));
+    if (mutation === "oversized") writeFileSync(path, " ".repeat(2049));
+    if (mutation === "occupied") mkdirSync(join(fixture, "target/ci-upload/fast"), { recursive: true });
+    if (mutation === "symlink") { rmSync(path); symlinkSync("/dev/null", path); }
+    if (["observation", "proof"].includes(mutation)) {
+      const other = join(fixture, mutation === "proof" ? ".ci-artifacts/reports/fast-source-proof.json" : ".ci-artifacts/observations/fast.json");
+      mkdirSync(dirname(other), { recursive: true }); writeFileSync(other, "{}");
+    }
+    const staged = run(fixture);
+    assert(mutation === "none" ? staged.status === 0 : staged.status !== 0, `refusal staging ${mutation}: ${staged.stderr}`);
+    if (mutation === "none") {
+      const stagedPath = join(fixture, "target/ci-upload/fast/diagnostics/fast-refusal.json");
+      assert(readFileSync(stagedPath, "utf8") === readFileSync(path, "utf8"), "refusal bytes changed");
+      assert(!existsSync(join(fixture, "target/ci-upload/fast/observations/fast.json")), "refusal fabricated observation");
+      assert(!existsSync(join(fixture, "target/ci-upload/fast/reports/fast-source-proof.json")), "refusal fabricated source proof");
+    }
+  } finally { rmSync(fixture, { recursive: true, force: true }); }
+}
+for (const blockedDiagnostic of [false, true]) {
+  const fixture = mkdtempSync(join(tmpdir(), "bullet-portal-publisher-"));
+  try {
+    mkdirSync(join(fixture, "scripts")); mkdirSync(join(fixture, "ops/ci"), { recursive: true });
+    copyFileSync("scripts/ci-observation.sh", join(fixture, "scripts/ci-observation.sh"));
+    copyFileSync(diagnosticScript, join(fixture, "ops/ci/refusal-diagnostic.mjs"));
+    writeFileSync(join(fixture, "ops/ci/observation.mjs"), 'console.error("fixture publisher refused"); process.exit(91);');
+    if (blockedDiagnostic) symlinkSync("/dev/null", join(fixture, ".ci-artifacts"));
+    const output = join(fixture, "github-output");
+    const result = spawnSync("bash", ["scripts/ci-observation.sh", "fast", "failure", "75"], { cwd: fixture, encoding: "utf8", env: { ...process.env, GITHUB_OUTPUT: output } });
+    assert(result.status === 91 && result.stderr.includes("fixture publisher refused"), "diagnostic failure masked original publisher status");
+    assert(!existsSync(output), "failed publisher advertised present observation");
+  } finally { rmSync(fixture, { recursive: true, force: true }); }
+}
+console.log("[ci] publication refusal diagnostics and original failure propagation passed");
+
 await import("./observation-lifecycle-test.mjs");

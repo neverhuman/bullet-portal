@@ -11,6 +11,7 @@ import {
   rmSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { stageRefusalDiagnostic } from "./refusal-diagnostic.mjs";
 import { sourceProofPath, validateSourceProof } from "./source-proof.mjs";
 
 const lane = process.argv[2];
@@ -44,6 +45,9 @@ if (!Object.hasOwn(policies, lane)) {
   throw new Error("CI_STAGE_LANE_INVALID: " + String(lane));
 }
 policies[lane].push(sourceProofPath(lane));
+// Separate diagnostic schema; never substitute for an observation/source proof.
+// The existing aggregate still rejects an absent observation and failed job.
+if (stageRefusalDiagnostic(lane)) process.exit(0);
 
 const artifactsRoot = ".ci-artifacts";
 const observationPath = join(artifactsRoot, "observations", lane + ".json");
